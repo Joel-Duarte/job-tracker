@@ -52,9 +52,10 @@ from app.schemas.system_design import (
 )
 from app.services.diagram_catalog import (
     compute_diagram_hint_penalty,
-    match_component_to_catalog,
+    evaluate_canvas_topology,
     node_matches_expected,
     normalize_flow_payload,
+    resolve_challenge_blueprint,
     summarize_diagram_flow,
 )
 from app.services.interview_simulator_service import (
@@ -271,7 +272,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
           "scale_targets": "<concrete hidden DAU/QPS/storage/latency numbers revealed only when asked>",
           "key_constraints": ["<constraint 1>", "<constraint 2>"]
         }},
-        "expected_components": ["<core component 1>", "<core component 2>", "<core component 3>"],
+        "expected_components": ["Load Balancer", "API Gateway", "Stateless App Service", "Primary Relational DB", "<additional atomic component e.g. Distributed Cache (Redis) or Scheduler / TTL Sweeper>"],
         "diagram_palette_extensions": [
           {{"type_id": "<optional-custom-slug>", "label": "<Optional Specialized Block>", "category": "compute_services", "icon": "box", "default_role": "<1-sentence role>"}}
         ],
@@ -477,6 +478,8 @@ _VARIANT_BRIEF_COPY_KEYS = (
     "out_of_scope",
     "hidden_context",
     "expected_components",
+    "expected_paths",
+    "diagram_palette_extensions",
     "common_bottlenecks_and_spofs",
     "over_engineering_traps",
     "defence_questions",
@@ -2131,6 +2134,16 @@ class SystemDesignService:
         session = await SystemDesignService._get_session_for_update(db, session_id)
         SystemDesignService._ensure_session_mutable(session)
         session.mode = mode
+        if isinstance(session.diagram_guidance, dict) and session.diagram_guidance:
+            guidance = dict(session.diagram_guidance)
+            guidance["penalty_points"] = compute_diagram_hint_penalty(
+                int(guidance.get("hints_used_count") or 0),
+                bool(guidance.get("revealed_all_bank") or False),
+                mode=mode,
+            )
+            guidance["is_practice_run"] = mode == "PRACTICE"
+            session.diagram_guidance = guidance
+            flag_modified(session, "diagram_guidance")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
 
@@ -2463,91 +2476,207 @@ class SystemDesignService:
         session_id: int,
         payload: DiagramHintRequest,
     ) -> DiagramHintResponse:
-        """Unlock one missing expected component (-3 pts) or reveal the required component bank."""
+        """Unlock component/path/topology coaching aligned with the challenge brief and locked ledger."""
         session = await SystemDesignService._get_session_for_update(db, session_id)
         SystemDesignService._ensure_session_mutable(session)
         SystemDesignService._ensure_requirements_locked(session)
         if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
             raise ValueError(
-                f"Diagram component hints are available during the Design stage (current stage: {session.stage})."
+                f"Diagram coaching hints are available during the Design stage (current stage: {session.stage})."
             )
-        if payload.hint_mode == "reveal_all" and session.mode == "INTERVIEW":
+
+        is_practice = session.mode == "PRACTICE"
+        if session.mode == "INTERVIEW" and payload.hint_mode in (
+            "reveal_all",
+            "next_connection",
+            "check_topology",
+        ):
             raise ValueError(
-                "Revealing the full required component bank is disabled in strict INTERVIEW mode. "
+                "Full required bank, path checklist, and topology coaching are disabled in strict INTERVIEW mode. "
                 "Switch to ADAPTIVE or PRACTICE mode, or use single-component hints."
             )
 
         brief = SystemDesignService._get_session_brief(session)
-        expected_components = _normalize_string_list(brief.get("expected_components"))
-        palette_extensions = (
-            brief.get("diagram_palette_extensions")
-            if isinstance(brief.get("diagram_palette_extensions"), list)
-            else []
+        blueprint = resolve_challenge_blueprint(
+            brief, session.requirements_ledger or {}
         )
+        required_specs = list(blueprint.get("required_components") or [])
+        expected_paths = list(blueprint.get("expected_paths") or [])
 
         guidance = dict(session.diagram_guidance or {})
         hints_used_count = int(guidance.get("hints_used_count") or 0)
         revealed_all_bank = bool(guidance.get("revealed_all_bank") or False)
-        already_revealed = [
-            dict(item)
-            for item in (guidance.get("revealed_components") or [])
-            if isinstance(item, dict)
-        ]
-        revealed_names_lower = {
-            str(item.get("name") or "").strip().lower() for item in already_revealed
+        if (
+            payload.hint_mode == "check_topology"
+            and session.mode == "ADAPTIVE"
+            and not revealed_all_bank
+        ):
+            raise ValueError(
+                "Unlock the Complete Required Bank first (or switch to Practice Mode) to run Check Topology."
+            )
+
+        already_revealed: list[dict[str, Any]] = []
+        spec_by_key = {
+            f"{str(spec.get('type_id') or '')}:{str(spec.get('label') or '').lower()}": spec
+            for spec in required_specs
         }
+        spec_by_type = {
+            str(spec.get("type_id") or ""): spec
+            for spec in required_specs
+            if spec.get("type_id") and spec.get("type_id") != "custom"
+        }
+
+        for item in guidance.get("revealed_components") or []:
+            if not isinstance(item, dict):
+                continue
+            enriched = dict(item)
+            key = f"{str(enriched.get('type_id') or '')}:{str(enriched.get('label') or '').lower()}"
+            matched_spec = spec_by_key.get(key) or spec_by_type.get(
+                str(enriched.get("type_id") or "")
+            )
+            if matched_spec:
+                enriched.setdefault(
+                    "why_required", matched_spec.get("why_required", "")
+                )
+                enriched.setdefault(
+                    "config_checklist", matched_spec.get("config_checklist", [])
+                )
+            already_revealed.append(enriched)
+
+        revealed_keys = {
+            f"{str(item.get('type_id') or '')}:{str(item.get('name') or item.get('label') or '').strip().lower()}"
+            for item in already_revealed
+        }
+        revealed_types = {
+            str(item.get("type_id") or "")
+            for item in already_revealed
+            if item.get("type_id") and item.get("type_id") != "custom"
+        }
+
+        def _is_already_revealed(spec: dict[str, Any]) -> bool:
+            tid = str(spec.get("type_id") or "")
+            key = f"{tid}:{str(spec.get('name') or spec.get('label') or '').strip().lower()}"
+            if tid and tid != "custom" and tid in revealed_types:
+                return True
+            return key in revealed_keys
+
         current_nodes = [
             n for n in (payload.current_nodes or []) if isinstance(n, dict)
         ]
+        current_edges = [
+            e for e in (payload.current_edges or []) if isinstance(e, dict)
+        ]
+        flow_snapshot = {
+            "nodes": current_nodes,
+            "edges": current_edges,
+            "notes": payload.current_notes or "",
+        }
 
-        unplaced_expected = [
-            comp
-            for comp in expected_components
-            if not any(node_matches_expected(node, comp) for node in current_nodes)
+        unplaced_specs = [
+            spec
+            for spec in required_specs
+            if not any(
+                node_matches_expected(node, spec["name"])
+                or (
+                    spec["type_id"] != "custom"
+                    and node.get("type_id") == spec["type_id"]
+                )
+                for node in current_nodes
+            )
         ]
         unrevealed_candidates = [
-            comp
-            for comp in unplaced_expected
-            if comp.lower() not in revealed_names_lower
+            spec for spec in unplaced_specs if not _is_already_revealed(spec)
         ]
 
         newly_revealed: list[RevealedComponentHint] = []
+        topology_feedback: dict[str, Any] | None = None
+        next_connection_hint: dict[str, Any] | None = None
+        returned_paths: list[dict[str, Any]] = []
         message = ""
 
-        if not expected_components:
+        if not required_specs and payload.hint_mode in ("next_component", "reveal_all"):
             message = "No fixed component checklist is defined for this challenge — use canonical blocks or + Custom Block freely."
         elif payload.hint_mode == "next_component":
             if unrevealed_candidates:
-                target_comp = unrevealed_candidates[0]
-                matched = match_component_to_catalog(target_comp, palette_extensions)
-                already_revealed.append(matched)
-                revealed_names_lower.add(target_comp.lower())
+                target_spec = unrevealed_candidates[0]
+                already_revealed.append(dict(target_spec))
+                revealed_keys.add(
+                    f"{target_spec['type_id']}:{str(target_spec.get('name') or '').strip().lower()}"
+                )
+                if target_spec["type_id"] != "custom":
+                    revealed_types.add(target_spec["type_id"])
                 hints_used_count += 1
-                newly_revealed.append(RevealedComponentHint(**matched))
-                message = f"Unlocked expected block: {matched['label']} (-3 pts)."
-            elif unplaced_expected:
-                message = "All expected components are already unlocked in your hint tray below."
+                newly_revealed.append(RevealedComponentHint(**target_spec))
+                cost_label = "free in Practice" if is_practice else "-3 pts"
+                message = (
+                    f"Unlocked expected block: {target_spec['label']} ({cost_label})."
+                )
+            elif unplaced_specs:
+                message = (
+                    "All expected components are already unlocked in your guided bank."
+                )
             else:
                 message = "Every expected component is already placed on your canvas."
         elif payload.hint_mode == "reveal_all":
             revealed_all_bank = True
-            for target_comp in unrevealed_candidates:
-                matched = match_component_to_catalog(target_comp, palette_extensions)
-                already_revealed.append(matched)
-                revealed_names_lower.add(target_comp.lower())
-                newly_revealed.append(RevealedComponentHint(**matched))
+            for target_spec in required_specs:
+                if not _is_already_revealed(target_spec):
+                    already_revealed.append(dict(target_spec))
+                    revealed_keys.add(
+                        f"{target_spec['type_id']}:{str(target_spec.get('name') or '').strip().lower()}"
+                    )
+                    if target_spec["type_id"] != "custom":
+                        revealed_types.add(target_spec["type_id"])
+                    newly_revealed.append(RevealedComponentHint(**target_spec))
+            returned_paths = expected_paths
+            topology_feedback = evaluate_canvas_topology(
+                flow_snapshot, blueprint, brief
+            )
             if newly_revealed:
-                message = f"Unlocked {len(newly_revealed)} expected component(s) into your guided bank."
+                message = f"Unlocked all {len(required_specs)} required components & path checklist."
             else:
-                message = "Required component bank is already unlocked."
+                message = f"Complete {len(required_specs)}-block bank & path checklist synced."
+        elif payload.hint_mode == "check_topology":
+            returned_paths = (
+                expected_paths if (revealed_all_bank or is_practice) else []
+            )
+            topology_feedback = evaluate_canvas_topology(
+                flow_snapshot, blueprint, brief
+            )
+            finding_count = len(topology_feedback.get("findings") or [])
+            if finding_count == 0:
+                message = "Topology check passed! All required components, paths, and resilience notes look solid."
+            else:
+                message = f"Topology check found {finding_count} actionable item(s) to review before Analyze."
+        elif payload.hint_mode == "next_connection":
+            topology_feedback = evaluate_canvas_topology(
+                flow_snapshot, blueprint, brief
+            )
+            next_connection_hint = topology_feedback.get("next_connection_hint")
+            returned_paths = expected_paths
+            if next_connection_hint:
+                hints_used_count += 1
+                cost_label = "free in Practice" if is_practice else "-3 pts"
+                message = (
+                    f"Next wire ({cost_label}): {next_connection_hint['source_label']} -> "
+                    f"{next_connection_hint['target_label']} ({next_connection_hint['suggested_label']})."
+                )
+            else:
+                message = (
+                    "All expected Read, Write, and Async connections are already wired!"
+                )
 
         penalty_points = compute_diagram_hint_penalty(
-            hints_used_count, revealed_all_bank
+            hints_used_count, revealed_all_bank, mode=session.mode
         )
         updated_guidance = {
             "hints_used_count": hints_used_count,
             "revealed_all_bank": revealed_all_bank,
             "revealed_components": already_revealed,
+            "expected_paths": returned_paths
+            if returned_paths
+            else guidance.get("expected_paths", []),
+            "is_practice_run": is_practice,
             "penalty_points": penalty_points,
         }
         session.diagram_guidance = updated_guidance
@@ -2557,11 +2686,15 @@ class SystemDesignService:
 
         refreshed = await SystemDesignService.get_session(db, session_id)
         remaining_count = sum(
-            1 for comp in unplaced_expected if comp.lower() not in revealed_names_lower
+            1 for spec in unplaced_specs if not _is_already_revealed(spec)
         )
         return DiagramHintResponse(
             newly_revealed=newly_revealed,
             revealed_components=already_revealed,
+            expected_paths=returned_paths or updated_guidance.get("expected_paths", []),
+            topology_feedback=topology_feedback,
+            next_connection_hint=next_connection_hint,
+            is_practice_run=is_practice,
             hints_used_count=hints_used_count,
             revealed_all_bank=revealed_all_bank,
             penalty_points=penalty_points,
@@ -2683,6 +2816,18 @@ class SystemDesignService:
             or ("canvas" if str(mime_type) == "application/json" else "image")
         )
 
+        session_brief = SystemDesignService._get_session_brief(session)
+        resolved_blueprint = resolve_challenge_blueprint(
+            session_brief, session.requirements_ledger or {}
+        )
+        blueprint_summary = [
+            {
+                "label": comp["label"],
+                "why_required": comp.get("why_required", ""),
+            }
+            for comp in resolved_blueprint.get("required_components", [])
+        ]
+
         base_prompt = await _format_prompt_from_db(
             db,
             "system_design_reviewer",
@@ -2691,10 +2836,12 @@ class SystemDesignService:
             requirements_ledger_json=json.dumps(
                 session.requirements_ledger or {}, indent=2
             ),
-            hidden_brief_json=json.dumps(
-                SystemDesignService._get_session_brief(session), indent=2
-            ),
+            hidden_brief_json=json.dumps(session_brief, indent=2),
             candidate_notes=str(target_entry.get("notes") or "None provided."),
+        )
+        blueprint_note = (
+            "\n\nALIGNED SESSION BLUEPRINT (SHARED WITH CANDIDATE GUIDED BANK):\n"
+            + json.dumps(blueprint_summary, indent=2)
         )
         canvas_note = ""
         if diagram_kind == "canvas":
@@ -2717,7 +2864,7 @@ class SystemDesignService:
                     + snippets
                 )
 
-        sys_prompt = f"{base_prompt.strip()}{canvas_note}{web_section}\n\n{ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS}"
+        sys_prompt = f"{base_prompt.strip()}{blueprint_note}{canvas_note}{web_section}\n\n{ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS}"
         return {
             "session_id": session_id,
             "target_version": target_version,
@@ -2725,6 +2872,8 @@ class SystemDesignService:
             "file_path": str(file_path),
             "mime_type": str(mime_type),
             "sys_prompt": sys_prompt,
+            "resolved_blueprint": resolved_blueprint,
+            "session_brief": session_brief,
         }
 
     @staticmethod
@@ -2749,11 +2898,22 @@ class SystemDesignService:
             flow_summary = flow_data.get("flow_summary") or summarize_diagram_flow(
                 flow_data
             )
+            blueprint = prepared_ctx.get("resolved_blueprint")
+            topology_eval = (
+                evaluate_canvas_topology(
+                    flow_data,
+                    blueprint,
+                    prepared_ctx.get("session_brief"),
+                )
+                if isinstance(blueprint, dict)
+                else {}
+            )
             human_msg = HumanMessage(
                 content=(
                     f"Inspect this structured interactive canvas architecture diagram (revision v{target_version}) "
                     "and return ONLY the JSON review object.\n\n"
                     f"TOPOLOGY SUMMARY:\n{json.dumps(flow_summary, indent=2)}\n\n"
+                    f"DETERMINISTIC PRE-FLIGHT DIAGNOSTICS:\n{json.dumps(topology_eval.get('findings', []), indent=2)}\n\n"
                     f"FULL FLOW GRAPH:\n{json.dumps({'nodes': flow_data.get('nodes', []), 'edges': flow_data.get('edges', []), 'notes': flow_data.get('notes', '')}, indent=2)}"
                 )
             )

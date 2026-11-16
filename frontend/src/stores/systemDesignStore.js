@@ -31,19 +31,59 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const loadingChallengePrompt = ref(false)
   const importingChallenge = ref(false)
   const challengeFrontierPrompt = ref(null)
+  const lastTopologyFeedback = ref(null)
+  const expectedPaths = ref([])
+  const nextConnectionHint = ref(null)
   const error = ref(null)
 
   const activeLedger = computed(() => activeSession.value?.requirements_ledger || {})
   const activeDiagrams = computed(() => activeSession.value?.diagrams_metadata || [])
   const activeReviews = computed(() => activeSession.value?.architecture_reviews || [])
   const activeFinalEvaluation = computed(() => activeSession.value?.final_evaluation || null)
+  const reviewFixChecklist = computed(() => {
+    const reviews = activeReviews.value || []
+    if (!reviews.length) return []
+    const latest = reviews[reviews.length - 1] || {}
+    const items = []
+    for (const text of latest.missing_components || []) {
+      items.push({ id: `missing-${items.length}`, category: 'Missing', severity: 'error', text })
+    }
+    for (const text of latest.requirement_gaps || []) {
+      items.push({ id: `gap-${items.length}`, category: 'Requirement Gap', severity: 'warning', text })
+    }
+    for (const text of latest.bottlenecks_and_spofs || []) {
+      items.push({ id: `spof-${items.length}`, category: 'SPOF / Bottleneck', severity: 'warning', text })
+    }
+    for (const text of latest.unnecessary_complexity || []) {
+      items.push({ id: `complexity-${items.length}`, category: 'Complexity', severity: 'info', text })
+    }
+    return items
+  })
+
+  function _syncCoachStateFromSession(session) {
+    const guidance = session?.diagram_guidance || {}
+    if (Array.isArray(guidance.expected_paths)) {
+      expectedPaths.value = guidance.expected_paths
+    } else if (!session) {
+      expectedPaths.value = []
+    }
+    if (guidance.last_topology_feedback) {
+      lastTopologyFeedback.value = guidance.last_topology_feedback
+    } else if (!session) {
+      lastTopologyFeedback.value = null
+    }
+  }
 
   function _syncSessionInList(session) {
     if (!session || !session.id) return
     if (activeSession.value?.id !== session.id) {
       frontierPacket.value = null
+      lastTopologyFeedback.value = null
+      expectedPaths.value = []
+      nextConnectionHint.value = null
     }
     activeSession.value = session
+    _syncCoachStateFromSession(session)
     const idx = sessions.value.findIndex((s) => s.id === session.id)
     if (idx !== -1) {
       const updated = [...sessions.value]
@@ -364,6 +404,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     evaluatingSession.value = false
     activeSession.value = null
     frontierPacket.value = null
+    lastTopologyFeedback.value = null
+    expectedPaths.value = []
+    nextConnectionHint.value = null
   }
 
   async function updateMode(mode) {
@@ -481,7 +524,12 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
-  async function requestDiagramHint(hintMode = 'next_component', currentNodes = []) {
+  async function requestDiagramHint(
+    hintMode = 'next_component',
+    currentNodes = [],
+    currentEdges = [],
+    currentNotes = ''
+  ) {
     if (!activeSession.value) return null
     loadingDiagramHint.value = true
     error.value = null
@@ -489,7 +537,20 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       const res = await SystemDesignAPI.requestDiagramHint(activeSession.value.id, {
         hint_mode: hintMode,
         current_nodes: currentNodes,
+        current_edges: currentEdges,
+        current_notes: currentNotes || '',
       })
+      if (Array.isArray(res.data?.expected_paths)) {
+        expectedPaths.value = res.data.expected_paths
+      }
+      if (res.data?.topology_feedback) {
+        lastTopologyFeedback.value = res.data.topology_feedback
+      }
+      if (res.data?.next_connection_hint) {
+        nextConnectionHint.value = res.data.next_connection_hint
+      } else if (hintMode !== 'next_connection' && hintMode !== 'check_topology') {
+        nextConnectionHint.value = null
+      }
       if (res.data?.session) {
         _syncSessionInList(res.data.session)
       }
@@ -650,11 +711,15 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     loadingChallengePrompt,
     importingChallenge,
     challengeFrontierPrompt,
+    lastTopologyFeedback,
+    expectedPaths,
+    nextConnectionHint,
     error,
     activeLedger,
     activeDiagrams,
     activeReviews,
     activeFinalEvaluation,
+    reviewFixChecklist,
     fetchDiagramCatalog,
     fetchChallenges,
     createChallenge,

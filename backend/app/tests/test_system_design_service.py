@@ -8,6 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.main import app
+from app.services.diagram_catalog import (
+    evaluate_canvas_topology,
+    match_component_to_catalog,
+    resolve_challenge_blueprint,
+)
 
 
 @pytest.mark.asyncio
@@ -2145,5 +2150,208 @@ async def test_live_turn_by_turn_ledger_sync_and_clean_reply(db_session: AsyncSe
                 data2 = res2.json()
                 assert data2["requirements_transcript"][-1]["content"] == turn_2_reply
                 assert data2["requirements_ledger"] == ledger1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagram_catalog_queue_vs_flink_and_blueprint_synthesis():
+    """Verify queue descriptions avoid Flink mis-mapping, composite names split, and topology catches broken edges."""
+    queue_match = match_component_to_catalog(
+        "Async queue / stream for click analytics aggregation"
+    )
+    assert queue_match["type_id"] == "message_queue"
+    assert queue_match["type_id"] != "stream_processor"
+
+    brief = {
+        "expected_components": [
+            "API Gateway / Load Balancer",
+            "Stateless App Service",
+            "Async queue for click analytics aggregation",
+            "Primary Relational DB",
+        ]
+    }
+    ledger = {
+        "functional_requirements": [
+            "Optional link expiration TTL with automatic cleanup",
+        ],
+        "non_functional_requirements": [
+            "Malicious URL blocklist check before redirect/shorten",
+            "Read-heavy workload (100:1 read/write ratio) < 30ms p99",
+        ],
+    }
+
+    blueprint = resolve_challenge_blueprint(brief, ledger)
+    type_ids = [item["type_id"] for item in blueprint["required_components"]]
+    assert "api_gateway" in type_ids
+    assert "load_balancer" in type_ids
+    assert "message_queue" in type_ids
+    assert "stream_processor" not in type_ids
+    assert "content_filter" in type_ids
+    assert "scheduler" in type_ids
+    assert "read_replica" in type_ids
+    assert all(item.get("why_required") for item in blueprint["required_components"])
+    assert len(blueprint["expected_paths"]) >= 2
+
+    # Reproduce Screenshot 1 broken topology: DB -> Redis, CDN -> Redis, Flink -> ID Gen
+    flow_payload = {
+        "nodes": [
+            {"id": "n1", "type_id": "cdn", "label": "CDN / Edge Cache"},
+            {
+                "id": "n2",
+                "type_id": "distributed_cache",
+                "label": "Distributed Cache (Redis)",
+            },
+            {"id": "n3", "type_id": "relational_db", "label": "Primary Relational DB"},
+            {
+                "id": "n4",
+                "type_id": "stream_processor",
+                "label": "Stream Processor (Flink)",
+            },
+            {
+                "id": "n5",
+                "type_id": "id_generator",
+                "label": "Unique ID / Key Generator",
+                "notes": "",
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "n3", "target": "n2", "label": "feeds cache"},
+            {"id": "e2", "source": "n1", "target": "n2", "label": "reads redis"},
+            {"id": "e3", "source": "n4", "target": "n5", "label": "triggers id gen"},
+        ],
+        "notes": "",
+    }
+    topo = evaluate_canvas_topology(flow_payload, blueprint, brief)
+    finding_titles = " | ".join(f["title"] for f in topo["findings"])
+    assert "DB" in finding_titles or "Cache" in finding_titles
+    assert "CDN" in finding_titles
+    assert "Flink" in finding_titles or "Stream" in finding_titles
+    assert "ID" in finding_titles
+
+
+@pytest.mark.asyncio
+async def test_diagram_hint_practice_mode_zero_penalty_and_mode_toggle(
+    db_session: AsyncSession,
+):
+    """PRACTICE grants full coaching & check_topology at 0-pt penalty; toggling ADAPTIVE <-> PRACTICE recalculates penalty."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            challenge_res = await ac.get(
+                "/api/v1/system-design/challenges/url-shortener"
+            )
+            assert challenge_res.status_code == 200
+            challenge_id = challenge_res.json()["id"]
+
+            start_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge_id,
+                    "mode": "PRACTICE",
+                    "variant_id": "public-consumer-shortener",
+                },
+            )
+            assert start_res.status_code == 201
+            session_id = start_res.json()["id"]
+
+            lock_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": [
+                        "Shorten URLs with optional expiration TTL"
+                    ],
+                    "non_functional_requirements": [
+                        "Block malicious/phishing URLs before redirect",
+                        "p99 redirect latency < 30ms",
+                    ],
+                    "is_locked": True,
+                },
+            )
+            assert lock_res.status_code == 200
+
+            reveal_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={
+                    "hint_mode": "reveal_all",
+                    "current_nodes": [],
+                    "current_edges": [],
+                },
+            )
+            assert reveal_res.status_code == 200
+            reveal_data = reveal_res.json()
+            assert reveal_data["penalty_points"] == 0.0
+            assert reveal_data["is_practice_run"] is True
+            revealed_types = [c["type_id"] for c in reveal_data["revealed_components"]]
+            assert "content_filter" in revealed_types
+            assert "scheduler" in revealed_types
+            assert "read_replica" in revealed_types
+            assert "message_queue" in revealed_types
+            assert "stream_processor" not in revealed_types
+            assert len(reveal_data["expected_paths"]) >= 3
+
+            # Check Topology in PRACTICE catches broken flows at 0 penalty
+            topo_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={
+                    "hint_mode": "check_topology",
+                    "current_nodes": [
+                        {
+                            "id": "db",
+                            "type_id": "relational_db",
+                            "label": "Primary Relational DB",
+                        },
+                        {
+                            "id": "redis",
+                            "type_id": "distributed_cache",
+                            "label": "Distributed Cache (Redis)",
+                        },
+                    ],
+                    "current_edges": [
+                        {
+                            "id": "e1",
+                            "source": "db",
+                            "target": "redis",
+                            "label": "pushes",
+                        }
+                    ],
+                },
+            )
+            assert topo_res.status_code == 200
+            topo_data = topo_res.json()
+            assert topo_data["penalty_points"] == 0.0
+            assert len(topo_data["topology_feedback"]["findings"]) >= 1
+
+            # Toggle PRACTICE -> ADAPTIVE restores computed reveal_all penalty (18.0)
+            to_adaptive = await ac.patch(
+                f"/api/v1/system-design/sessions/{session_id}/mode",
+                json={"mode": "ADAPTIVE"},
+            )
+            assert to_adaptive.status_code == 200
+            assert to_adaptive.json()["diagram_guidance"]["penalty_points"] == 18.0
+
+            # Toggle ADAPTIVE -> PRACTICE waives penalty back to 0.0
+            to_practice = await ac.patch(
+                f"/api/v1/system-design/sessions/{session_id}/mode",
+                json={"mode": "PRACTICE"},
+            )
+            assert to_practice.status_code == 200
+            assert to_practice.json()["diagram_guidance"]["penalty_points"] == 0.0
+
+            # Strict INTERVIEW blocks check_topology & next_connection
+            to_interview = await ac.patch(
+                f"/api/v1/system-design/sessions/{session_id}/mode",
+                json={"mode": "INTERVIEW"},
+            )
+            assert to_interview.status_code == 200
+            blocked_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={
+                    "hint_mode": "check_topology",
+                    "current_nodes": [],
+                    "current_edges": [],
+                },
+            )
+            assert blocked_res.status_code == 400
     finally:
         app.dependency_overrides.clear()

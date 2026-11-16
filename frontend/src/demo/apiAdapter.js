@@ -2901,15 +2901,26 @@ export async function handleDemoRequest(config) {
       })
     }
 
-    const demoMatchBlock = (name) => {
+    const demoMatchBlock = (name, whyRequired = '', configChecklist = []) => {
       const lower = String(name || '').trim().toLowerCase()
-      const found = DEFAULT_DIAGRAM_BLOCKS.find(
-        (b) =>
-          b.label.toLowerCase() === lower ||
-          b.type_id === lower ||
-          lower.includes(b.type_id.replace('_', ' ')) ||
-          b.label.toLowerCase().includes(lower)
-      )
+      let found = null
+      if (/queue|task queue|celery|sqs|rabbit/i.test(lower) && !/flink|window|cep/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'message_queue')
+      } else if (/safety|blocklist|phishing|malware|content.?filter/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'content_filter')
+      } else if (/ttl|expir|sweeper|scheduler|cron/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'scheduler')
+      } else if (/replica/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'read_replica')
+      } else {
+        found = DEFAULT_DIAGRAM_BLOCKS.find(
+          (b) =>
+            b.label.toLowerCase() === lower ||
+            b.type_id === lower ||
+            lower.includes(b.type_id.replace('_', ' ')) ||
+            b.label.toLowerCase().includes(lower)
+        )
+      }
       if (found) {
         return {
           name: String(name || found.label),
@@ -2918,6 +2929,16 @@ export async function handleDemoRequest(config) {
           category: found.category,
           icon: found.icon,
           hint_role: found.default_role,
+          why_required:
+            whyRequired ||
+            `Required to satisfy ${found.label} responsibilities in the target architecture.`,
+          config_checklist:
+            Array.isArray(configChecklist) && configChecklist.length
+              ? configChecklist
+              : [
+                  `Define capacity/protocol boundaries for ${found.label}.`,
+                  'Document redundancy or failure behavior in component notes.',
+                ],
           is_custom: false,
         }
       }
@@ -2928,14 +2949,272 @@ export async function handleDemoRequest(config) {
         category: 'compute_services',
         icon: 'box',
         hint_role: `Place a block representing "${name}" and wire it into your data flow.`,
+        why_required: whyRequired || `Required component "${name}" identified in the session brief.`,
+        config_checklist:
+          Array.isArray(configChecklist) && configChecklist.length
+            ? configChecklist
+            : [`Clarify API and failure behavior for ${name}.`],
         is_custom: true,
       }
     }
 
-    const demoComputePenalty = (hintsCount, revealedAll) => {
+    const demoComputePenalty = (hintsCount, revealedAll, mode = 'ADAPTIVE') => {
+      if (String(mode || '').toUpperCase() === 'PRACTICE') return 0
       const single = Math.max(0, Number(hintsCount || 0)) * 3
       const raw = revealedAll ? Math.max(18, single) : single
       return Math.round(Math.min(25, raw) * 10) / 10
+    }
+
+    const demoBuildUrlShortenerPaths = () => [
+      {
+        name: 'Read Path',
+        steps: ['web_client', 'cdn', 'load_balancer', 'api_gateway', 'app_service', 'distributed_cache', 'read_replica'],
+        description: 'Client -> CDN -> Load Balancer -> API Gateway -> App Service -> Redis (miss -> Read Replica)',
+      },
+      {
+        name: 'Write Path',
+        steps: ['web_client', 'load_balancer', 'api_gateway', 'content_filter', 'app_service', 'id_generator', 'relational_db'],
+        description: 'Client -> LB -> API Gateway -> Safety Filter -> App Service -> ID Generator & Primary DB',
+      },
+      {
+        name: 'Async & Lifecycle',
+        steps: ['app_service', 'message_queue', 'async_worker', 'scheduler', 'relational_db'],
+        description: 'App Service -> Task Queue -> Async Worker (analytics) & Scheduler / TTL Sweeper -> DB',
+      },
+    ]
+
+    const demoResolveExpectedBlueprint = (rawChallenge, session) => {
+      const slug = String(rawChallenge?.slug || '')
+      let specs =
+        slug === 'url-shortener'
+          ? [
+              'Web / Browser Client',
+              'CDN / Edge Cache',
+              'Load Balancer',
+              'API Gateway',
+              'URL / Payload Safety Filter',
+              'Stateless App Service',
+              'Unique ID / Key Generator',
+              'Distributed Cache (Redis)',
+              'Primary Relational DB',
+              'DB Read Replica',
+              'Task Queue',
+              'Background Worker Pool',
+              'Scheduler / TTL Sweeper',
+            ]
+          : Array.isArray(rawChallenge?.expected_components) && rawChallenge.expected_components.length
+            ? rawChallenge.expected_components
+            : [
+                'Web / Browser Client',
+                'Load Balancer',
+                'API Gateway',
+                'Stateless App Service',
+                'Distributed Cache (Redis)',
+                'Primary Relational DB',
+                'Task Queue',
+                'Background Worker Pool',
+              ]
+
+      const expanded = []
+      for (const item of specs) {
+        const str = String(item || '').trim()
+        if (str.includes(' / ') && /api gateway|load balancer|queue|worker/i.test(str)) {
+          str.split(' / ').forEach((part) => expanded.push(part.trim()))
+        } else {
+          expanded.push(str)
+        }
+      }
+
+      const ledger = session?.requirements_ledger || {}
+      const ledgerText = JSON.stringify(ledger).toLowerCase()
+      const injectIfMentioned = (regex, label) => {
+        if (regex.test(ledgerText) && !expanded.some((e) => e.toLowerCase().includes(label.toLowerCase().slice(0, 8)))) {
+          expanded.push(label)
+        }
+      }
+      injectIfMentioned(/malicious|blocklist|phishing|safe\s*browsing/, 'URL / Payload Safety Filter')
+      injectIfMentioned(/\bttl\b|expir|retention|purge/, 'Scheduler / TTL Sweeper')
+      injectIfMentioned(/read\s*heavy|read\s*replica|replica/, 'DB Read Replica')
+      injectIfMentioned(/rate\s*limit|throttl/, 'Rate Limiter')
+      injectIfMentioned(/dead[\s-]*letter|dlq/, 'Dead-Letter Queue (DLQ)')
+
+      const unique = []
+      const seen = new Set()
+      for (const name of expanded) {
+        const key = name.toLowerCase()
+        if (!seen.has(key)) {
+          seen.add(key)
+          unique.push(name)
+        }
+      }
+
+      const whyByType = {
+        content_filter: 'Enforces NFR/security policy (e.g. malicious URL blocklist & phishing checks) before persist or redirect.',
+        scheduler: 'Handles link expiration / TTL cleanup sweeps and scheduled maintenance without blocking hot paths.',
+        id_generator: 'Generates collision-free short codes; document pre-allocation/Zookeeper HA to avoid SPOF.',
+        read_replica: 'Offloads cache-miss read traffic from Primary DB to hit <30ms p99 redirect latency.',
+        message_queue: 'Decouples non-critical click analytics & audit telemetry off the sync redirect path.',
+        async_worker: 'Consumes queued analytics/webhook events asynchronously.',
+        distributed_cache: 'Caches hot redirects/lookups in RAM; always driven by App Service (cache-aside), never wired straight to DB or CDN.',
+      }
+      const checklistByType = {
+        id_generator: ['Specify multi-instance pre-allocated key ranges or Snowflake workers to avoid SPOF.'],
+        distributed_cache: ['Use cache-aside from App Service -> Redis (never DB -> Redis or CDN -> Redis).', 'Set LRU eviction + TTL matching link lifetime.'],
+        content_filter: ['Check domain/URL reputation asynchronously or via cached bloom filter / SafeBrowsing API on write/redirect.'],
+        scheduler: ['Batch-delete or soft-expire expired TTL records off-peak and emit cache invalidations.'],
+      }
+
+      const expectedItems = unique.map((name) => {
+        const prelim = demoMatchBlock(name)
+        return demoMatchBlock(
+          name,
+          whyByType[prelim.type_id] || '',
+          checklistByType[prelim.type_id] || []
+        )
+      })
+
+      const expectedPaths =
+        slug === 'url-shortener'
+          ? demoBuildUrlShortenerPaths()
+          : [
+              {
+                name: 'Primary Request Path',
+                steps: ['web_client', 'load_balancer', 'api_gateway', 'app_service', 'distributed_cache', 'relational_db'],
+                description: 'Client -> LB -> API Gateway -> App Service -> Cache / Primary DB',
+              },
+              {
+                name: 'Async Background Path',
+                steps: ['app_service', 'message_queue', 'async_worker', 'relational_db'],
+                description: 'App Service -> Task Queue -> Background Worker -> DB',
+              },
+            ]
+
+      return { expectedItems, expectedPaths }
+    }
+
+    const demoEvaluateTopology = (expectedItems, expectedPaths, currentNodes, currentEdges, currentNotes) => {
+      const nodeById = new Map((currentNodes || []).map((n) => [String(n.id), n]))
+      const placedTypes = new Set((currentNodes || []).map((n) => n.type_id))
+      const missingComponents = expectedItems
+        .filter(
+          (item) =>
+            !(
+              (item.type_id !== 'custom' && placedTypes.has(item.type_id)) ||
+              (currentNodes || []).some((n) =>
+                `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(item.name.toLowerCase())
+              )
+            )
+        )
+        .map((i) => i.name)
+
+      const findings = []
+      if (missingComponents.length) {
+        findings.push({
+          severity: 'warning',
+          category: 'missing',
+          title: `${missingComponents.length} expected component(s) not yet on canvas`,
+          detail: `Place: ${missingComponents.slice(0, 6).join(', ')}${missingComponents.length > 6 ? '...' : ''}.`,
+          related_type_ids: [],
+        })
+      }
+
+      const edgePairs = new Set()
+      for (const e of currentEdges || []) {
+        const src = nodeById.get(String(e.source))
+        const dst = nodeById.get(String(e.target))
+        if (!src || !dst) continue
+        edgePairs.add(`${src.type_id}->${dst.type_id}`)
+        if (src.type_id === 'relational_db' && dst.type_id === 'distributed_cache') {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Reversed DB -> Cache arrow',
+            detail: 'Databases do not push directly to Redis in cache-aside. Wire App Service -> Redis (miss -> App Service -> DB).',
+            related_type_ids: ['relational_db', 'distributed_cache'],
+          })
+        }
+        if (src.type_id === 'cdn' && dst.type_id === 'distributed_cache') {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Invalid CDN -> Redis edge',
+            detail: 'Edge CDNs route cache misses to Load Balancer / API Gateway -> App Service, not directly into internal Redis.',
+            related_type_ids: ['cdn', 'distributed_cache'],
+          })
+        }
+        if (
+          (src.type_id === 'stream_processor' || src.type_id === 'message_queue') &&
+          dst.type_id === 'id_generator'
+        ) {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Queue/Stream wired into ID Generator',
+            detail: 'ID generation belongs on the synchronous write path (App Service -> ID Generator), not downstream of analytics queues.',
+            related_type_ids: [src.type_id, 'id_generator'],
+          })
+        }
+      }
+
+      if (placedTypes.has('stream_processor') && !expectedItems.some((i) => i.type_id === 'stream_processor')) {
+        findings.push({
+          severity: 'warning',
+          category: 'complexity',
+          title: 'Heavy Stream Processor (Flink) for simple async queue work',
+          detail: 'Replace Flink with Task Queue + Background Worker Pool unless stateful windowed stream joins are required.',
+          related_type_ids: ['stream_processor'],
+        })
+      }
+
+      const idNode = (currentNodes || []).find((n) => n.type_id === 'id_generator')
+      if (idNode && !/replica|range|pre-alloc|ha|cluster|snowflake|multi/i.test(`${idNode.notes || ''} ${currentNotes || ''}`)) {
+        findings.push({
+          severity: 'warning',
+          category: 'spof',
+          title: 'Potential SPOF on Unique ID / Key Generator',
+          detail: 'Add failover / pre-allocated key range / multi-instance notes on the ID Generator node.',
+          related_type_ids: ['id_generator'],
+        })
+      }
+
+      const satisfiedPaths = []
+      let nextConnectionHint = null
+      for (const path of expectedPaths || []) {
+        const steps = path.steps || []
+        let allConnected = steps.length > 1
+        for (let i = 0; i < steps.length - 1; i++) {
+          const a = steps[i]
+          const b = steps[i + 1]
+          if (!edgePairs.has(`${a}->${b}`)) {
+            allConnected = false
+            if (!nextConnectionHint && placedTypes.has(a) && placedTypes.has(b)) {
+              const bBlock = DEFAULT_DIAGRAM_BLOCKS.find((blk) => blk.type_id === b)
+              const aBlock = DEFAULT_DIAGRAM_BLOCKS.find((blk) => blk.type_id === a)
+              nextConnectionHint = {
+                path_name: path.name,
+                from_type_id: a,
+                from_label: aBlock?.label || a,
+                to_type_id: b,
+                to_label: bBlock?.label || b,
+                rationale: `Connect ${aBlock?.label || a} -> ${bBlock?.label || b} to complete the ${path.name}.`,
+              }
+            }
+          }
+        }
+        if (allConnected) satisfiedPaths.push(path.name)
+      }
+
+      const summary = findings.length
+        ? `Found ${findings.length} topology/completeness issue(s) across ${(currentNodes || []).length} block(s).`
+        : 'All expected blocks are placed and critical request flows look sound!'
+
+      return {
+        summary,
+        missing_components: missingComponents,
+        findings,
+        satisfied_paths: satisfiedPaths,
+        next_connection_hint: nextConnectionHint,
+      }
     }
 
     const demoDeriveRating = (score) =>
@@ -3404,6 +3683,15 @@ export async function handleDemoRequest(config) {
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
       session.mode = data.mode || session.mode
+      if (session.diagram_guidance && typeof session.diagram_guidance === 'object') {
+        const g = { ...session.diagram_guidance }
+        g.penalty_points = demoComputePenalty(
+          g.hints_used_count || 0,
+          Boolean(g.revealed_all_bank),
+          session.mode
+        )
+        session.diagram_guidance = g
+      }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
       return ok(session)
@@ -3670,29 +3958,23 @@ export async function handleDemoRequest(config) {
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
       const hintMode = data.hint_mode || 'next_component'
-      if (hintMode === 'reveal_all' && String(session.mode || '').toUpperCase() === 'INTERVIEW') {
+      const upperMode = String(session.mode || 'ADAPTIVE').toUpperCase()
+      const isPracticeRun = upperMode === 'PRACTICE'
+      if (upperMode === 'INTERVIEW' && hintMode !== 'next_component') {
         return {
           status: 400,
           data: {
             detail:
-              'Revealing the full required component bank is disabled in strict INTERVIEW mode. Switch to ADAPTIVE or PRACTICE mode.',
+              'Coaching hints beyond a single next-component nudge are disabled in strict INTERVIEW mode. Switch to ADAPTIVE or PRACTICE mode.',
           },
         }
       }
       const rawChallenge =
         db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
-      const expectedList =
-        Array.isArray(rawChallenge.expected_components) && rawChallenge.expected_components.length
-          ? rawChallenge.expected_components
-          : [
-              'API Gateway',
-              'Stateless App Service',
-              'Distributed Cache (Redis)',
-              'Primary Relational DB',
-              'Task Queue',
-              'Background Worker Pool',
-            ]
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(rawChallenge, session)
       const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const currentEdges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const currentNotes = String(data.current_notes || '')
       const guidance = { ...(session.diagram_guidance || {}) }
       let hintsCount = Number(guidance.hints_used_count || 0)
       let revealedAll = Boolean(guidance.revealed_all_bank || false)
@@ -3701,48 +3983,98 @@ export async function handleDemoRequest(config) {
         : []
       const revealedSet = new Set(alreadyRevealed.map((r) => String(r.name || '').toLowerCase()))
 
-      const nodeMatches = (exp) => {
-        const expLow = exp.toLowerCase()
-        const matchedBlock = demoMatchBlock(exp)
+      if (upperMode === 'ADAPTIVE' && hintMode === 'check_topology' && !revealedAll) {
+        return {
+          status: 400,
+          data: {
+            detail:
+              'Unlock "Show All Required" (or switch to PRACTICE) before running Check Topology in ADAPTIVE mode.',
+          },
+        }
+      }
+
+      const nodeMatches = (item) => {
+        const expLow = item.name.toLowerCase()
         return currentNodes.some(
           (n) =>
-            (matchedBlock.type_id !== 'custom' && n.type_id === matchedBlock.type_id) ||
+            (item.type_id !== 'custom' && n.type_id === item.type_id) ||
             `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(expLow)
         )
       }
 
-      const unrevealed = expectedList.filter(
-        (exp) => !nodeMatches(exp) && !revealedSet.has(exp.toLowerCase())
+      const unrevealed = expectedItems.filter(
+        (item) => !nodeMatches(item) && !revealedSet.has(item.name.toLowerCase())
       )
       const newlyRevealed = []
       let message = ''
+      let topologyFeedback = guidance.last_topology_feedback || null
+      let nextConnectionHint = null
+
       if (hintMode === 'next_component') {
         if (unrevealed.length) {
-          const item = demoMatchBlock(unrevealed[0])
+          const item = unrevealed[0]
           alreadyRevealed.push(item)
           newlyRevealed.push(item)
           hintsCount += 1
-          message = `Unlocked expected block: ${item.label} (-3 pts).`
+          message = isPracticeRun
+            ? `Practice Hint: Unlocked ${item.label} (0-pt coaching).`
+            : `Unlocked expected block: ${item.label} (-3 pts).`
         } else {
           message = 'All expected components are already revealed or placed.'
         }
-      } else {
+      } else if (hintMode === 'reveal_all') {
         revealedAll = true
-        for (const exp of unrevealed) {
-          const item = demoMatchBlock(exp)
-          alreadyRevealed.push(item)
-          newlyRevealed.push(item)
+        for (const item of expectedItems) {
+          if (!revealedSet.has(item.name.toLowerCase())) {
+            alreadyRevealed.push(item)
+            newlyRevealed.push(item)
+            revealedSet.add(item.name.toLowerCase())
+          }
         }
-        message = newlyRevealed.length
-          ? `Unlocked ${newlyRevealed.length} expected component(s) into your guided bank.`
-          : 'Required component bank is already unlocked.'
+        topologyFeedback = demoEvaluateTopology(
+          expectedItems,
+          expectedPaths,
+          currentNodes,
+          currentEdges,
+          currentNotes
+        )
+        message = isPracticeRun
+          ? `Practice Coach unlocked all ${alreadyRevealed.length} required components & Path Milestones (0 pts).`
+          : `Unlocked all ${alreadyRevealed.length} required components & Path Milestones (-18 pts min).`
+      } else if (hintMode === 'check_topology') {
+        topologyFeedback = demoEvaluateTopology(
+          expectedItems,
+          expectedPaths,
+          currentNodes,
+          currentEdges,
+          currentNotes
+        )
+        nextConnectionHint = topologyFeedback.next_connection_hint || null
+        message = topologyFeedback.summary
+      } else if (hintMode === 'next_connection') {
+        topologyFeedback = demoEvaluateTopology(
+          expectedItems,
+          expectedPaths,
+          currentNodes,
+          currentEdges,
+          currentNotes
+        )
+        nextConnectionHint = topologyFeedback.next_connection_hint || null
+        if (nextConnectionHint && !isPracticeRun) {
+          hintsCount += 1
+        }
+        message = nextConnectionHint
+          ? nextConnectionHint.rationale
+          : 'All placed milestone components are already wired — check Topology Diagnostics for missing blocks or notes.'
       }
 
-      const penaltyPoints = demoComputePenalty(hintsCount, revealedAll)
+      const penaltyPoints = demoComputePenalty(hintsCount, revealedAll, session.mode)
       session.diagram_guidance = {
         hints_used_count: hintsCount,
         revealed_all_bank: revealedAll,
         revealed_components: alreadyRevealed,
+        expected_paths: expectedPaths,
+        last_topology_feedback: topologyFeedback,
         penalty_points: penaltyPoints,
       }
       session.updated_at = new Date().toISOString()
@@ -3750,9 +4082,13 @@ export async function handleDemoRequest(config) {
       return ok({
         newly_revealed: newlyRevealed,
         revealed_components: alreadyRevealed,
+        expected_paths: expectedPaths,
+        topology_feedback: topologyFeedback,
+        next_connection_hint: nextConnectionHint,
         hints_used_count: hintsCount,
         revealed_all_bank: revealedAll,
         penalty_points: penaltyPoints,
+        is_practice_run: isPracticeRun,
         remaining_expected_count: Math.max(0, unrevealed.length - newlyRevealed.length),
         message,
         session,

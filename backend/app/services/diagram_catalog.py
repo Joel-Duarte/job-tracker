@@ -110,6 +110,25 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
         "default_role": "Holds persistent WebSocket/SSE/MQTT connections for real-time delivery.",
         "keywords": ["websocket", "sse", "push", "realtime gateway", "socket", "mqtt"],
     },
+    {
+        "type_id": "content_filter",
+        "label": "URL / Payload Safety Filter",
+        "category": "traffic_api",
+        "icon": "shield-alert",
+        "default_role": "Checks URLs, payloads, or uploads against phishing/malware blocklists and abuse policies.",
+        "keywords": [
+            "blocklist",
+            "blacklist",
+            "malicious",
+            "phishing",
+            "safety filter",
+            "moderation",
+            "virus",
+            "spam filter",
+            "url filter",
+            "abuse",
+        ],
+    },
     # 3. Compute & Services (6)
     {
         "type_id": "app_service",
@@ -139,11 +158,23 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
     },
     {
         "type_id": "scheduler",
-        "label": "Scheduler / Cron Coordinator",
+        "label": "Scheduler / TTL Sweeper",
         "category": "compute_services",
         "icon": "clock",
-        "default_role": "Triggers delayed tasks, TTL sweeps, billing runs, or periodic jobs.",
-        "keywords": ["scheduler", "cron", "timer", "ttl", "delayed job", "sweeper"],
+        "default_role": "Triggers delayed tasks, link TTL/expiration sweeps, retention cleanup, or periodic jobs.",
+        "keywords": [
+            "scheduler",
+            "cron",
+            "timer",
+            "ttl",
+            "expiration",
+            "expiry",
+            "cleanup",
+            "retention",
+            "lifecycle",
+            "delayed job",
+            "sweeper",
+        ],
     },
     {
         "type_id": "id_generator",
@@ -328,7 +359,16 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
         "category": "messaging_streaming",
         "icon": "inbox",
         "default_role": "Decouples producers from consumers with at-least-once delivery & visibility timeout.",
-        "keywords": ["queue", "sqs", "rabbitmq", "task queue", "message queue"],
+        "keywords": [
+            "queue",
+            "sqs",
+            "rabbitmq",
+            "task queue",
+            "message queue",
+            "async queue",
+            "click analytics",
+            "click counting",
+        ],
     },
     {
         "type_id": "event_stream",
@@ -365,7 +405,8 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
             "spark streaming",
             "kafka streams",
             "stream processor",
-            "aggregation",
+            "windowed stream",
+            "cep",
         ],
     },
     {
@@ -737,12 +778,967 @@ def summarize_diagram_flow(flow_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def compute_diagram_hint_penalty(
-    hints_used_count: int, revealed_all_bank: bool
+    hints_used_count: int,
+    revealed_all_bank: bool,
+    mode: str = "ADAPTIVE",
 ) -> float:
-    """Compute cumulative capped score penalty for diagram component guidance."""
+    """Compute cumulative capped score penalty for diagram guidance (0.0 in PRACTICE mode)."""
+    if str(mode or "ADAPTIVE").strip().upper() == "PRACTICE":
+        return 0.0
     single_penalty = max(0, int(hints_used_count)) * DIAGRAM_HINT_SINGLE_PENALTY
     if revealed_all_bank:
         raw = max(DIAGRAM_HINT_BULK_MIN_PENALTY, single_penalty)
     else:
         raw = single_penalty
     return round(min(DIAGRAM_HINT_MAX_PENALTY, raw), 1)
+
+
+_SYNTHESIS_RULES: list[dict[str, Any]] = [
+    {
+        "type_id": "web_client",
+        "patterns": (),
+        "always_core": False,
+        "why": "Entry point for users invoking create and read flows.",
+        "checklist": ["Distinguish read traffic from write/creation traffic"],
+    },
+    {
+        "type_id": "cdn",
+        "patterns": (
+            "global",
+            "cdn",
+            "edge",
+            "< 30ms",
+            "<30ms",
+            "< 50ms",
+            "sub-50ms",
+            "media",
+            "video",
+        ),
+        "why": "Required for global low-latency read delivery and offloading hot static/redirect traffic.",
+        "checklist": [
+            "Specify cache TTL / invalidation policy vs custom redirect tracking"
+        ],
+    },
+    {
+        "type_id": "load_balancer",
+        "patterns": ("99.9", "high availability", "qps", "horizontal", "scale"),
+        "why": "Distributes inbound traffic cleanly across healthy stateless service instances.",
+        "checklist": [
+            "Use L7 load balancing with health checks across multi-AZ targets"
+        ],
+    },
+    {
+        "type_id": "api_gateway",
+        "patterns": ("api", "rest", "graphql", "auth", "quota", "routing"),
+        "why": "Terminates TLS, enforces request validation/throttling, and routes read vs write APIs.",
+        "checklist": [
+            "Route creation writes separately from hot read endpoints if scaled independently"
+        ],
+    },
+    {
+        "type_id": "rate_limiter",
+        "patterns": (
+            "rate limit",
+            "throttl",
+            "quota",
+            "anti-scrap",
+            "scraping",
+            "enumeration",
+            "ddos",
+            "abuse",
+        ),
+        "why": "Protects write/redirect paths from abusive bursts, scraping, or noisy neighbors.",
+        "checklist": [
+            "Apply token bucket or sliding window counters keyed by IP/API key"
+        ],
+    },
+    {
+        "type_id": "content_filter",
+        "patterns": (
+            "malicious",
+            "phishing",
+            "blocklist",
+            "blacklist",
+            "safety",
+            "moderation",
+            "virus",
+            "spam",
+        ),
+        "why": "Required by security constraints to reject phishing/malicious targets before storing or redirecting.",
+        "checklist": [
+            "Check URLs against a fast blocklist/lookup before minting or serving redirects"
+        ],
+    },
+    {
+        "type_id": "scheduler",
+        "patterns": (
+            "ttl",
+            "expir",
+            "retention",
+            "cleanup",
+            "sweeper",
+            "cron",
+            "scheduled",
+        ),
+        "why": "Required by lifecycle/TTL rules to purge expired records and reclaim storage safely.",
+        "checklist": [
+            "Combine lazy expiration check on read (return 410/404) with periodic background TTL sweeps"
+        ],
+    },
+    {
+        "type_id": "read_replica",
+        "patterns": (
+            "read-heavy",
+            "100:1",
+            "10:1",
+            "99.99%",
+            "99.95%",
+            "replica",
+            "failover",
+            "single point of failure",
+        ),
+        "why": "Absorbs cache-miss read load and eliminates single-DB read/failover bottlenecks.",
+        "checklist": [
+            "Document asynchronous replication lag tolerance and Primary -> Replica failover"
+        ],
+    },
+    {
+        "type_id": "message_queue",
+        "patterns": (
+            "async",
+            "eventual",
+            "click count",
+            "click analytics",
+            "background",
+            "webhook",
+            "job queue",
+        ),
+        "why": "Decouples non-blocking background work (analytics, webhooks) from the critical read/write latency path.",
+        "checklist": [
+            "Keep producers non-blocking; pair with workers and DLQ/retry handling"
+        ],
+    },
+    {
+        "type_id": "async_worker",
+        "patterns": (
+            "async",
+            "eventual",
+            "click count",
+            "click analytics",
+            "background",
+            "worker",
+            "consumer",
+        ),
+        "why": "Consumes queued events to batch-update counters, run cleanup, or handle retries off the hot path.",
+        "checklist": ["Batch DB updates and design idempotent consumers"],
+    },
+]
+
+_STATEFUL_CHECKLISTS: dict[str, list[str]] = {
+    "id_generator": [
+        "Avoid Single Point of Failure: note pre-allocated key ranges, ZooKeeper/etcd leases, or active-active standby instances",
+        "Ensure non-sequential/non-predictable Base62 codes if link privacy is required",
+    ],
+    "relational_db": [
+        "Note Primary-Replica topology or sharding key (e.g. short_code) to prevent single-DB SPOF",
+        "Store expires_at/TTL metadata cleanly for lifecycle enforcement",
+    ],
+    "nosql_kv": [
+        "Specify partition key and replication factor / Multi-AZ quorum strategy",
+    ],
+    "distributed_cache": [
+        "Document eviction policy (LRU/LFU), TTL alignment, and stampede mitigation (singleflight / circuit breaker)",
+    ],
+    "read_replica": [
+        "Route read-miss fallback queries here while writes go strictly to Primary DB",
+    ],
+}
+
+_RESILIENCE_TOKENS = (
+    "standby",
+    "replica",
+    "pre-alloc",
+    "range",
+    "shard",
+    "multi-az",
+    "raft",
+    "etcd",
+    "zookeeper",
+    "cluster",
+    "failover",
+    "active-active",
+    "quorum",
+    "redundant",
+    "singleflight",
+    "evict",
+    "lru",
+)
+
+
+def _split_composite_component_specs(raw_name: str) -> list[str]:
+    """Split composite multi-layer component descriptions into atomic required components."""
+    cleaned = str(raw_name or "").strip()
+    if not cleaned:
+        return []
+    lower = cleaned.lower()
+
+    # Keep single-component tech alternatives like "Primary database (PostgreSQL / DynamoDB)" together,
+    # while stripping parens to inspect architectural layer slashes/arrows outside parentheses.
+    outside_parens = re.sub(r"\([^)]*\)", "", cleaned).strip()
+    if "->" in outside_parens:
+        arrow_parts = [
+            p.strip() for p in re.split(r"\s*->\s*", outside_parens) if p.strip()
+        ]
+        if len(arrow_parts) >= 2:
+            resolved_arrow_types = [
+                match_component_to_catalog(p)["type_id"] for p in arrow_parts
+            ]
+            if (
+                len(set(resolved_arrow_types)) >= 2
+                and "custom" not in resolved_arrow_types
+            ):
+                return [
+                    BLOCKS_BY_TYPE_ID[tid]["label"]
+                    for tid in dict.fromkeys(resolved_arrow_types)
+                ]
+
+    if "/" not in outside_parens:
+        return [cleaned]
+
+    if "api gateway" in lower and "load balancer" in lower:
+        return ["Load Balancer", "API Gateway"]
+    if "queue" in lower and "worker" in lower:
+        return ["Task Queue", "Background Worker Pool"]
+    if "client" in lower and "cdn" in lower:
+        return ["Web / Browser Client", "CDN / Edge Cache"]
+
+    parts = [p.strip() for p in outside_parens.split("/") if p.strip()]
+    if len(parts) < 2:
+        return [cleaned]
+
+    resolved_types = [match_component_to_catalog(p)["type_id"] for p in parts]
+    if len(set(resolved_types)) >= 2 and "custom" not in resolved_types:
+        return [
+            BLOCKS_BY_TYPE_ID[tid]["label"] for tid in dict.fromkeys(resolved_types)
+        ]
+    return [cleaned]
+
+
+def _flatten_text_values(values: Any) -> str:
+    if isinstance(values, str):
+        return values
+    if isinstance(values, list):
+        return " ".join(_flatten_text_values(v) for v in values)
+    if isinstance(values, dict):
+        return " ".join(f"{k} {_flatten_text_values(v)}" for k, v in values.items())
+    return str(values or "")
+
+
+def _build_component_entry(
+    raw_name: str,
+    palette_extensions: list[dict[str, Any]] | None,
+    why_required: str,
+    extra_checklist: list[str] | None = None,
+) -> dict[str, Any]:
+    matched = match_component_to_catalog(raw_name, palette_extensions)
+    checklist: list[str] = []
+    for item in [
+        *(_STATEFUL_CHECKLISTS.get(matched["type_id"], [])),
+        *(extra_checklist or []),
+    ]:
+        clean_item = str(item or "").strip()
+        if clean_item and clean_item not in checklist:
+            checklist.append(clean_item)
+    return {
+        **matched,
+        "why_required": why_required or matched.get("hint_role") or "",
+        "config_checklist": checklist,
+    }
+
+
+def _synthesize_expected_paths(
+    required_components: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Synthesize concrete Read / Write / Async-Lifecycle path steps from required component types."""
+    by_type: dict[str, dict[str, Any]] = {}
+    for comp in required_components:
+        tid = str(comp.get("type_id") or "")
+        if tid and tid not in by_type:
+            by_type[tid] = comp
+
+    has = by_type.__contains__
+    paths: list[dict[str, Any]] = []
+
+    ingress_target = (
+        ("load_balancer", by_type["load_balancer"]["label"])
+        if has("load_balancer")
+        else (
+            ("api_gateway", by_type["api_gateway"]["label"])
+            if has("api_gateway")
+            else (
+                ("app_service", by_type["app_service"]["label"])
+                if has("app_service")
+                else None
+            )
+        )
+    )
+
+    # 1. Read Path
+    read_steps: list[dict[str, Any]] = []
+    if has("web_client") and has("cdn") and ingress_target:
+        read_steps.append(
+            {
+                "source_type_id": "web_client",
+                "source_label": by_type["web_client"]["label"],
+                "target_type_id": "cdn",
+                "target_label": by_type["cdn"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Request / redirect lookup",
+                "rationale": "Serve cacheable edge responses close to users first.",
+            }
+        )
+        read_steps.append(
+            {
+                "source_type_id": "cdn",
+                "source_label": by_type["cdn"]["label"],
+                "target_type_id": ingress_target[0],
+                "target_label": ingress_target[1],
+                "delivery_mode": "sync",
+                "suggested_label": "Origin miss forward",
+                "rationale": "Edge misses route through your load balancer / gateway, never straight to internal caches or DBs.",
+            }
+        )
+    elif has("web_client") and ingress_target:
+        read_steps.append(
+            {
+                "source_type_id": "web_client",
+                "source_label": by_type["web_client"]["label"],
+                "target_type_id": ingress_target[0],
+                "target_label": ingress_target[1],
+                "delivery_mode": "sync",
+                "suggested_label": "HTTPS request",
+                "rationale": "Client traffic enters through edge load balancer / gateway.",
+            }
+        )
+
+    if has("load_balancer") and has("api_gateway"):
+        read_steps.append(
+            {
+                "source_type_id": "load_balancer",
+                "source_label": by_type["load_balancer"]["label"],
+                "target_type_id": "api_gateway",
+                "target_label": by_type["api_gateway"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Balanced traffic",
+                "rationale": "Load Balancer spreads connections across API Gateway nodes.",
+            }
+        )
+    if has("api_gateway") and has("app_service"):
+        read_steps.append(
+            {
+                "source_type_id": "api_gateway",
+                "source_label": by_type["api_gateway"]["label"],
+                "target_type_id": "app_service",
+                "target_label": by_type["app_service"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Routed API call",
+                "rationale": "Gateway forwards validated read/write requests to stateless services.",
+            }
+        )
+    elif has("load_balancer") and has("app_service") and not has("api_gateway"):
+        read_steps.append(
+            {
+                "source_type_id": "load_balancer",
+                "source_label": by_type["load_balancer"]["label"],
+                "target_type_id": "app_service",
+                "target_label": by_type["app_service"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Balanced app call",
+                "rationale": "Load Balancer routes requests to stateless app servers.",
+            }
+        )
+
+    if has("app_service") and has("distributed_cache"):
+        read_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "distributed_cache",
+                "target_label": by_type["distributed_cache"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Cache-aside lookup & populate",
+                "rationale": "App Service checks Redis first; on miss it queries DB and populates cache.",
+            }
+        )
+
+    read_db_type = (
+        "read_replica"
+        if has("read_replica")
+        else (
+            "relational_db"
+            if has("relational_db")
+            else ("nosql_kv" if has("nosql_kv") else None)
+        )
+    )
+    if has("app_service") and read_db_type:
+        read_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": read_db_type,
+                "target_label": by_type[read_db_type]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Read fallback on cache miss",
+                "rationale": "Serve cache-miss reads without overloading primary write locks.",
+            }
+        )
+
+    if read_steps:
+        paths.append(
+            {"id": "read_path", "title": "Read / Low-Latency Path", "steps": read_steps}
+        )
+
+    # 2. Write / Creation Path
+    write_steps: list[dict[str, Any]] = []
+    if has("app_service") and has("content_filter"):
+        write_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "content_filter",
+                "target_label": by_type["content_filter"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Validate URL safety / blocklist",
+                "rationale": "Reject phishing/malicious destinations synchronously before minting or redirecting.",
+            }
+        )
+    if has("app_service") and has("rate_limiter"):
+        write_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "rate_limiter",
+                "target_label": by_type["rate_limiter"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Check write/abuse quota",
+                "rationale": "Prevent abusive link creation spikes or brute-force code scraping.",
+            }
+        )
+    if has("app_service") and has("id_generator"):
+        write_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "id_generator",
+                "target_label": by_type["id_generator"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Mint collision-free short code",
+                "rationale": "Short code creation needs a synchronous unique code before persisting the mapping.",
+            }
+        )
+    primary_db_type = (
+        "relational_db"
+        if has("relational_db")
+        else ("nosql_kv" if has("nosql_kv") else None)
+    )
+    if has("app_service") and primary_db_type:
+        write_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": primary_db_type,
+                "target_label": by_type[primary_db_type]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Persist mapping & optional TTL",
+                "rationale": "Persist authoritative mapping + expires_at timestamp to primary storage.",
+            }
+        )
+    if primary_db_type and has("read_replica"):
+        write_steps.append(
+            {
+                "source_type_id": primary_db_type,
+                "source_label": by_type[primary_db_type]["label"],
+                "target_type_id": "read_replica",
+                "target_label": by_type["read_replica"]["label"],
+                "delivery_mode": "async",
+                "suggested_label": "Async WAL replication",
+                "rationale": "Replicate primary writes to read replicas for scale and failover.",
+            }
+        )
+
+    if write_steps:
+        paths.append(
+            {"id": "write_path", "title": "Write & Safety Path", "steps": write_steps}
+        )
+
+    # 3. Async / Lifecycle Path
+    async_steps: list[dict[str, Any]] = []
+    queue_type = (
+        "message_queue"
+        if has("message_queue")
+        else ("event_stream" if has("event_stream") else None)
+    )
+    if has("app_service") and queue_type:
+        async_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": queue_type,
+                "target_label": by_type[queue_type]["label"],
+                "delivery_mode": "async",
+                "suggested_label": "Enqueue async event / click log",
+                "rationale": "Decouple analytics/background work so redirect latency stays under SLA.",
+            }
+        )
+    if queue_type and has("async_worker"):
+        sink_target = (
+            ("olap_warehouse", by_type["olap_warehouse"]["label"])
+            if has("olap_warehouse")
+            else (
+                (primary_db_type, by_type[primary_db_type]["label"])
+                if primary_db_type
+                else None
+            )
+        )
+        async_steps.append(
+            {
+                "source_type_id": queue_type,
+                "source_label": by_type[queue_type]["label"],
+                "target_type_id": "async_worker",
+                "target_label": by_type["async_worker"]["label"],
+                "delivery_mode": "async",
+                "suggested_label": "Consume & batch events",
+                "rationale": "Workers aggregate queued events off the hot user path.",
+            }
+        )
+        if sink_target:
+            async_steps.append(
+                {
+                    "source_type_id": "async_worker",
+                    "source_label": by_type["async_worker"]["label"],
+                    "target_type_id": sink_target[0],
+                    "target_label": sink_target[1],
+                    "delivery_mode": "async",
+                    "suggested_label": "Flush aggregated updates",
+                    "rationale": "Persist batched counters asynchronously to storage.",
+                }
+            )
+    if has("scheduler") and primary_db_type:
+        async_steps.append(
+            {
+                "source_type_id": "scheduler",
+                "source_label": by_type["scheduler"]["label"],
+                "target_type_id": primary_db_type,
+                "target_label": by_type[primary_db_type]["label"],
+                "delivery_mode": "async",
+                "suggested_label": "Sweep expired TTL rows",
+                "rationale": "Periodically delete/archive expired links alongside lazy TTL checks on read.",
+            }
+        )
+
+    if async_steps:
+        paths.append(
+            {
+                "id": "async_lifecycle_path",
+                "title": "Async Analytics & Lifecycle Path",
+                "steps": async_steps,
+            }
+        )
+
+    return paths
+
+
+def resolve_challenge_blueprint(
+    brief: dict[str, Any] | None,
+    locked_ledger: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build unified required components and expected flow paths from challenge brief + locked ledger."""
+    safe_brief = brief if isinstance(brief, dict) else {}
+    safe_ledger = locked_ledger if isinstance(locked_ledger, dict) else {}
+    palette_extensions = (
+        safe_brief.get("diagram_palette_extensions")
+        if isinstance(safe_brief.get("diagram_palette_extensions"), list)
+        else []
+    )
+
+    corpus = " ".join(
+        [
+            _flatten_text_values(safe_brief.get("functional_requirements")),
+            _flatten_text_values(safe_brief.get("non_functional_requirements")),
+            _flatten_text_values(safe_brief.get("constraints")),
+            _flatten_text_values(safe_brief.get("scale_estimates")),
+            _flatten_text_values(safe_ledger.get("functional_requirements")),
+            _flatten_text_values(safe_ledger.get("non_functional_requirements")),
+            _flatten_text_values(safe_ledger.get("scale_estimates")),
+            _flatten_text_values(safe_ledger.get("assumptions")),
+            _flatten_text_values(safe_ledger.get("notes")),
+        ]
+    ).lower()
+
+    out_of_scope_text = " ".join(
+        [
+            _flatten_text_values(safe_brief.get("out_of_scope")),
+            _flatten_text_values(safe_ledger.get("out_of_scope")),
+        ]
+    ).lower()
+
+    required_components: list[dict[str, Any]] = []
+    seen_type_ids: set[str] = set()
+    seen_labels: set[str] = set()
+
+    def _register(entry: dict[str, Any]) -> None:
+        tid = str(entry.get("type_id") or "")
+        lbl = str(entry.get("label") or "").strip().lower()
+        if tid and tid != "custom":
+            if tid in seen_type_ids:
+                return
+            seen_type_ids.add(tid)
+        elif lbl in seen_labels:
+            return
+        if lbl:
+            seen_labels.add(lbl)
+        required_components.append(entry)
+
+    # 1. Start with explicit challenge expected_components (splitting composite multi-layer bundles)
+    raw_expected = safe_brief.get("expected_components") or []
+    if isinstance(raw_expected, list):
+        for raw_item in raw_expected:
+            raw_text = str(raw_item or "").strip()
+            if not raw_text:
+                continue
+            for atomic_name in _split_composite_component_specs(raw_text):
+                _register(
+                    _build_component_entry(
+                        atomic_name,
+                        palette_extensions,
+                        why_required=f"Core challenge requirement: {raw_text}",
+                    )
+                )
+
+    # 2. Ensure core client entry when ingress/gateway is present
+    if any(
+        t in seen_type_ids
+        for t in ("load_balancer", "api_gateway", "cdn", "app_service")
+    ):
+        _register(
+            _build_component_entry(
+                "Web / Browser Client",
+                palette_extensions,
+                why_required="Shows user entry points so end-to-end read and write traffic flows are complete.",
+            )
+        )
+
+    # 3. Dynamically synthesize missing blocks implied by Challenge Constraints + Locked Stage 1 Ledger
+    for rule in _SYNTHESIS_RULES:
+        tid = rule["type_id"]
+        if tid in seen_type_ids:
+            continue
+        patterns = rule.get("patterns") or ()
+        if not patterns:
+            continue
+        if any(pat in corpus for pat in patterns):
+            # Do not infer Read Replica if the challenge has no persistent primary DB at all
+            if tid == "read_replica" and not (
+                "relational_db" in seen_type_ids or "nosql_kv" in seen_type_ids
+            ):
+                continue
+            # Do not suggest public CDN when explicitly excluded or flagged private-only
+            if tid == "cdn" and (
+                "cdn" in out_of_scope_text
+                or "never publicly cache" in corpus
+                or "no public cdn" in corpus
+            ):
+                continue
+            block_meta = BLOCKS_BY_TYPE_ID.get(tid)
+            if not block_meta:
+                continue
+            _register(
+                _build_component_entry(
+                    block_meta["label"],
+                    palette_extensions,
+                    why_required=rule["why"],
+                    extra_checklist=rule.get("checklist"),
+                )
+            )
+
+    # 4. Expected paths: prefer curated brief expected_paths when valid, else deterministic synthesis
+    raw_paths = safe_brief.get("expected_paths")
+    expected_paths: list[dict[str, Any]] = []
+    if isinstance(raw_paths, list) and raw_paths:
+        for path_group in raw_paths:
+            if not isinstance(path_group, dict):
+                continue
+            steps = [
+                step
+                for step in (path_group.get("steps") or [])
+                if isinstance(step, dict)
+            ]
+            if steps:
+                expected_paths.append(
+                    {
+                        "id": str(path_group.get("id") or "path"),
+                        "title": str(path_group.get("title") or "Architecture Flow"),
+                        "steps": steps,
+                    }
+                )
+    if not expected_paths:
+        expected_paths = _synthesize_expected_paths(required_components)
+
+    return {
+        "required_components": required_components,
+        "expected_paths": expected_paths,
+        "out_of_scope_text": out_of_scope_text,
+    }
+
+
+def _edges_match_step(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    source_type_id: str,
+    target_type_id: str,
+) -> bool:
+    node_types = {
+        str(n.get("id")): str(n.get("type_id") or "")
+        for n in nodes
+        if isinstance(n, dict)
+    }
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        src_type = node_types.get(str(edge.get("source") or ""), "")
+        dst_type = node_types.get(str(edge.get("target") or ""), "")
+        if src_type == source_type_id and dst_type == target_type_id:
+            return True
+    return False
+
+
+def evaluate_canvas_topology(
+    flow_payload: dict[str, Any],
+    resolved_blueprint: dict[str, Any],
+    brief: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run deterministic pre-flight coaching checks on nodes, edges, SPOFs, and NFR coverage."""
+    nodes = [n for n in (flow_payload.get("nodes") or []) if isinstance(n, dict)]
+    edges = [e for e in (flow_payload.get("edges") or []) if isinstance(e, dict)]
+    canvas_notes = str(flow_payload.get("notes") or "").lower()
+    required_components = list(resolved_blueprint.get("required_components") or [])
+    expected_paths = list(resolved_blueprint.get("expected_paths") or [])
+    out_of_scope_text = str(resolved_blueprint.get("out_of_scope_text") or "").lower()
+
+    node_by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
+    placed_type_ids = {str(n.get("type_id") or "") for n in nodes}
+
+    # 1. Required component coverage
+    missing_required: list[dict[str, Any]] = []
+    placed_required_count = 0
+    for req in required_components:
+        is_present = any(
+            node_matches_expected(n, req["name"])
+            or (req["type_id"] != "custom" and n.get("type_id") == req["type_id"])
+            for n in nodes
+        )
+        if is_present:
+            placed_required_count += 1
+        else:
+            missing_required.append(req)
+
+    total_required = len(required_components)
+    coverage_pct = (
+        round((placed_required_count / total_required) * 100) if total_required else 100
+    )
+
+    findings: list[dict[str, Any]] = []
+    for req in missing_required:
+        findings.append(
+            {
+                "severity": "missing",
+                "title": f"Missing: {req['label']}",
+                "detail": req.get("why_required") or req.get("hint_role") or "",
+                "component_type_id": req["type_id"],
+            }
+        )
+
+    # 2. Structural & directional anti-pattern checks on drawn edges
+    incoming: dict[str, int] = {nid: 0 for nid in node_by_id}
+    outgoing: dict[str, int] = {nid: 0 for nid in node_by_id}
+    unlabeled_edge_count = 0
+    seen_reversed_checks: set[str] = set()
+
+    for edge in edges:
+        src_id = str(edge.get("source") or "")
+        dst_id = str(edge.get("target") or "")
+        if src_id not in node_by_id or dst_id not in node_by_id:
+            continue
+        outgoing[src_id] += 1
+        incoming[dst_id] += 1
+        if not str(edge.get("label") or "").strip():
+            unlabeled_edge_count += 1
+
+        src_type = str(node_by_id[src_id].get("type_id") or "")
+        dst_type = str(node_by_id[dst_id].get("type_id") or "")
+
+        if src_type in ("relational_db", "nosql_kv", "read_replica") and dst_type in (
+            "distributed_cache",
+            "local_cache",
+        ):
+            if "db_to_cache" not in seen_reversed_checks:
+                seen_reversed_checks.add("db_to_cache")
+                findings.append(
+                    {
+                        "severity": "flow_direction",
+                        "title": "Inverted Cache-Aside Direction (DB -> Cache)",
+                        "detail": (
+                            f"{node_by_id[src_id].get('label')} feeds {node_by_id[dst_id].get('label')} directly. "
+                            "In cache-aside reads, Stateless App Service checks Redis first, queries DB/Replica on a miss, then populates Redis."
+                        ),
+                    }
+                )
+
+        if src_type == "cdn" and dst_type in (
+            "distributed_cache",
+            "relational_db",
+            "nosql_kv",
+            "id_generator",
+        ):
+            if "cdn_to_internal" not in seen_reversed_checks:
+                seen_reversed_checks.add("cdn_to_internal")
+                findings.append(
+                    {
+                        "severity": "flow_direction",
+                        "title": "CDN Bypassing Load Balancer / App Layer",
+                        "detail": (
+                            f"{node_by_id[src_id].get('label')} connects straight to internal storage/cache ({node_by_id[dst_id].get('label')}). "
+                            "Route CDN origin misses through Load Balancer -> API Gateway -> Stateless App Service."
+                        ),
+                    }
+                )
+
+        if (
+            src_type
+            in ("message_queue", "event_stream", "stream_processor", "async_worker")
+            and dst_type == "id_generator"
+        ):
+            if "async_to_idgen" not in seen_reversed_checks:
+                seen_reversed_checks.add("async_to_idgen")
+                findings.append(
+                    {
+                        "severity": "flow_direction",
+                        "title": "Async Layer Calling ID Generator",
+                        "detail": (
+                            f"{node_by_id[src_id].get('label')} -> {node_by_id[dst_id].get('label')} puts ID generation on an async queue path. "
+                            "Link creation needs an immediate short code synchronously from Stateless App Service -> Unique ID / Key Generator."
+                        ),
+                    }
+                )
+
+    if len(nodes) > 1:
+        isolated = [
+            str(n.get("label") or nid)
+            for nid, n in node_by_id.items()
+            if incoming[nid] == 0 and outgoing[nid] == 0
+        ]
+        if isolated:
+            findings.append(
+                {
+                    "severity": "wiring",
+                    "title": f"Unwired Component(s): {', '.join(isolated[:3])}",
+                    "detail": "Connect every placed block into a Read, Write, or Async flow so Reviewer sees how it participates.",
+                }
+            )
+    if unlabeled_edge_count > 0:
+        findings.append(
+            {
+                "severity": "wiring",
+                "title": f"{unlabeled_edge_count} Unlabeled Wire(s)",
+                "detail": "Click each wire to describe its action (e.g. 'Check cache / miss fallback', 'Persist short code + TTL').",
+            }
+        )
+
+    # 3. SPOF & Resilience Notes checks on placed stateful blocks
+    for node in nodes:
+        tid = str(node.get("type_id") or "")
+        combined_node_notes = " ".join(
+            [
+                str(node.get("tech_stack") or ""),
+                str(node.get("notes") or ""),
+                canvas_notes,
+            ]
+        ).lower()
+        has_resilience_note = any(
+            tok in combined_node_notes for tok in _RESILIENCE_TOKENS
+        )
+        if (
+            tid == "id_generator"
+            and not has_resilience_note
+            and "consensus_store" not in placed_type_ids
+        ):
+            findings.append(
+                {
+                    "severity": "spof",
+                    "title": "Single Point of Failure Risk on Unique ID / Key Generator",
+                    "detail": "Click this node and note pre-allocated key ranges, ZooKeeper/etcd leases, or multi-instance active-active standby.",
+                }
+            )
+        if (
+            tid in ("relational_db", "nosql_kv")
+            and "read_replica" not in placed_type_ids
+            and not has_resilience_note
+        ):
+            findings.append(
+                {
+                    "severity": "spof",
+                    "title": f"Redundancy / Read Scaling Note Missing on {node.get('label')}",
+                    "detail": "Add a DB Read Replica block or specify Multi-AZ Primary-Replica failover and sharding key in node notes.",
+                }
+            )
+
+    # 4. Over-engineering check aligned with challenge out-of-scope / traps
+    if "stream_processor" in placed_type_ids and (
+        "real-time" in out_of_scope_text
+        or "sub-second" in out_of_scope_text
+        or "message_queue" in {r["type_id"] for r in required_components}
+    ):
+        findings.append(
+            {
+                "severity": "complexity",
+                "title": "Over-Engineering Risk: Stream Processor (Flink)",
+                "detail": "Basic eventual-consistency click counting fits Task Queue + Background Worker Pool; Flink adds unnecessary operational overhead unless windowed real-time streaming is needed.",
+            }
+        )
+
+    # 5. Path milestones & next connection hint
+    path_milestones: list[dict[str, Any]] = []
+    next_connection_hint: dict[str, Any] | None = None
+    for path in expected_paths:
+        step_results: list[dict[str, Any]] = []
+        completed_steps = 0
+        for step in path.get("steps") or []:
+            src_tid = str(step.get("source_type_id") or "")
+            dst_tid = str(step.get("target_type_id") or "")
+            satisfied = _edges_match_step(nodes, edges, src_tid, dst_tid)
+            if satisfied:
+                completed_steps += 1
+            elif next_connection_hint is None:
+                next_connection_hint = {
+                    "path_title": path.get("title") or "Architecture Flow",
+                    **step,
+                }
+            step_results.append({**step, "satisfied": satisfied})
+        path_milestones.append(
+            {
+                "id": path.get("id") or "path",
+                "title": path.get("title") or "Path",
+                "completed": completed_steps,
+                "total": len(step_results),
+                "steps": step_results,
+            }
+        )
+
+    return {
+        "placed_required_count": placed_required_count,
+        "total_required_count": total_required,
+        "coverage_pct": coverage_pct,
+        "path_milestones": path_milestones,
+        "findings": findings,
+        "next_connection_hint": next_connection_hint,
+    }

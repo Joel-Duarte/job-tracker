@@ -628,6 +628,26 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
 
   await page.getByTestId('reveal-bank-btn').click()
   await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-18 pts')
+  await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+  await expect(page.getByTestId('path-milestones-section')).toContainText('Read Path')
+  await expect(page.getByTestId('diagram-hint-tray')).toContainText('URL / Payload Safety Filter')
+  await expect(page.getByTestId('diagram-hint-tray')).toContainText('Task Queue')
+  await expect(page.getByTestId('diagram-hint-tray')).not.toContainText('Flink')
+
+  // Close Coach slide-over drawer before interacting with Guided Bank / canvas (especially on narrow viewports)
+  await page.getByTestId('toggle-coach-drawer-btn').click()
+  await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
+
+  // Inspect ? explanation popover inside Guided Bank
+  await page.getByTestId('hint-info-btn').first().click()
+  await expect(page.getByTestId('hint-info-popover')).toBeVisible()
+
+  // Toggle Practice mode (0-pt coaching) in Studio header and back to Adaptive
+  await page.getByTestId('studio-mode-practice-btn').click()
+  await expect(page.getByTestId('practice-zero-penalty-badge')).toBeVisible()
+  await expect(page.getByTestId('guidance-penalty-badge')).toHaveCount(0)
+  await page.getByTestId('studio-mode-adaptive-btn').click()
+  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-18 pts')
 
   // Add canonical blocks from palette + create a Custom Block
   await page.getByTestId('palette-search-input').fill('Redis')
@@ -688,6 +708,10 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
     .fill('Edge gateway routes hot lookups to Redis Cluster and async key invalidation.')
   await expect(page.getByTestId('flow-json-preview')).toContainText('3 blocks, 1 flows')
 
+  // Check Topology opens Learning Coach diagnostics
+  await page.getByTestId('check-topology-btn').click()
+  await expect(page.getByTestId('topology-diagnostics-section')).toBeVisible()
+
   // Save Canvas Revision v1 & run Stage 3 Review -> redirects cleanly back to Stage 3 critique
   await page.getByTestId('save-canvas-btn').click()
   await page.getByTestId('analyze-canvas-btn').click()
@@ -695,6 +719,13 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await expect(page).toHaveURL(/\/chat\?mode=system_design.*stage=REVIEW/)
   await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
   await expect(page.getByText('Visual Clarifications Needed')).toHaveCount(0)
+
+  // Clicking Revise in Design Studio opens Studio with Stage 3 Fix Checklist drawer open
+  await page.getByTestId('revise-in-studio-btn').click()
+  await expect(page).toHaveURL(/\/system-design\/\d+\/design.*fixReview=1/)
+  await expect(page.getByTestId('review-fix-checklist')).toBeVisible()
+  await page.getByTestId('studio-back-btn').click()
+  await page.getByTestId('stage-step-REVIEW').click()
 
   // Proceed through Stage 4 Defence to Stage 5 Evaluation & check Raw vs Net Penalty (-18 pts -> 86 - 18 = 68)
   await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()

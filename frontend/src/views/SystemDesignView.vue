@@ -847,12 +847,15 @@ async function handleUploadDiagram() {
   }
 }
 
-function openDesignStudio(version = null) {
+function openDesignStudio(version = null, fixReview = false) {
   if (!activeSession.value?.id) return
+  const query = {}
+  if (version) query.version = String(version)
+  if (fixReview) query.fixReview = '1'
   router.push({
     name: 'SystemDesignStudio',
     params: { sessionId: activeSession.value.id },
-    query: version ? { version: String(version) } : undefined,
+    query: Object.keys(query).length ? query : undefined,
   })
 }
 
@@ -1708,6 +1711,13 @@ onUnmounted(() => {
               >
                 Blind Profile
               </span>
+              <span
+                v-if="String(activeSession.mode || '').toUpperCase() === 'PRACTICE'"
+                class="badge badge-offer"
+                data-testid="practice-mode-badge"
+              >
+                Practice Run (Assisted)
+              </span>
             </div>
             <p class="sd-muted">{{ activeSession.challenge?.initial_prompt }}</p>
           </div>
@@ -2249,10 +2259,20 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="btn btn-secondary"
+                data-testid="revise-in-studio-btn"
+                @click="openDesignStudio(selectedReview.diagram_version, true)"
+              >
+                <Layers :size="14" />
+                <span>Revise in Design Studio</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                data-testid="upload-revised-image-fallback-btn"
                 @click="selectStage('DESIGN')"
               >
-                <Upload :size="14" />
-                <span>Upload Revised Diagram</span>
+                <Upload :size="13" />
+                <span>Image Upload</span>
               </button>
               <button
                 type="button"
@@ -2482,10 +2502,10 @@ onUnmounted(() => {
             <button
               type="button"
               class="btn btn-secondary w-full"
-              @click="selectStage('DESIGN')"
+              @click="openDesignStudio(selectedRevision?.version || null, true)"
             >
               <RotateCcw :size="14" />
-              <span>Upload Revised Diagram (v{{ (store.activeDiagrams.length || 0) + 1 }})</span>
+              <span>Revise in Design Studio (v{{ (store.activeDiagrams.length || 0) + 1 }})</span>
             </button>
             <button
               type="button"
@@ -2562,6 +2582,13 @@ onUnmounted(() => {
                     {{ formatReadinessLabel(store.activeFinalEvaluation.readiness_rating) }}
                   </span>
                   <h2>Final Interview Scorecard</h2>
+                  <span
+                    v-if="String(activeSession?.mode || '').toUpperCase() === 'PRACTICE'"
+                    class="badge badge-offer"
+                    data-testid="eval-practice-badge"
+                  >
+                    Practice Run (Assisted)
+                  </span>
                   <span
                     v-if="Number(store.activeFinalEvaluation.guidance_penalty || 0) > 0"
                     class="badge badge-interview"

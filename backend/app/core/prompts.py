@@ -870,7 +870,7 @@ DEFAULT_PROMPTS = {
         "CANDIDATE NOTES:\n{candidate_notes}\n\n"
         "CRITICAL EVALUATION RULES:\n"
         "1. Separate visual/diagram notation ambiguities (illegible labels, missing arrow directions) into 'visual_clarifications_needed' instead of penalizing them as architectural failures.\n"
-        "2. Evaluate whether the architecture right-sizes complexity to the locked scale estimates (flag both bottlenecks/SPOFs and over-engineering traps).\n"
+        "2. Evaluate whether the architecture right-sizes complexity to the locked scale estimates (flag both bottlenecks/SPOFs and over-engineering traps). Never penalize a component as unnecessary complexity if it is explicitly part of the session's aligned required blueprint for an active requirement.\n"
         "3. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
     ),
 }
@@ -891,6 +891,10 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             in (existing.template or "")
         ):
             # Auto-heal legacy interviewer prompt that bounced clarifying questions back
+            existing.template = default_template
+        elif prompt_name == "system_design_reviewer" and (
+            "session's aligned required blueprint" not in (existing.template or "")
+        ):
             existing.template = default_template
         elif prompt_name == "cv_anonymization" and (
             "{'domain'}" in (existing.template or "")

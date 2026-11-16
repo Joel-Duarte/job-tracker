@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  HelpCircle,
   Layers,
   Lightbulb,
   Maximize2,
@@ -81,6 +82,16 @@ const filteredBlocks = computed(() => {
 
 const guidance = computed(() => props.session?.diagram_guidance || {})
 const revealedComponents = computed(() => guidance.value?.revealed_components || [])
+const activeHintDetailName = ref(null)
+const activeHintDetail = computed(
+  () =>
+    revealedComponents.value.find(
+      (item) => `${item.name}-${item.type_id}` === activeHintDetailName.value
+    ) || null
+)
+const placedGuidedCount = computed(
+  () => revealedComponents.value.filter((item) => isRevealedPlaced(item)).length
+)
 
 const selectedNode = computed(
   () => nodes.value.find((n) => n.id === selectedNodeId.value) || null
@@ -350,6 +361,7 @@ watch(
 
 defineExpose({
   getCurrentNodes: () => serializeFlowNodes(nodes.value),
+  getCurrentEdges: () => serializeFlowEdges(edges.value),
   getFlowSnapshot: buildFlowSnapshot,
   clearCanvas,
   fitCanvas: () => fitView({ padding: 0.2 }),
@@ -497,25 +509,90 @@ defineExpose({
         <div class="sd-hint-tray-head">
           <strong>
             <Lightbulb :size="14" />
-            <span>Guided Bank ({{ revealedComponents.length }})</span>
+            <span>Guided Bank ({{ placedGuidedCount }}/{{ revealedComponents.length }} placed)</span>
           </strong>
-          <span class="sd-muted">Click any block to place on canvas</span>
+          <span class="sd-muted">Click a block to place it, or ? for why &amp; checklist</span>
         </div>
         <div class="sd-hint-pills">
-          <button
+          <div
             v-for="item in revealedComponents"
             :key="`${item.name}-${item.type_id}`"
-            type="button"
-            class="sd-hint-pill"
+            class="sd-hint-chip-group"
             :class="{ placed: isRevealedPlaced(item) }"
-            :title="item.hint_role"
-            @click="addBlockToCanvas(item)"
           >
-            <component :is="resolveDiagramIcon(item.icon)" :size="14" />
-            <span>{{ item.label }}</span>
-            <CheckCircle2 v-if="isRevealedPlaced(item)" :size="13" class="sd-placed-check" />
-            <Plus v-else :size="13" />
-          </button>
+            <button
+              type="button"
+              class="sd-hint-pill"
+              :class="{ placed: isRevealedPlaced(item) }"
+              :title="item.why_required || item.hint_role"
+              @click="addBlockToCanvas(item)"
+            >
+              <component :is="resolveDiagramIcon(item.icon)" :size="14" />
+              <span>{{ item.label }}</span>
+              <CheckCircle2 v-if="isRevealedPlaced(item)" :size="13" class="sd-placed-check" />
+              <Plus v-else :size="13" />
+            </button>
+            <button
+              type="button"
+              class="sd-hint-info-btn"
+              :class="{
+                active: activeHintDetailName === `${item.name}-${item.type_id}`,
+              }"
+              data-testid="hint-info-btn"
+              :aria-label="`Explain ${item.label}`"
+              title="Why this component & configuration checklist"
+              @click.stop="
+                activeHintDetailName =
+                  activeHintDetailName === `${item.name}-${item.type_id}`
+                    ? null
+                    : `${item.name}-${item.type_id}`
+              "
+            >
+              <HelpCircle :size="12" />
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="activeHintDetail"
+          class="sd-hint-detail-popover"
+          data-testid="hint-info-popover"
+        >
+          <div class="sd-hint-detail-head">
+            <strong>{{ activeHintDetail.label }} — Why &amp; Checklist</strong>
+            <div class="sd-hint-detail-actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                @click="addBlockToCanvas(activeHintDetail)"
+              >
+                <Plus :size="12" />
+                <span>Place</span>
+              </button>
+              <button
+                type="button"
+                class="sd-icon-btn"
+                aria-label="Close detail"
+                @click="activeHintDetailName = null"
+              >
+                <X :size="13" />
+              </button>
+            </div>
+          </div>
+          <p class="sd-hint-why">
+            {{ activeHintDetail.why_required || activeHintDetail.hint_role }}
+          </p>
+          <ul
+            v-if="activeHintDetail.config_checklist?.length"
+            class="sd-hint-checklist"
+          >
+            <li
+              v-for="checkItem in activeHintDetail.config_checklist"
+              :key="checkItem"
+            >
+              {{ checkItem }}
+            </li>
+          </ul>
         </div>
       </div>
 
@@ -894,22 +971,90 @@ defineExpose({
   gap: 6px;
 }
 
+.sd-hint-chip-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-surface, #1e293b);
+  overflow: hidden;
+}
+
+.sd-hint-chip-group.placed {
+  border-color: #10b981;
+}
+
 .sd-hint-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-surface, #1e293b);
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
   color: var(--text-primary, #f8fafc);
   font-size: 0.78rem;
   cursor: pointer;
 }
 
 .sd-hint-pill.placed {
-  border-color: #10b981;
   color: #10b981;
+}
+
+.sd-hint-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px 4px 4px;
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--border-subtle, #334155) 70%, transparent);
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+}
+
+.sd-hint-info-btn:hover,
+.sd-hint-info-btn.active {
+  color: var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+}
+
+.sd-hint-detail-popover {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-surface, #1e293b);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.78rem;
+}
+
+.sd-hint-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sd-hint-detail-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-hint-why {
+  margin: 0;
+  color: var(--text-primary, #f8fafc);
+  line-height: 1.35;
+}
+
+.sd-hint-checklist {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary, #94a3b8);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .sd-placed-check {

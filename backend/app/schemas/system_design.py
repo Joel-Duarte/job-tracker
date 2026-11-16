@@ -205,10 +205,17 @@ class CanvasDiagramSubmitRequest(BaseModel):
 
 
 class DiagramHintRequest(BaseModel):
-    """Request for guided component hints in ADAPTIVE / PRACTICE mode."""
+    """Request for guided component/topology hints in ADAPTIVE / PRACTICE mode."""
 
-    hint_mode: Literal["next_component", "reveal_all"] = "next_component"
+    hint_mode: Literal[
+        "next_component",
+        "reveal_all",
+        "next_connection",
+        "check_topology",
+    ] = "next_component"
     current_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    current_edges: list[dict[str, Any]] = Field(default_factory=list)
+    current_notes: str = Field(default="", max_length=4000)
 
 
 class RevealedComponentHint(BaseModel):
@@ -220,14 +227,20 @@ class RevealedComponentHint(BaseModel):
     category: str
     icon: str
     hint_role: str
+    why_required: str = ""
+    config_checklist: list[str] = Field(default_factory=list)
     is_custom: bool = False
 
 
 class DiagramHintResponse(BaseModel):
-    """Response after unlocking component guidance on a session."""
+    """Response after unlocking component or topology guidance on a session."""
 
     newly_revealed: list[RevealedComponentHint] = Field(default_factory=list)
     revealed_components: list[dict[str, Any]] = Field(default_factory=list)
+    expected_paths: list[dict[str, Any]] = Field(default_factory=list)
+    topology_feedback: dict[str, Any] | None = None
+    next_connection_hint: dict[str, Any] | None = None
+    is_practice_run: bool = False
     hints_used_count: int = 0
     revealed_all_bank: bool = False
     penalty_points: float = 0.0
