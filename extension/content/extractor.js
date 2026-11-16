@@ -96,7 +96,21 @@
       if (!node) return '';
 
       const clone = node.cloneNode(true);
-      const dropTags = ['script', 'style', 'noscript', 'nav', 'header', 'footer', 'svg', 'form', 'button', 'iframe'];
+      const dropTags = [
+        'script',
+        'style',
+        'noscript',
+        'nav',
+        'header',
+        'footer',
+        'svg',
+        'form',
+        'button',
+        'iframe',
+        '#job-tracker-dock-host',
+        '[role="dialog"][aria-modal="true"]',
+        '#onetrust-consent-sdk'
+      ];
       dropTags.forEach((tag) => {
         clone.querySelectorAll(tag).forEach((el) => el.remove());
       });
@@ -427,26 +441,85 @@
       }
 
       if (!title || !isCleanTitle(title)) {
-        title = deriveTitleFromDoc();
+        const headingEl = Array.from(document.querySelectorAll('main h1, [role="main"] h1, article h1, h1')).find(
+          (el) =>
+            el.textContent &&
+            el.textContent.trim().length > 2 &&
+            !el.closest('nav, header, footer, aside, [role="dialog"], [aria-modal="true"], #onetrust-consent-sdk, #job-tracker-dock-host')
+        );
+        const headingTitle = headingEl ? headingEl.textContent.trim() : '';
+        title = (headingTitle && isCleanTitle(headingTitle)) ? headingTitle : deriveTitleFromDoc();
       }
       if (!company) {
         company = deriveCompanyFromTitle();
       }
 
-      const container = queryFirst([
-        'article',
-        'main',
-        '[role="main"]',
-        '#job-description',
-        '#description',
-        '.job-description',
-        '.description',
-        '.content',
-        'body'
-      ]) || document.body;
+      const pickBestContainer = (selectors) => {
+        const seen = new Set();
+        let bestEl = null;
+        let bestText = '';
 
-      description_text = convertNodeToText(container);
-      raw_html_snippet = container.innerHTML;
+        for (const sel of selectors) {
+          let matches = [];
+          try {
+            matches = document.querySelectorAll(sel);
+          } catch (e) {
+            continue;
+          }
+          const limit = Math.min(matches.length, 25);
+          for (let i = 0; i < limit; i++) {
+            const el = matches[i];
+            if (!el || seen.has(el)) continue;
+            seen.add(el);
+            if (el.closest('nav, header, footer, aside, #job-tracker-dock-host')) continue;
+            if (!el.textContent || el.textContent.trim().length < 50) continue;
+
+            const text = convertNodeToText(el);
+            if (text.length > bestText.length) {
+              bestEl = el;
+              bestText = text;
+            }
+          }
+        }
+
+        return { el: bestEl, text: bestText };
+      };
+
+      const specificPick = pickBestContainer([
+        '#job-description',
+        '.job-description',
+        '[data-automation-id="jobPostingDescription"]',
+        '[class*="job-description" i]',
+        '[class*="jobDescription" i]',
+        '#description',
+        '.description'
+      ]);
+
+      let chosen = specificPick;
+      if (chosen.text.length < 400) {
+        const broadPick = pickBestContainer([
+          'main',
+          '[role="main"]',
+          'article',
+          '[class*="job-detail" i]',
+          '[class*="jobDetail" i]',
+          '.content'
+        ]);
+        if (broadPick.text.length > chosen.text.length) {
+          chosen = broadPick;
+        }
+      }
+
+      if (chosen.text.length < 250 && document.body) {
+        const bodyText = convertNodeToText(document.body);
+        if (bodyText.length > chosen.text.length) {
+          chosen = { el: document.body, text: bodyText };
+        }
+      }
+
+      const container = chosen.el || document.body;
+      description_text = chosen.text || (container ? convertNodeToText(container) : '');
+      raw_html_snippet = container ? container.innerHTML : '';
     }
 
     // Generic Location Scanner

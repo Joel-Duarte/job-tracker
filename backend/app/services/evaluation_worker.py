@@ -1974,15 +1974,29 @@ async def _execute_evaluation_steps(
 
             content = task.raw_text or checkpoint.get("content")
             clean_job_url = normalize_job_url(task.job_url)
+            min_job_text_chars = 100
+            short_job_text_threshold = 400
+            used_scraped_fallback = False
 
-            # Stage 1: Fetch URL if content not already provided
-            if not content and clean_job_url:
+            stripped_content = content.strip() if content else ""
+            needs_url_scrape = bool(clean_job_url) and (
+                not stripped_content
+                or len(stripped_content) < min_job_text_chars
+                or (
+                    len(stripped_content) < short_job_text_threshold
+                    and not validate_job_content(stripped_content, min_matches=2)
+                )
+            )
+
+            # Stage 1: Fetch URL if content is missing or appears to be an incomplete snippet
+            if needs_url_scrape:
                 task.stage = "FETCHING"
                 await db.commit()
 
                 scraped = await scrape_job_url(clean_job_url)
-                if scraped.text:
+                if scraped.text and len(scraped.text.strip()) > len(stripped_content):
                     content = scraped.text
+                    used_scraped_fallback = True
                     checkpoint["content"] = content
                     current_json["_checkpoint"] = checkpoint
                     task.result_json = dict(current_json)
@@ -1999,8 +2013,24 @@ async def _execute_evaluation_steps(
                 ctx["outputs"] = {"status": task.status, "stage": task.stage}
                 return
 
+            if len(content.strip()) < min_job_text_chars:
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = (
+                    f"SCRAPE_FAILED: Extracted job description is too short ({len(content.strip())} chars). "
+                    "Please provide the full job description text."
+                )
+                task.completed_at = datetime.now(UTC)
+                await db.commit()
+                ctx["error"] = task.error_message
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                return
+
             # Lightweight Keyword Filtering Validation (only for scraped pages, skipped if user explicitly provided the JD text)
-            is_user_provided_text = bool(task.raw_text and task.raw_text.strip())
+            is_user_provided_text = (
+                bool(task.raw_text and task.raw_text.strip())
+                and not used_scraped_fallback
+            )
             if not is_user_provided_text and not validate_job_content(
                 content, min_matches=2
             ):
@@ -2026,8 +2056,11 @@ async def _execute_evaluation_steps(
                     page_title=current_json.get("page_title"),
                 )
                 if not job_spec.job_found:
-                    if is_user_provided_text:
-                        # User explicitly pasted the text — trust their input and proceed
+                    if (
+                        is_user_provided_text
+                        and len(content.strip()) >= short_job_text_threshold
+                    ):
+                        # User explicitly pasted substantial text — trust their input and proceed
                         # even if the LLM didn't recognise it as a job posting.
                         logger.warning(
                             "Task %s: LLM returned job_found=False for user-provided text. "
@@ -2037,7 +2070,7 @@ async def _execute_evaluation_steps(
                     else:
                         task.status = "FAILED"
                         task.stage = "FAILED"
-                        task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+                        task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy. Please provide the full job description text."
                         task.completed_at = datetime.now(UTC)
                         await db.commit()
                         ctx["error"] = task.error_message

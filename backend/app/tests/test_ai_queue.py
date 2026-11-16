@@ -945,3 +945,113 @@ async def test_atomic_claim_skip_locked_across_sessions(db_session: AsyncSession
         await process_evaluation_task(task.id, worker_id="worker-alpha")
 
     assert completed_workers == ["worker-alpha"]
+
+
+@pytest.mark.asyncio
+async def test_short_raw_text_fails_for_manual_input_or_scrapes_fallback(
+    db_session: AsyncSession,
+) -> None:
+    """
+    When an extension capture submits an incomplete snippet (< 100 chars),
+    the worker must try scraping the URL if available, and fail with SCRAPE_FAILED
+    so the UI prompts the user to supply the full job description.
+    """
+    from types import SimpleNamespace
+
+    # Case 1: Tiny raw_text with no URL -> fails with SCRAPE_FAILED
+    short_task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="BNP Paribas - AI Engineer",
+        raw_text="Check out our FAQ page\nSee the page",
+        status="QUEUED",
+        stage="FETCHING",
+    )
+    db_session.add(short_task)
+    await db_session.commit()
+    await db_session.refresh(short_task)
+
+    await process_evaluation_task(short_task.id, db=db_session)
+    await db_session.refresh(short_task)
+    assert short_task.status == "FAILED"
+    assert short_task.error_message is not None
+    assert short_task.error_message.startswith("SCRAPE_FAILED:")
+
+    # Case 2: Metadata-only raw_text (< 400 chars) where LLM finds no job -> fails with NO_JOB_FOUND
+    meta_task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="Siemens - IT Professional",
+        raw_text="ID da vaga 528770\nEmpresa Siemens S.A.\nLocalização Amadora - Lisboa - Portugal\n"
+        * 3,
+        status="QUEUED",
+        stage="FETCHING",
+    )
+    db_session.add(meta_task)
+    await db_session.commit()
+    await db_session.refresh(meta_task)
+
+    mock_no_job = ExtractedJobSpec(job_found=False, company="Siemens", position="IT")
+    with patch(
+        "app.services.evaluation_worker.extract_job_spec",
+        new=AsyncMock(return_value=mock_no_job),
+    ):
+        await process_evaluation_task(meta_task.id, db=db_session)
+    await db_session.refresh(meta_task)
+    assert meta_task.status == "FAILED"
+    assert meta_task.error_message is not None
+    assert meta_task.error_message.startswith("NO_JOB_FOUND:")
+
+    # Case 3: Tiny raw_text with URL where scrape_job_url recovers full JD -> proceeds
+    url_task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="BNP Paribas - AI Engineer",
+        job_url="https://group.bnpparibas/en/careers/job-offer/ai-engineer",
+        raw_text="Check out our FAQ page\nSee the page",
+        status="QUEUED",
+        stage="FETCHING",
+    )
+    db_session.add(url_task)
+    await db_session.commit()
+    await db_session.refresh(url_task)
+
+    recovered_jd = (
+        "About the Job\nResponsibilities: Build Python and FastAPI AI systems.\n"
+        "Requirements: 5+ years of experience in backend engineering and LLMs.\n"
+        + ("Detailed role description. " * 20)
+    )
+    mock_job_spec = ExtractedJobSpec(
+        job_found=True,
+        company="BNP Paribas",
+        position="AI Engineer",
+        responsibilities=["Build Python AI systems"],
+        requirements=["5+ years experience"],
+        extracted_skills=["Python", "FastAPI"],
+    )
+    mock_assessment = JobAssessmentResult(
+        company="BNP Paribas",
+        position="AI Engineer",
+        recommendation="APPLY_STRONGLY",
+        fit_score=90,
+        matching_skills=["Python"],
+        pros=["Strong match"],
+        cons=[],
+        summary="Good fit.",
+    )
+    with (
+        patch(
+            "app.services.evaluation_worker.scrape_job_url",
+            new=AsyncMock(return_value=SimpleNamespace(text=recovered_jd)),
+        ),
+        patch(
+            "app.services.evaluation_worker.extract_job_spec",
+            new=AsyncMock(return_value=mock_job_spec),
+        ),
+        patch(
+            "app.services.evaluation_worker.assess_job_posting",
+            new=AsyncMock(return_value=mock_assessment),
+        ),
+    ):
+        await process_evaluation_task(url_task.id, db=db_session)
+
+    await db_session.refresh(url_task)
+    assert url_task.status == "COMPLETED"
+    assert url_task.result_json["fit_score"] == 90
