@@ -219,6 +219,7 @@ async def evaluate_pipeline_scenario(
         )
         details = {
             "job_found": res.job_found,
+            "company": res.company,
             "skills_count": len(res.extracted_skills),
             "salary_min": res.salary_min,
             "salary_max": res.salary_max,
@@ -228,6 +229,16 @@ async def evaluate_pipeline_scenario(
                 f"Expected job_found={scenario['expect_job_found']}, got {res.job_found}"
             )
         if scenario["expect_job_found"]:
+            exp_company = scenario.get("expected_company")
+            if exp_company and exp_company.lower() not in (res.company or "").lower():
+                failures.append(
+                    f"Expected company '{exp_company}', got {res.company!r}"
+                )
+            for banned_comp in scenario.get("banned_companies") or []:
+                if (res.company or "").strip().lower() == banned_comp.lower():
+                    failures.append(
+                        f"Extracted forbidden non-company value: {res.company!r}"
+                    )
             skills_blob = " ".join(res.extracted_skills).lower()
             req_any = scenario.get("required_skills_any") or []
             if req_any and not any(s.lower() in skills_blob for s in req_any):
@@ -341,6 +352,11 @@ async def evaluate_pipeline_scenario(
                 rl = str(r).strip().lower()
                 if rl.startswith("no critical risk") or rl == "none":
                     failures.append(f"Pseudo-risk leaked: {r!r}")
+        for banned_comp in scenario.get("banned_companies") or []:
+            if (res.company or "").strip().lower() == banned_comp.lower():
+                failures.append(
+                    f"Assessment leaked forbidden non-company value: {res.company!r}"
+                )
 
     elif pipeline == "email_extraction":
         res = await extract_email_info(

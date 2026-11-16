@@ -12,7 +12,8 @@
     "max_score": 100,
     "allowed_recommendations": ["APPLY_STRONGLY", "APPLY_MODERATELY"],
     "expect_language_matched": true,
-    "ban_pseudo_risks": true
+    "ban_pseudo_risks": true,
+    "banned_companies": ["Technical Bar", "Technical Bar Raiser", "Hybrid", "Remote", "On-site"]
   },
   {
     "id": "assess_high_fit_elena_frontend",
@@ -27,7 +28,8 @@
     "max_score": 100,
     "allowed_recommendations": ["APPLY_STRONGLY", "APPLY_MODERATELY"],
     "expect_language_matched": true,
-    "ban_pseudo_risks": true
+    "ban_pseudo_risks": true,
+    "banned_companies": ["Technical Bar", "Technical Bar Raiser", "Hybrid", "Remote", "On-site"]
   },
   {
     "id": "assess_keyword_overlap_clinical_trap",

@@ -549,7 +549,12 @@ async def fuzzy_match_node(
         explicit_position = (state.get("position_name") or "").strip().lower()
         if (
             explicit_position
-            and fuzz.ratio(explicit_position, app.position_normalized) < 75
+            and app.position_normalized
+            and max(
+                fuzz.ratio(explicit_position, app.position_normalized),
+                fuzz.token_set_ratio(explicit_position, app.position_normalized),
+            )
+            < 75
         ):
             return {"route": "staging", "match_reason": "THREAD_IDENTITY_CONFLICT"}
         return {
@@ -1189,9 +1194,11 @@ async def db_commit_node(
         event_payload.update(calendar_payload)
         if event_payload["schedule_state"] == "confirmed":
             extracted["event_type"] = "INTERVIEW_SCHEDULED"
+            if application.status in {"ASSESSMENT", "APPLIED", "ONLINE_ASSESSMENT"}:
+                application.status = "TECHNICAL_INTERVIEW"
+                status_val = "TECHNICAL_INTERVIEW"
         else:
             extracted["event_type"] = "INTERVIEW_CANCELLED"
-        # Calendar changes do not imply a pipeline status change or task completion.
 
     event = ApplicationEventModel(
         email_application_id=application_id,

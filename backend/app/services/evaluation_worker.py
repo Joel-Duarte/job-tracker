@@ -2187,6 +2187,31 @@ async def _execute_evaluation_steps(
                 missing_skills=match_info.get("missing_skills"),
             )
 
+            # Guard against persona leakage ('Technical Bar') or workplace-mode leakage ('Hybrid')
+            # in assessment.company by preferring the dedicated JD_EXTRACTION company when valid.
+            if spec_dict:
+                from app.services.domain_resolver import is_invalid_company_name
+
+                spec_company = spec_dict.get("company")
+                if spec_company and not is_invalid_company_name(spec_company):
+                    if is_invalid_company_name(assessment.company):
+                        assessment.company = str(spec_company).strip()
+                spec_position = spec_dict.get("position")
+                if spec_position and str(spec_position).strip().lower() not in {
+                    "not specified",
+                    "unknown",
+                }:
+                    if (
+                        not assessment.position
+                        or assessment.position.strip().lower()
+                        in {
+                            "not specified",
+                            "unknown",
+                            "unspecified position",
+                        }
+                    ):
+                        assessment.position = str(spec_position).strip()
+
             task.stage = "SAVING"
             await db.commit()
 

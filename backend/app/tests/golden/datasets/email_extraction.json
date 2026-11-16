@@ -36,5 +36,18 @@
     "expect_action_required": false,
     "expected_status_any": ["REJECTED"],
     "expect_null_fields": ["due_date", "deadline_evidence"]
+  },
+  {
+    "id": "email_thread_short_role_phone_screen",
+    "pipeline": "email_extraction",
+    "human_rationale": "Anonymized abstraction of thread follow-up where recruiter uses abbreviated role title ('Software Engineer AI') and confirms a phone screen.",
+    "sender": "talent@novatech.invalid",
+    "subject": "Re: Software Engineer AI - NovaTech",
+    "date": "2026-11-16T12:15:00Z",
+    "email_content": "Hi Alex,\n\nGreat speaking with you! I have sent over the calendar invite for our 30-minute introductory phone screen tomorrow at 11:00 UTC.\n\nBest,\nJordan",
+    "expect_company": "NovaTech",
+    "expect_action_required": false,
+    "expected_status_any": ["PHONE_SCREEN", "RECRUITER_CONTACT", "TECHNICAL_INTERVIEW"],
+    "expect_null_fields": ["due_date"]
   }
 ]

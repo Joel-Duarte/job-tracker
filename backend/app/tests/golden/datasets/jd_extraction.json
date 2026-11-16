@@ -35,5 +35,17 @@
     "raw_webpage_data": "We value your privacy. Choose which cookies to allow: Strictly Necessary, Analytics, Marketing.\nSign in to view your saved preferences. Copyright 2026 Example Portal Inc.\nContact support at support@example-portal.invalid or view Terms of Service and Cookie Policy.",
     "expect_job_found": false,
     "required_skills_any": []
+  },
+  {
+    "id": "jd_hybrid_agency_hays_style",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Regression test for Hybrid workplace-mode leakage into company field: posting prominently displays 'Hybrid' near the header for employer Hays.",
+    "title_hint": "Senior AI Software Engineer",
+    "page_title": "Senior AI Software Engineer - Hays",
+    "raw_webpage_data": "Hays\nSenior AI Software Engineer\nHybrid | Madrid / Remote | Full-time\n\nAbout the Role:\nWe are looking for a Senior AI Software Engineer to build LLM-backed workflow automation with Python, FastAPI, PostgreSQL, and Docker.\n\nRequirements:\n- 4+ years of production Python and FastAPI experience.\n- Solid PostgreSQL and Docker fundamentals.",
+    "expect_job_found": true,
+    "expected_company": "Hays",
+    "banned_companies": ["Hybrid", "Technical Bar", "Remote", "On-site"],
+    "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Docker"]
   }
 ]
