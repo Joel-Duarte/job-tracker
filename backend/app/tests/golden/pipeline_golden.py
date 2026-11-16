@@ -12,6 +12,19 @@ from typing import Any
 
 DATASETS_DIR = Path(__file__).resolve().parent / "datasets"
 
+PIPELINE_DATASET_FILES: tuple[str, ...] = (
+    "jd_extraction.json",
+    "assessment.json",
+    "email_extraction.json",
+    "cover_letter.json",
+    "application_qa.json",
+    "cv_anonymization.json",
+    "role_alignment_dossier.json",
+    "interview_star_eval.json",
+    "system_design_interviewer.json",
+    "system_design_coach.json",
+)
+
 
 def load_fake_personas() -> dict[str, dict[str, Any]]:
     """Load synthetic candidate personas from datasets/fake_personas.json."""
@@ -21,17 +34,10 @@ def load_fake_personas() -> dict[str, dict[str, Any]]:
 
 
 def load_pipeline_scenarios() -> list[dict[str, Any]]:
-    """Load and enrich all non-System-Design golden scenarios from datasets/*.json."""
+    """Load and enrich all non-System-Design-review golden scenarios from datasets/*.json."""
     personas = load_fake_personas()
-    datasets = (
-        "jd_extraction.json",
-        "assessment.json",
-        "email_extraction.json",
-        "cover_letter.json",
-        "application_qa.json",
-    )
     scenarios: list[dict[str, Any]] = []
-    for filename in datasets:
+    for filename in PIPELINE_DATASET_FILES:
         items = json.loads((DATASETS_DIR / filename).read_text(encoding="utf-8"))
         assert isinstance(items, list), f"{filename} must contain a JSON array."
         for item in items:

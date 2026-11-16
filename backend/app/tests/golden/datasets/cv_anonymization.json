@@ -1,0 +1,22 @@
+[
+  {
+    "id": "cv_anon_elena_raw_pii",
+    "pipeline": "cv_anonymization",
+    "human_rationale": "Raw synthetic resume containing name, email, phone, street address, GitHub/LinkedIn URLs, company names, and years: must scrub all PII/contacts and extract React/TypeScript/Playwright skills + ~4.5 YOE.",
+    "raw_cv_text": "Elena Novak\n142 Maple Street, Austin, TX 78701\nEmail: elena.novak.dev@example.invalid | Phone: +1 (415) 555-0142\nLinkedIn: https://linkedin.com/in/elena-novak-fake | GitHub: https://github.com/elena-novak-fake\n\nSummary:\nFrontend Engineer with experience building accessible React and TypeScript design systems.\n\nExperience:\n- Frontend Engineer, Luminous Workspace (2023 - 2026):\n  Led React, TypeScript, Tailwind CSS, and Vite component library development and Playwright E2E suites.\n- Web Developer, PixelForge Studio (2021 - 2023):\n  Built WCAG AA accessible portals in Vue.js, Next.js, and GraphQL.\n\nEducation: B.Eng. in Software Engineering, 2021.",
+    "banned_pii_terms": ["elena.novak.dev@example.invalid", "555-0142", "elena-novak-fake", "142 Maple Street"],
+    "expected_skills_any": ["React", "TypeScript", "Playwright", "Tailwind CSS", "Next.js", "GraphQL"],
+    "min_years": 3.0,
+    "max_years": 7.0
+  },
+  {
+    "id": "cv_anon_marcus_ai_platform",
+    "pipeline": "cv_anonymization",
+    "human_rationale": "Raw synthetic backend/AI resume: verifies PII redaction and extraction of FastAPI, LangGraph, PostgreSQL, Redis, Kubernetes skills.",
+    "raw_cv_text": "Marcus Vance\nLisbon, Portugal | marcus.vance@orbital-fake.invalid | +351 910 000 123\nhttps://github.com/marcus-vance-fake\nSpoken Languages: English (Fluent), Portuguese (Native)\n\nExperience:\n- Senior Backend & AI Engineer, Orbital Cloud Ltd (2022 - Present):\n  Built FastAPI microservices, LangGraph agent pipelines, pgvector semantic search, PostgreSQL, Redis, and Kubernetes deployments.\n- Software Engineer, Atlas Telemetry (2019 - 2022):\n  Developed Go and Python APIs with PyTorch and OpenAI API.",
+    "banned_pii_terms": ["marcus.vance@orbital-fake.invalid", "910 000 123", "marcus-vance-fake"],
+    "expected_skills_any": ["Python", "FastAPI", "LangGraph", "PostgreSQL", "Redis", "Kubernetes"],
+    "min_years": 5.0,
+    "max_years": 12.0
+  }
+]

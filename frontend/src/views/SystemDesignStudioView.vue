@@ -37,6 +37,7 @@ import {
   evaluateDrawnWireFeedback,
   resolveBlockCloudDisplay,
 } from '../utils/diagramCatalog'
+import { renderChatMarkdown } from '../utils/markdownRenderer'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
 
@@ -794,6 +795,15 @@ onUnmounted(() => {
               <Upload :size="14" />
               <span>Upload External Image</span>
             </button>
+            <label class="sd-more-checkbox" @click.stop>
+              <input
+                v-model="useWebSearchReview"
+                type="checkbox"
+                data-testid="review-web-search-checkbox"
+              />
+              <Globe :size="13" />
+              <span>Ground Critique w/ Web Search</span>
+            </label>
           </div>
         </div>
 
@@ -907,31 +917,41 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- TAB 1: Session Requirements, Notes & Review Settings -->
+        <!-- TAB 1: Session Requirements & Architecture Notes -->
         <div v-if="activeSidebarTab === 'reqs'" class="sd-coach-tab-body sd-reqs-tab-body" data-testid="studio-reqs-panel">
-          <section
+          <details
             v-if="scaleMathSummary.items.length || scaleMathSummary.latencyLine"
             class="sd-scale-math-card"
             data-testid="studio-scale-math-card"
           >
-            <div class="sd-scale-math-head">
-              <strong>Back-of-the-Envelope Numbers</strong>
-            </div>
-            <div class="sd-ledger-scale-grid">
-              <div v-for="item in scaleMathSummary.items" :key="item.label" class="sd-scale-chip">
+            <summary class="sd-scale-math-head">
+              <strong>Back-of-the-Envelope</strong>
+              <span class="sd-scale-summary-preview">
+                {{
+                  [
+                    ...scaleMathSummary.items.slice(0, 2).map((i) => `${i.label}: ${i.value}`),
+                    scaleMathSummary.latencyLine ? `SLA: ${scaleMathSummary.latencyLine}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                }}
+              </span>
+            </summary>
+            <div class="sd-scale-pill-row">
+              <span v-for="item in scaleMathSummary.items" :key="item.label" class="sd-scale-mini-pill">
                 <strong>{{ item.label }}:</strong> {{ item.value }}
-              </div>
-              <div v-if="scaleMathSummary.latencyLine" class="sd-scale-chip">
-                <strong>SLA Target:</strong> {{ scaleMathSummary.latencyLine }}
-              </div>
+              </span>
+              <span v-if="scaleMathSummary.latencyLine" class="sd-scale-mini-pill">
+                <strong>SLA:</strong> {{ scaleMathSummary.latencyLine }}
+              </span>
             </div>
-          </section>
+          </details>
 
           <section
             v-if="
               sessionLedger.functional_requirements?.length ||
               sessionLedger.non_functional_requirements?.length ||
-              Object.keys(sessionLedger.scale_estimates || {}).length ||
+              (Object.keys(sessionLedger.scale_estimates || {}).length && !scaleMathSummary.items.length) ||
               sessionLedger.out_of_scope?.length ||
               sessionLedger.assumptions?.length
             "
@@ -951,12 +971,15 @@ onUnmounted(() => {
                 <li v-for="nfr in sessionLedger.non_functional_requirements" :key="nfr">{{ nfr }}</li>
               </ul>
             </div>
-            <div v-if="Object.keys(sessionLedger.scale_estimates || {}).length" class="sd-ledger-ref-group">
+            <div
+              v-if="Object.keys(sessionLedger.scale_estimates || {}).length && !scaleMathSummary.items.length"
+              class="sd-ledger-ref-group"
+            >
               <span class="sd-ledger-ref-label">Scale Estimates</span>
-              <div class="sd-ledger-scale-grid">
-                <div v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-chip">
+              <div class="sd-scale-pill-row">
+                <span v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-mini-pill">
                   <strong>{{ key }}:</strong> {{ val }}
-                </div>
+                </span>
               </div>
             </div>
             <div v-if="sessionLedger.assumptions?.length" class="sd-ledger-ref-group">
@@ -985,16 +1008,6 @@ onUnmounted(() => {
               data-testid="canvas-notes-input"
               placeholder="Summarize read/write paths, sharding keys, TTL, or trade-offs..."
             />
-          </label>
-
-          <label class="sd-drawer-checkbox">
-            <input
-              v-model="useWebSearchReview"
-              type="checkbox"
-              data-testid="review-web-search-checkbox"
-            />
-            <Globe :size="14" />
-            <span>Ground AI critique with Web Search</span>
           </label>
         </div>
 
@@ -1115,7 +1128,10 @@ onUnmounted(() => {
               <div class="sd-coach-msg-role">
                 {{ turn.role === 'user' ? 'You' : 'Coach' }}
               </div>
-              <p class="sd-coach-msg-text">{{ turn.content }}</p>
+              <div
+                class="sd-coach-msg-text sd-markdown-body"
+                v-html="renderChatMarkdown(turn.content)"
+              />
               <div
                 v-if="turn.role === 'coach' && turn.actions?.length"
                 class="sd-coach-actions-list"
@@ -1378,30 +1394,41 @@ onUnmounted(() => {
             class="sd-coach-section"
             data-testid="capability-readiness-section"
           >
-            <div class="sd-coach-section-head">
-              <strong>
-                Capability Readiness ({{ metCapabilitiesCount }}/{{ liveCapabilityChecks.length }})
-              </strong>
-            </div>
-            <div class="sd-cap-list">
-              <div
-                v-for="cap in liveCapabilityChecks"
-                :key="cap.id"
-                class="sd-cap-item"
-                :class="`cap-${cap.status}`"
+            <details :open="(flowSnapshot.nodes || []).length > 0 || Boolean(store.lastTopologyFeedback)">
+              <summary class="sd-coach-section-head sd-cap-summary-toggle">
+                <strong>
+                  Capability Readiness ({{ metCapabilitiesCount }}/{{ liveCapabilityChecks.length }})
+                </strong>
+                <span v-if="!(flowSnapshot.nodes || []).length && !store.lastTopologyFeedback" class="sd-muted">
+                  Activates as you build
+                </span>
+              </summary>
+              <p
+                v-if="!(flowSnapshot.nodes || []).length && !store.lastTopologyFeedback"
+                class="sd-cap-empty-hint"
               >
-                <div class="sd-cap-head">
-                  <span class="sd-cap-status-icon">
-                    {{ cap.status === 'met' ? '✓' : cap.status === 'partial' ? '◐' : '○' }}
-                  </span>
-                  <strong>{{ cap.title }}</strong>
-                </div>
-                <p class="sd-cap-goal">{{ cap.goal }}</p>
-                <div v-if="cap.satisfied_by" class="sd-cap-satisfied">
-                  Covered by: <code>{{ cap.satisfied_by }}</code>
+                Place and wire components on the canvas (or click Run Topology Check) to light up live readiness.
+              </p>
+              <div class="sd-cap-list">
+                <div
+                  v-for="cap in liveCapabilityChecks"
+                  :key="cap.id"
+                  class="sd-cap-item"
+                  :class="`cap-${cap.status}`"
+                >
+                  <div class="sd-cap-head">
+                    <span class="sd-cap-status-icon">
+                      {{ cap.status === 'met' ? '✓' : cap.status === 'partial' ? '◐' : '○' }}
+                    </span>
+                    <strong>{{ cap.title }}</strong>
+                  </div>
+                  <p class="sd-cap-goal">{{ cap.goal }}</p>
+                  <div v-if="cap.satisfied_by" class="sd-cap-satisfied">
+                    Covered by: <code>{{ cap.satisfied_by }}</code>
+                  </div>
                 </div>
               </div>
-            </div>
+            </details>
           </section>
 
           <section
@@ -1928,7 +1955,31 @@ onUnmounted(() => {
   font-size: 0.8rem;
   line-height: 1.45;
   color: var(--text-main, #f8fafc);
-  white-space: pre-wrap;
+}
+
+.sd-markdown-body :deep(p) {
+  margin: 0 0 6px;
+}
+
+.sd-markdown-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.sd-markdown-body :deep(ul),
+.sd-markdown-body :deep(ol) {
+  margin: 4px 0 6px;
+  padding-left: 16px;
+}
+
+.sd-markdown-body :deep(li) {
+  margin-bottom: 2px;
+}
+
+.sd-markdown-body :deep(code) {
+  font-size: 0.74rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border-subtle, #334155) 45%, transparent);
 }
 
 .sd-coach-actions-list {
@@ -2378,18 +2429,74 @@ onUnmounted(() => {
 }
 
 .sd-scale-math-card {
-  padding: 8px 10px;
+  padding: 6px 9px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 30%, var(--border-subtle, #334155));
-  background: color-mix(in srgb, var(--accent, #3b82f6) 6%, var(--bg-elevated, #0f172a));
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 28%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 5%, var(--bg-elevated, #0f172a));
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
 .sd-scale-math-head {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   color: var(--text-main, #f8fafc);
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-scale-summary-preview {
+  color: var(--text-secondary, #94a3b8);
+  font-weight: 400;
+  font-size: 0.7rem;
+}
+
+.sd-scale-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.sd-scale-mini-pill {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-surface, #1e293b);
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-scale-mini-pill strong {
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-more-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border-subtle, #334155);
+  font-size: 0.76rem;
+  color: var(--text-main, #f8fafc);
+  cursor: pointer;
+}
+
+.sd-cap-summary-toggle {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.sd-cap-empty-hint {
+  margin: 5px 0 6px;
+  font-size: 0.73rem;
+  color: var(--text-secondary, #94a3b8);
 }
 
 .sd-external-coach-toggle {

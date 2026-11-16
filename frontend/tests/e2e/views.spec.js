@@ -61,6 +61,11 @@ test('analytics tabs reveal the selected dashboard and navigates smoothly to tas
 
 test('settings tabs switch and profile route is deep linkable', async ({ page }) => {
   await page.goto('/settings')
+  await page.getByRole('button', { name: /Advanced: Task-Specific Overrides/ }).click()
+  await expect(page.getByTestId('prompt-compare-default-btn')).toBeVisible()
+  await page.getByTestId('prompt-compare-default-btn').click()
+  await expect(page.getByTestId('prompt-eval-results')).toContainText('2/2')
+  await expect(page.getByTestId('prompt-eval-delta')).toContainText('Default baseline:')
   await page.getByRole('button', { name: /AI Providers/ }).click()
   await expect(page.locator('.tab-content')).toBeVisible()
   await page.getByRole('button', { name: 'Preferences' }).click()

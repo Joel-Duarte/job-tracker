@@ -448,6 +448,8 @@ const providerModelsCache = ref({})
 const loadingStudioModels = ref(false)
 const isSavingStudio = ref(false)
 const isResettingPrompt = ref(false)
+const isEvaluatingPrompt = ref(false)
+const promptEvalResult = ref(null)
 
 
 const globalBinding = computed(() => {
@@ -1739,6 +1741,44 @@ async function resetStudioTaskToDefaults() {
   }
 }
 
+const activePromptMeta = computed(() => {
+  const pk = activeTaskDef.value?.promptKey
+  if (!pk) return null
+  return promptsList.value.find((p) => p.name.toLowerCase() === pk.toLowerCase()) || null
+})
+
+watch(selectedTaskKey, () => {
+  promptEvalResult.value = null
+})
+
+async function runStudioPromptEval(compareDefault = false) {
+  const taskDef = activeTaskDef.value
+  if (!taskDef?.promptKey || isEvaluatingPrompt.value) return
+  isEvaluatingPrompt.value = true
+  promptEvalResult.value = null
+  try {
+    const res = await PromptsAPI.evaluate(taskDef.promptKey, {
+      candidate_template: studioForm.value.prompt_template || null,
+      compare_default: Boolean(compareDefault),
+    })
+    promptEvalResult.value = res.data
+    const cand = res.data?.candidate_result
+    if (cand) {
+      uiStore.showToast(
+        `Golden eval finished: ${cand.passed}/${cand.total} passed (${cand.pass_rate}%)`,
+        cand.all_passed ? 'success' : 'warning'
+      )
+    }
+  } catch (err) {
+    uiStore.showToast(
+      err?.response?.data?.detail || err.message || 'Golden prompt evaluation failed',
+      'error'
+    )
+  } finally {
+    isEvaluatingPrompt.value = false
+  }
+}
+
 async function resetStudioPrompt() {
   const taskDef = activeTaskDef.value
   if (!taskDef.promptKey) return
@@ -3018,15 +3058,40 @@ onUnmounted(() => {
                 <span>Prompt Template</span>
               </div>
 
-              <button
-                class="btn btn-ghost btn-xs text-secondary"
-                :disabled="isResettingPrompt"
-                @click="resetStudioPrompt"
-                title="Reset to default seeded template"
-              >
-                <RotateCcw :size="12" />
-                <span>Reset to Default</span>
-              </button>
+              <div class="prompt-header-actions">
+                <button
+                  v-if="activePromptMeta?.has_golden_eval"
+                  class="btn btn-secondary btn-xs"
+                  data-testid="prompt-run-eval-btn"
+                  :disabled="isEvaluatingPrompt"
+                  title="Evaluate current editor prompt against the synthetic golden dataset"
+                  @click="runStudioPromptEval(false)"
+                >
+                  <Loader2 v-if="isEvaluatingPrompt" :size="12" class="animate-spin" />
+                  <Play v-else :size="12" />
+                  <span>Run Golden Eval ({{ activePromptMeta.golden_cases_count }})</span>
+                </button>
+                <button
+                  v-if="activePromptMeta?.has_golden_eval"
+                  class="btn btn-secondary btn-xs"
+                  data-testid="prompt-compare-default-btn"
+                  :disabled="isEvaluatingPrompt"
+                  title="Evaluate your prompt side-by-side against factory default"
+                  @click="runStudioPromptEval(true)"
+                >
+                  <Sparkles :size="12" />
+                  <span>Compare vs Default</span>
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs text-secondary"
+                  :disabled="isResettingPrompt || isEvaluatingPrompt"
+                  @click="resetStudioPrompt"
+                  title="Reset to default seeded template"
+                >
+                  <RotateCcw :size="12" />
+                  <span>Reset to Default</span>
+                </button>
+              </div>
             </div>
 
             <!-- Injected Placeholders -->
@@ -3050,6 +3115,62 @@ onUnmounted(() => {
               @input="scheduleStudioAutoSave(800)"
               @change="scheduleStudioAutoSave(50)"
             ></textarea>
+
+            <!-- Golden Eval Results Panel -->
+            <div
+              v-if="promptEvalResult"
+              class="prompt-eval-results"
+              :class="{ 'eval-failed': !promptEvalResult.candidate_result?.all_passed }"
+              data-testid="prompt-eval-results"
+            >
+              <div class="prompt-eval-head">
+                <div class="prompt-eval-summary">
+                  <CheckCircle2 v-if="promptEvalResult.candidate_result?.all_passed" :size="15" class="text-success" />
+                  <AlertCircle v-else :size="15" class="text-warning" />
+                  <strong>
+                    {{ promptEvalResult.candidate_result?.passed }}/{{ promptEvalResult.candidate_result?.total }}
+                    passed ({{ promptEvalResult.candidate_result?.pass_rate }}%)
+                  </strong>
+                  <span class="prompt-eval-meta">
+                    concurrency={{ promptEvalResult.concurrency }} ({{ promptEvalResult.concurrency_source }}) ·
+                    {{ promptEvalResult.candidate_result?.wall_secs }}s
+                  </span>
+                </div>
+                <span
+                  v-if="promptEvalResult.default_result"
+                  class="prompt-delta-badge"
+                  :class="{
+                    positive: (promptEvalResult.delta_passed || 0) > 0,
+                    negative: (promptEvalResult.delta_passed || 0) < 0,
+                  }"
+                  data-testid="prompt-eval-delta"
+                >
+                  Default baseline: {{ promptEvalResult.default_result.passed }}/{{ promptEvalResult.default_result.total }}
+                  ({{ promptEvalResult.default_result.pass_rate }}%) ·
+                  Delta: {{ (promptEvalResult.delta_passed || 0) >= 0 ? '+' : '' }}{{ promptEvalResult.delta_passed }} cases
+                  ({{ (promptEvalResult.delta_pass_rate || 0) >= 0 ? '+' : '' }}{{ promptEvalResult.delta_pass_rate }}%)
+                </span>
+              </div>
+
+              <div class="prompt-eval-cases">
+                <div
+                  v-for="item in promptEvalResult.candidate_result?.results || []"
+                  :key="item.id"
+                  class="prompt-eval-case"
+                >
+                  <div class="prompt-eval-case-row">
+                    <span class="case-badge" :class="item.passed ? 'pass' : 'fail'">
+                      {{ item.passed ? 'PASS' : 'FAIL' }}
+                    </span>
+                    <span class="font-mono case-id">{{ item.id }}</span>
+                    <span class="case-time">{{ item.elapsed_secs }}s</span>
+                  </div>
+                  <ul v-if="item.failures?.length" class="case-failures">
+                    <li v-for="err in item.failures" :key="err">{{ err }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
                 </div>
@@ -6241,6 +6362,122 @@ PARAMETER cache_type_v q8_0</code></pre>
 .prompt-textarea:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+.prompt-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-eval-results {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background-color: rgba(16, 185, 129, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt-eval-results.eval-failed {
+  border-color: rgba(245, 158, 11, 0.45);
+  background-color: rgba(245, 158, 11, 0.06);
+}
+
+.prompt-eval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-eval-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.prompt-eval-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.prompt-delta-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.prompt-delta-badge.positive {
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #10b981;
+}
+
+.prompt-delta-badge.negative {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
+}
+
+.prompt-eval-cases {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt-eval-case {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.prompt-eval-case-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.case-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.case-badge.pass {
+  background: rgba(16, 185, 129, 0.16);
+  color: #10b981;
+}
+
+.case-badge.fail {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
+}
+
+.case-id {
+  flex: 1;
+  color: var(--text-main);
+}
+
+.case-time {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.case-failures {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  color: #ef4444;
+  font-size: 11px;
 }
 
 .studio-test-feedback {

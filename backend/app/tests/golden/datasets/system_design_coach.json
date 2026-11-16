@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sd_coach_missing_cache_and_db",
+    "pipeline": "system_design_coach",
+    "human_rationale": "Learner has only Web Client -> Load Balancer -> Stateless App Service placed on URL Shortener and asks 'Am I missing anything?': Coach must suggest durable persistence / ID generation / caching and provide actionable canvas actions.",
+    "challenge_slug": "url-shortener",
+    "variant_id": "public-consumer-shortener",
+    "message": "Am I missing anything critical for URL shortening writes and low-latency redirects?",
+    "cloud_provider": "generic",
+    "current_nodes": [
+      {"id": "c", "type_id": "web_client", "label": "Web / Browser Client"},
+      {"id": "lb", "type_id": "load_balancer", "label": "Load Balancer"},
+      {"id": "app", "type_id": "app_service", "label": "Stateless App Service"}
+    ],
+    "current_edges": [
+      {"id": "e1", "source": "c", "target": "lb", "label": "HTTPS"},
+      {"id": "e2", "source": "lb", "target": "app", "label": "Route traffic"}
+    ],
+    "current_notes": "",
+    "must_include_any": ["cache", "redis", "database", "db", "storage", "id", "key", "ttl", "queue"],
+    "require_suggested_actions": true
+  }
+]

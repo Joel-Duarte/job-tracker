@@ -1,0 +1,26 @@
+[
+  {
+    "id": "star_strong_concrete_architecture",
+    "pipeline": "interview_star_eval",
+    "human_rationale": "Detailed STAR answer with concrete Situation, clear ownership Task, architectural Action (idempotency keys, PostgreSQL advisory locks, dead-letter queue), and concrete operational Result -> must score >= 70.",
+    "position": "Senior Backend Engineer",
+    "company_name": "Orbital Cloud",
+    "job_spec": "Build fault-tolerant distributed payment and webhook ingestion APIs in Python, FastAPI, PostgreSQL, and Redis.",
+    "question_asked": "Tell me about a time you resolved a critical reliability or data-consistency bug in production.",
+    "user_answer": "Situation: At Orbital Cloud, webhook bursts from a partner caused duplicate invoice charges during worker retries. Task: As lead backend engineer on the billing API, I needed to make webhook ingestion strictly idempotent without slowing down p99 response latency. Action: I introduced client idempotency keys stored in a PostgreSQL unique constraint table combined with short-lived Redis NX locks to shed hot duplicate retries early, and routed failed downstream webhook deliveries into a dead-letter queue with exponential backoff instead of inline retries. Result: Duplicate invoice writes dropped to zero during replay tests and subsequent partner traffic spikes completed cleanly with zero manual billing reconciliation.",
+    "min_score": 70.0,
+    "max_score": 100.0
+  },
+  {
+    "id": "star_vague_superficial_answer",
+    "pipeline": "interview_star_eval",
+    "human_rationale": "Two-sentence vague answer lacking Situation, Task constraints, technical mechanism, or measurable Result -> must score <= 60.",
+    "position": "Senior Backend Engineer",
+    "company_name": "Orbital Cloud",
+    "job_spec": "Build fault-tolerant distributed APIs in Python, FastAPI, PostgreSQL, and Redis.",
+    "question_asked": "Tell me about a time you resolved a critical reliability or data-consistency bug in production.",
+    "user_answer": "We had an issue where the database got slow sometimes under traffic. I told the team we should probably add some caching and restart the pods, and after that things seemed much better overall.",
+    "min_score": 0.0,
+    "max_score": 60.0
+  }
+]

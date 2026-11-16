@@ -5,10 +5,11 @@ import os
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.services.prompt_eval_service import evaluate_pipeline_scenario
 from app.tests.golden.pipeline_golden import GOLDEN_PIPELINE_SCENARIOS
 from app.tests.golden.system_design_golden import GOLDEN_SYSTEM_DESIGN_SCENARIOS
 from scripts.eval_system_design_llm import run_single_scenario
-from scripts.run_golden_evals import evaluate_pipeline_scenario, resolve_async_db_url
+from scripts.run_golden_evals import resolve_async_db_url
 
 
 @pytest.mark.llm_eval

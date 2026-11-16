@@ -2611,7 +2611,72 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/prompts' && method === 'get') {
-    return ok([])
+    const demoPrompts = [
+      'jd_extraction',
+      'assessment',
+      'email_extraction',
+      'cover_letter',
+      'application_qa',
+      'cv_anonymization',
+      'role_alignment_dossier',
+      'interview_star_eval',
+      'system_design_interviewer',
+      'system_design_reviewer',
+      'system_design_coach',
+    ].map((name) => ({
+      name,
+      template: `# Demo Prompt Template: ${name}`,
+      updated_at: new Date().toISOString(),
+      has_golden_eval: true,
+      golden_cases_count: name === 'assessment' ? 6 : name === 'system_design_reviewer' ? 4 : 3,
+    }))
+    return ok(demoPrompts)
+  }
+
+  const promptEvalMatch = urlPath.match(/^\/prompts\/([^/]+)\/evaluate$/)
+  if (promptEvalMatch && method === 'post') {
+    const pName = promptEvalMatch[1]
+    const body = data || {}
+    const compareDefault = Boolean(body.compare_default)
+    const sampleResults = [
+      {
+        id: `${pName}_case_1`,
+        pipeline: pName,
+        passed: true,
+        elapsed_secs: 1.4,
+        details: { demo: true },
+        failures: [],
+      },
+      {
+        id: `${pName}_case_2`,
+        pipeline: pName,
+        passed: true,
+        elapsed_secs: 1.8,
+        details: { demo: true },
+        failures: [],
+      },
+    ]
+    const candRun = {
+      pipeline: pName,
+      concurrency: 3,
+      wall_secs: 2.1,
+      passed: 2,
+      total: 2,
+      pass_rate: 100.0,
+      all_passed: true,
+      results: sampleResults,
+    }
+    return ok({
+      prompt_name: pName,
+      pipeline: pName,
+      candidate_source: body.candidate_template ? 'candidate_editor' : 'saved_db_prompt',
+      concurrency: 3,
+      concurrency_source: 'provider:Demo Local LM',
+      candidate_result: candRun,
+      default_result: compareDefault ? { ...candRun } : null,
+      delta_passed: compareDefault ? 0 : null,
+      delta_pass_rate: compareDefault ? 0.0 : null,
+    })
   }
 
   // 11. COMPANIES ENDPOINTS

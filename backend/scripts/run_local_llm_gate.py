@@ -13,8 +13,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from app.services.prompt_eval_service import (
+    ALL_PIPELINES,
+)
+from app.services.prompt_eval_service import (
+    PROMPT_TO_PIPELINE as PROMPT_KEY_TO_PIPELINE,
+)
 from app.tests.golden.eval_config import DEFAULT_API_BASE, fetch_active_provider
-from scripts.run_golden_evals import ALL_PIPELINES, run_golden_suite
+from scripts.run_golden_evals import run_golden_suite
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,6 +33,7 @@ FILE_TO_PIPELINES: dict[str, tuple[str, ...]] = {
         "email_extraction",
         "cover_letter",
         "application_qa",
+        "cv_anonymization",
     ),
     "backend/app/schemas/llm.py": (
         "jd_extraction",
@@ -34,39 +41,51 @@ FILE_TO_PIPELINES: dict[str, tuple[str, ...]] = {
         "email_extraction",
         "cover_letter",
         "application_qa",
+        "cv_anonymization",
     ),
-    "backend/app/tests/golden/pipeline_golden.py": (
-        "jd_extraction",
-        "assessment",
-        "email_extraction",
-        "cover_letter",
-        "application_qa",
+    "backend/app/services/role_alignment_dossier_service.py": (
+        "role_alignment_dossier",
+    ),
+    "backend/app/services/interview_simulator_service.py": ("interview_star_eval",),
+    "backend/app/tests/golden/pipeline_golden.py": tuple(
+        p for p in ALL_PIPELINES if p != "system_design"
     ),
     "backend/app/tests/golden/datasets/fake_personas.json": (
         "assessment",
         "cover_letter",
         "application_qa",
+        "role_alignment_dossier",
     ),
     "backend/app/tests/golden/datasets/jd_extraction.json": ("jd_extraction",),
     "backend/app/tests/golden/datasets/assessment.json": ("assessment",),
     "backend/app/tests/golden/datasets/email_extraction.json": ("email_extraction",),
     "backend/app/tests/golden/datasets/cover_letter.json": ("cover_letter",),
     "backend/app/tests/golden/datasets/application_qa.json": ("application_qa",),
-    "backend/app/services/system_design_service.py": ("system_design",),
-    "backend/app/services/diagram_catalog.py": ("system_design",),
-    "backend/app/services/system_design_seed.py": ("system_design",),
+    "backend/app/tests/golden/datasets/cv_anonymization.json": ("cv_anonymization",),
+    "backend/app/tests/golden/datasets/role_alignment_dossier.json": (
+        "role_alignment_dossier",
+    ),
+    "backend/app/tests/golden/datasets/interview_star_eval.json": (
+        "interview_star_eval",
+    ),
+    "backend/app/tests/golden/datasets/system_design_interviewer.json": (
+        "system_design_interviewer",
+    ),
+    "backend/app/tests/golden/datasets/system_design_coach.json": (
+        "system_design_coach",
+    ),
+    "backend/app/services/system_design_service.py": (
+        "system_design",
+        "system_design_interviewer",
+        "system_design_coach",
+    ),
+    "backend/app/services/diagram_catalog.py": ("system_design", "system_design_coach"),
+    "backend/app/services/system_design_seed.py": (
+        "system_design",
+        "system_design_interviewer",
+        "system_design_coach",
+    ),
     "backend/app/tests/golden/system_design_golden.py": ("system_design",),
-}
-
-PROMPT_KEY_TO_PIPELINE: dict[str, str] = {
-    "jd_extraction": "jd_extraction",
-    "assessment": "assessment",
-    "email_extraction": "email_extraction",
-    "cover_letter": "cover_letter",
-    "application_qa": "application_qa",
-    "system_design_interviewer": "system_design",
-    "system_design_reviewer": "system_design",
-    "system_design_coach": "system_design",
 }
 
 

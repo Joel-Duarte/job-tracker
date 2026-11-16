@@ -650,6 +650,7 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
 test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, Undo, Reveal Requirements, and Solo/Coached XP', async ({
   page,
 }, testInfo) => {
+  test.slow()
   const errors = []
   page.on('pageerror', (err) => errors.push(err.message))
   page.on('console', (msg) => {
@@ -866,8 +867,9 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('edge-label-input')).toHaveValue('Invalidates key cache')
   await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
 
-  // Open More -> View Flow JSON modal to verify structured flow JSON
+  // Open More -> verify Web Search critique toggle + View Flow JSON modal
   await page.getByTestId('studio-more-btn').click()
+  await expect(page.getByTestId('review-web-search-checkbox')).toBeVisible()
   await page.getByTestId('open-flow-json-modal-btn').click()
   await expect(page.getByTestId('studio-flow-json-modal')).toBeVisible()
   await expect(page.getByTestId('flow-json-preview')).toContainText('"nodes"')

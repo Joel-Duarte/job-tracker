@@ -38,6 +38,7 @@ import {
 } from 'lucide-vue-next'
 import { SystemDesignAPI } from '../api/endpoints'
 import { fuzzyFilterApplications } from '../utils/fuzzyMatch'
+import { renderChatMarkdown } from '../utils/markdownRenderer'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
@@ -1949,7 +1950,10 @@ onUnmounted(() => {
                 <span>{{ turn.role === 'interviewer' ? 'AI Interviewer' : 'You' }}</span>
                 <span v-if="turn.assisted" class="sd-tag sd-hint-tag">Coaching Hint</span>
               </div>
-              <p class="turn-content">{{ turn.content }}</p>
+              <div
+                class="turn-content sd-markdown-body"
+                v-html="renderChatMarkdown(turn.content)"
+              />
             </div>
           </div>
 
@@ -2575,7 +2579,10 @@ onUnmounted(() => {
                 <span>{{ turn.role === 'interviewer' ? 'AI Interviewer' : 'Your Defence' }}</span>
                 <span v-if="turn.assisted" class="sd-tag sd-hint-tag">Coaching Hint</span>
               </div>
-              <p class="turn-content">{{ turn.content }}</p>
+              <div
+                class="turn-content sd-markdown-body"
+                v-html="renderChatMarkdown(turn.content)"
+              />
             </div>
             <div v-if="!(activeSession.defence_transcript || []).length" class="sd-empty-box">
               <p>Run an architecture review on your diagram to seed tailored defence questions, or submit your explanation below.</p>
@@ -3535,7 +3542,28 @@ onUnmounted(() => {
 .turn-content {
   font-size: 13px;
   color: var(--text-main);
-  white-space: pre-wrap;
+  line-height: 1.48;
+}
+
+.sd-markdown-body :deep(p) {
+  margin: 0 0 6px;
+}
+
+.sd-markdown-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.sd-markdown-body :deep(ul),
+.sd-markdown-body :deep(ol) {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+}
+
+.sd-markdown-body :deep(code) {
+  font-size: 0.85em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border-color, #334155) 45%, transparent);
 }
 
 .sd-chat-input-bar {

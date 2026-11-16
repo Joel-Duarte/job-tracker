@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import select
@@ -6,6 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.prompts import PromptModel
 
 _PROMPT_CACHE: dict[str, str] = {}
+_PROMPT_OVERRIDE_CTX: ContextVar[dict[str, str] | None] = ContextVar(
+    "_PROMPT_OVERRIDE_CTX", default=None
+)
+
+
+@contextmanager
+def prompt_overrides(overrides: dict[str, str] | None):
+    """Temporarily override named prompt templates in the active async context without mutating DB."""
+    if not overrides:
+        yield
+        return
+    current = dict(_PROMPT_OVERRIDE_CTX.get() or {})
+    current.update(overrides)
+    token = _PROMPT_OVERRIDE_CTX.set(current)
+    try:
+        yield
+    finally:
+        _PROMPT_OVERRIDE_CTX.reset(token)
 
 
 def clear_prompt_cache(prompt_name: str | None = None) -> None:
@@ -1005,6 +1025,10 @@ async def get_prompt_template(
     session: AsyncSession, prompt_name: str, force_reload: bool = False
 ) -> str:
     """Retrieves prompt template from DB with in-memory caching, falling back to default if missing."""
+    overrides = _PROMPT_OVERRIDE_CTX.get()
+    if overrides and prompt_name in overrides:
+        return overrides[prompt_name]
+
     if not force_reload and prompt_name in _PROMPT_CACHE:
         return _PROMPT_CACHE[prompt_name]
 

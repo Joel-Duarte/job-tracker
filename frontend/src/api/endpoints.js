@@ -73,6 +73,8 @@ export const PromptsAPI = {
   get: (name) => apiClient.get(`/prompts/${name}`),
   update: (name, template) => apiClient.patch(`/prompts/${name}`, { template }),
   reset: (name) => apiClient.post(`/prompts/${name}/reset`),
+  evaluate: (name, payload = {}) =>
+    apiClient.post(`/prompts/${name}/evaluate`, payload, { timeout: 600000 }),
 }
 
 export const StagingAPI = {
