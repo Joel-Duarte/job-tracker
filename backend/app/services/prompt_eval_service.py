@@ -47,6 +47,12 @@ ALL_PIPELINES: tuple[str, ...] = (
     "cv_anonymization",
     "role_alignment_dossier",
     "interview_star_eval",
+    "interview_mc_generator",
+    "interview_mc_eval",
+    "interview_drilldown",
+    "interview_question_gen",
+    "llm_judge",
+    "agent_system",
     "system_design_interviewer",
     "system_design_coach",
 )
@@ -60,6 +66,12 @@ PROMPT_TO_PIPELINE: dict[str, str] = {
     "cv_anonymization": "cv_anonymization",
     "role_alignment_dossier": "role_alignment_dossier",
     "interview_star_eval": "interview_star_eval",
+    "interview_mc_generator": "interview_mc_generator",
+    "interview_mc_eval": "interview_mc_eval",
+    "interview_drilldown": "interview_drilldown",
+    "interview_question_gen": "interview_question_gen",
+    "llm_judge": "llm_judge",
+    "agent_system": "agent_system",
     "system_design_interviewer": "system_design_interviewer",
     "system_design_reviewer": "system_design",
     "system_design_coach": "system_design_coach",
@@ -644,6 +656,261 @@ async def evaluate_pipeline_scenario(
                 await SystemDesignService.delete_session(db, sid)
             except Exception:
                 pass
+
+    elif pipeline == "llm_judge":
+        from app.services.llm_judge import audit_generation_grounding
+
+        audit = await audit_generation_grounding(
+            db,
+            candidate_cv=scenario.get("candidate_cv") or "",
+            generated_text=scenario["generated_text"],
+            context_label=scenario["context_label"],
+            task_type=scenario["task_type"],
+            target_context=scenario.get("target_context"),
+        )
+        details = {
+            "passed": audit.passed,
+            "confidence": audit.confidence_score,
+            "claims_count": len(audit.unverified_claims or []),
+        }
+        if bool(audit.passed) != bool(scenario["expected_passed"]):
+            failures.append(
+                f"Expected passed={scenario['expected_passed']}, got {audit.passed} "
+                f"(claims={audit.unverified_claims}, critique={audit.critique[:180]})"
+            )
+        min_claims = int(scenario.get("expected_claims_count_min") or 0)
+        if min_claims and len(audit.unverified_claims or []) < min_claims:
+            failures.append(
+                f"Expected >= {min_claims} unverified_claims, got {audit.unverified_claims}"
+            )
+        if scenario.get("expected_passed") and (audit.unverified_claims or []):
+            failures.append(
+                f"Passed audit must not list unverified_claims: {audit.unverified_claims}"
+            )
+
+    elif pipeline == "agent_system":
+        from app.services.agent_tools import create_agent_tools
+
+        sys_prompt = await get_prompt_template(db, "agent_system")
+        tools = create_agent_tools(db, enable_web_search=True)
+        chat_model = await get_task_chat_model(
+            db, task_type="AGENT_CHAT", temperature=0.0
+        )
+        bound = chat_model.bind_tools(tools)
+        response = await bound.ainvoke(
+            [
+                SystemMessage(content=sys_prompt),
+                HumanMessage(content=scenario["user_prompt"]),
+            ]
+        )
+        tool_calls = getattr(response, "tool_calls", None) or []
+        called_names = [
+            tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+            for tc in tool_calls
+        ]
+        details = {"called_tools": called_names}
+        expected_any = scenario.get("expected_tools_any") or []
+        if not called_names:
+            failures.append("Agent did not emit any tool calls")
+        elif expected_any and not any(t in expected_any for t in called_names):
+            failures.append(
+                f"Called tools {called_names} did not match expected {expected_any}"
+            )
+
+    elif pipeline == "interview_mc_generator":
+        from app.services.interview_simulator_service import (
+            MULTIPLE_CHOICE_QUESTION_PROMPT,
+            PERSONA_PROMPTS,
+            InterviewPersona,
+            _format_prompt_from_db,
+            _invoke_llm_adaptive,
+        )
+        from app.services.postgres_tracer import PostgresTracer
+
+        persona_inst = PERSONA_PROMPTS[InterviewPersona.TECHNICAL_BAR_RAISER]
+        prompt = await _format_prompt_from_db(
+            db,
+            "interview_mc_generator",
+            MULTIPLE_CHOICE_QUESTION_PROMPT,
+            persona_instruction=persona_inst,
+            position=scenario["position"],
+            company_name=scenario["company_name"],
+            company_research_summary="General tech engineering benchmarks.",
+            job_spec=scenario["job_spec"],
+            cv_summary=scenario.get("candidate_cv") or "",
+            turns_summary=scenario.get("turns_summary") or "Starting initial round.",
+        )
+        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_MC_GENERATOR")
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content="Generate MC question."),
+            ],
+            PostgresTracer(),
+            db,
+        )
+        q_data = JsonOutputParser().parse(llm_res.content)
+        opts = q_data.get("options") if isinstance(q_data, dict) else []
+        ck = str((q_data or {}).get("correct_key") or "").strip().upper()
+        details = {"correct_key": ck, "options_count": len(opts or [])}
+        if (
+            not isinstance(q_data, dict)
+            or not str(q_data.get("question") or "").strip()
+        ):
+            failures.append("Missing question text in MC generator output")
+        if not isinstance(opts, list) or len(opts) != 4:
+            failures.append(f"Expected 4 MC options, got {len(opts or [])}")
+        elif any(
+            not str(o.get("text") or "").strip() for o in opts if isinstance(o, dict)
+        ):
+            failures.append("MC option contains empty text")
+        if ck not in {"A", "B", "C", "D"}:
+            failures.append(f"Invalid correct_key '{ck}'")
+        blob = json.dumps(q_data).lower()
+        kw_any = scenario.get("expected_keywords_any") or []
+        if kw_any and not any(k.lower() in blob for k in kw_any):
+            failures.append(f"MC challenge lacked expected domain keywords {kw_any}")
+
+    elif pipeline == "interview_mc_eval":
+        from app.services.interview_simulator_service import (
+            MULTIPLE_CHOICE_EVALUATION_PROMPT,
+            PERSONA_PROMPTS,
+            InterviewPersona,
+            _format_prompt_from_db,
+            _invoke_llm_adaptive,
+            _normalize_evaluation_data,
+        )
+        from app.services.postgres_tracer import PostgresTracer
+
+        persona_inst = PERSONA_PROMPTS[InterviewPersona.TECHNICAL_BAR_RAISER]
+        prompt = await _format_prompt_from_db(
+            db,
+            "interview_mc_eval",
+            MULTIPLE_CHOICE_EVALUATION_PROMPT,
+            persona_instruction=persona_inst,
+            context_info=f"Role: {scenario['position']} at {scenario['company_name']}\nJD: {scenario['job_spec']}",
+            question_asked=scenario["question_asked"],
+            options_text=scenario["options_text"],
+            selected_option=scenario["selected_option"],
+            user_answer=scenario.get("user_answer") or "",
+        )
+        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_MC_EVAL")
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content="Evaluate MC selection now."),
+            ],
+            PostgresTracer(),
+            db,
+        )
+        eval_data = _normalize_evaluation_data(
+            JsonOutputParser().parse(llm_res.content)
+        )
+        score = float(eval_data.get("overall_score") or eval_data.get("score") or 0.0)
+        critique = str(eval_data.get("constructive_critique") or "")
+        details = {"score": score, "critique_len": len(critique)}
+        if score < float(scenario["min_score"]) or score > float(scenario["max_score"]):
+            failures.append(
+                f"MC eval score {score} outside [{scenario['min_score']}, {scenario['max_score']}]"
+            )
+        crit_low = critique.lower()
+        crit_any = scenario.get("expected_critique_any") or []
+        if crit_any and not any(t.lower() in crit_low for t in crit_any):
+            failures.append(
+                f"MC eval critique missed expected signal {crit_any}: {critique[:160]}"
+            )
+
+    elif pipeline == "interview_drilldown":
+        from app.services.interview_simulator_service import (
+            DRILL_DOWN_SYSTEM_PROMPT,
+            PERSONA_PROMPTS,
+            InterviewPersona,
+            _format_prompt_from_db,
+            _invoke_llm_adaptive,
+        )
+        from app.services.postgres_tracer import PostgresTracer
+
+        persona_inst = PERSONA_PROMPTS[InterviewPersona.TECHNICAL_BAR_RAISER]
+        prompt = await _format_prompt_from_db(
+            db,
+            "interview_drilldown",
+            DRILL_DOWN_SYSTEM_PROMPT,
+            persona_instruction=persona_inst,
+            last_question=scenario["last_question"],
+            last_answer=scenario["last_answer"],
+            missing_gaps=scenario["missing_gaps"],
+        )
+        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_DRILLDOWN")
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content="Generate drill-down question."),
+            ],
+            PostgresTracer(),
+            db,
+        )
+        q_data = JsonOutputParser().parse(llm_res.content)
+        q_text = str((q_data or {}).get("question") or "").strip()
+        details = {"question_len": len(q_text)}
+        if not q_text:
+            failures.append("Empty drill-down question returned")
+        else:
+            q_low = q_text.lower()
+            kw_any = scenario.get("expected_keywords_any") or []
+            if kw_any and not any(k.lower() in q_low for k in kw_any):
+                failures.append(
+                    f"Drill-down question did not probe missing gaps {kw_any}: {q_text[:180]}"
+                )
+
+    elif pipeline == "interview_question_gen":
+        from app.services.interview_simulator_service import (
+            PERSONA_PROMPTS,
+            QUESTION_GENERATION_SYSTEM_PROMPT,
+            InterviewPersona,
+            _format_prompt_from_db,
+            _invoke_llm_adaptive,
+        )
+        from app.services.postgres_tracer import PostgresTracer
+
+        persona_inst = PERSONA_PROMPTS[InterviewPersona.TECHNICAL_BAR_RAISER]
+        prompt = await _format_prompt_from_db(
+            db,
+            "interview_question_gen",
+            QUESTION_GENERATION_SYSTEM_PROMPT,
+            persona_instruction=persona_inst,
+            persona_name="Technical Bar Raiser",
+            position=scenario["position"],
+            company_name=scenario["company_name"],
+            company_research_summary="General engineering benchmarks.",
+            job_spec=scenario["job_spec"],
+            cv_summary=scenario.get("candidate_cv") or "",
+            turns_summary=scenario.get("turns_summary") or "",
+        )
+        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_QUESTION_GEN")
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content="Generate next question."),
+            ],
+            PostgresTracer(),
+            db,
+        )
+        q_data = JsonOutputParser().parse(llm_res.content)
+        q_text = str((q_data or {}).get("question") or "").strip()
+        details = {"question_len": len(q_text)}
+        if not q_text:
+            failures.append("Empty generated interview question")
+        else:
+            q_low = q_text.lower()
+            kw_any = scenario.get("expected_keywords_any") or []
+            if kw_any and not any(k.lower() in q_low for k in kw_any):
+                failures.append(
+                    f"Generated question lacked role/CV keywords {kw_any}: {q_text[:180]}"
+                )
 
     else:
         failures.append(f"Unknown pipeline '{pipeline}'")

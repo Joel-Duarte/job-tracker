@@ -43,6 +43,7 @@ from app.schemas.agent_tools import (
     SearchWebInput,
     SemanticSearchInput,
     StartMockInterviewInput,
+    StartSystemDesignInput,
     UpdateApplicationPipelineInput,
     UpdateCompanyNotesInput,
 )
@@ -921,6 +922,110 @@ async def execute_start_mock_interview(
     }
 
 
+async def execute_start_system_design(
+    db: AsyncSession,
+    challenge_or_topic: str | None = None,
+    company_or_id: str | None = None,
+    mode: str = "ADAPTIVE",
+) -> dict[str, Any]:
+    """Opens the System Design Lab lobby or launches a seeded challenge session."""
+    from app.models.system_design import SystemDesignChallengeModel
+    from app.services.system_design_service import SystemDesignService
+
+    await SystemDesignService._ensure_challenges_seeded(db)
+    challenges = (
+        (
+            await db.execute(
+                select(SystemDesignChallengeModel).order_by(
+                    SystemDesignChallengeModel.id.asc()
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    app_id = None
+    company_name = None
+    if company_or_id:
+        app_id_val = None
+        try:
+            app_id_val = int(company_or_id)
+        except (ValueError, TypeError):
+            pass
+        if app_id_val is not None:
+            stmt = (
+                select(ApplicationModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(ApplicationModel.id == app_id_val)
+            )
+        else:
+            stmt = (
+                select(ApplicationModel)
+                .join(CompanyModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(CompanyModel.name.ilike(f"%{str(company_or_id).strip()}%"))
+            )
+        matched_app = (await db.execute(stmt)).scalars().first()
+        if matched_app:
+            app_id = matched_app.id
+            company_name = matched_app.company.name if matched_app.company else None
+
+    topic = str(challenge_or_topic or "").strip()
+    matched_challenge = None
+    if topic:
+        low_topic = topic.lower()
+        slug_norm = low_topic.replace(" ", "-")
+        matched_challenge = next(
+            (
+                c
+                for c in challenges
+                if c.slug.lower() == slug_norm
+                or low_topic in c.title.lower()
+                or low_topic in c.slug.lower()
+            ),
+            None,
+        )
+
+    if matched_challenge is None:
+        return {
+            "status": "lobby_ready",
+            "session_id": None,
+            "application_id": app_id,
+            "company_name": company_name,
+            "challenge_count": len(challenges),
+            "available_challenges": [
+                {"id": c.id, "slug": c.slug, "title": c.title} for c in challenges[:12]
+            ],
+            "message": (
+                f"System Design Lab is ready with {len(challenges)} challenge scenarios. "
+                "Click 'Open System Design Lab' to start or customize a challenge."
+            ),
+        }
+
+    norm_mode = str(mode or "ADAPTIVE").upper().strip()
+    if norm_mode not in ("ADAPTIVE", "SOLO"):
+        norm_mode = "ADAPTIVE"
+
+    session = await SystemDesignService.start_session(
+        db=db,
+        challenge_id=int(matched_challenge.id),
+        application_id=app_id,
+        mode=norm_mode,
+    )
+    return {
+        "status": "started",
+        "session_id": session.id,
+        "challenge_id": matched_challenge.id,
+        "challenge_slug": matched_challenge.slug,
+        "challenge_title": matched_challenge.title,
+        "application_id": app_id,
+        "company_name": company_name,
+        "mode": norm_mode,
+        "message": f"Started System Design Lab session #{session.id} for '{matched_challenge.title}'.",
+    }
+
+
 # 12. Candidate Profile Tool
 async def execute_get_candidate_profile(
     db: AsyncSession,
@@ -1711,6 +1816,16 @@ def create_agent_tools(
         )
         return json.dumps(res, indent=2)
 
+    async def _start_system_design(
+        challenge_or_topic: str | None = None,
+        company_or_id: str | None = None,
+        mode: str = "ADAPTIVE",
+    ) -> str:
+        res = await execute_start_system_design(
+            db, challenge_or_topic, company_or_id, mode
+        )
+        return json.dumps(res, indent=2)
+
     async def _get_mock_interview_history(
         limit: int = 10,
         application_id: int | None = None,
@@ -1876,6 +1991,12 @@ def create_agent_tools(
             name="start_mock_interview",
             description="Launches an interactive live mock interview simulation for a target application or general software engineering practice.",
             args_schema=StartMockInterviewInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_start_system_design,
+            name="start_system_design",
+            description="Opens the System Design Lab or starts a specific interactive System Design architecture challenge session (e.g. 'url-shortener', 'rate limiter', or general lab workspace).",
+            args_schema=StartSystemDesignInput,
         ),
         StructuredTool.from_function(
             coroutine=_get_mock_interview_history,

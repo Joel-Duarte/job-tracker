@@ -203,6 +203,12 @@ test('demo agent describes current tools and reads the saved pipeline', async ({
   await input.fill('Show my mock interview history')
   await input.press('Enter')
   await expect(page.locator('.msg-assistant').last()).toContainText('score 93')
+  await input.fill('Open the System Design Lab')
+  await input.press('Enter')
+  const sdChip = page.getByTestId('agent-action-open-system-design')
+  await expect(sdChip).toBeVisible()
+  await sdChip.click()
+  await expect(page.getByRole('heading', { name: 'Interview Challenge Scenarios' })).toBeVisible()
 })
 
 test('demo grounding shows verdicts and rewrites and purge clears audits', async ({ page }) => {
@@ -326,4 +332,21 @@ test('clearing search on archive view properly unlocks active pipeline view and 
   const dateRangeSelect = page.locator('.date-range-select')
   await dateRangeSelect.selectOption('30d')
   await dateRangeSelect.selectOption('all')
+})
+
+test('cover letter modal supports external Frontier prompt preparation and import', async ({ page }) => {
+  await page.goto('/')
+  await page.getByText('Staff Infrastructure Engineer - Core Platform').click()
+  await expect(page.locator('.drawer-panel')).toBeVisible()
+  await page.getByRole('button', { name: /AI Tools/ }).click()
+  await page.getByRole('button', { name: 'Cover Letter Generator' }).click()
+
+  await page.getByTestId('cover-letter-frontier-toggle').click()
+  await page.getByTestId('cover-letter-frontier-prepare-btn').click()
+  await expect(page.getByTestId('cover-letter-frontier-prompt-preview')).toHaveValue(/Stripe/)
+
+  const importedLetter = 'Dear Stripe Team,\n\nExcited to bring Python and FastAPI experience to Stripe.'
+  await page.getByTestId('cover-letter-frontier-import-input').fill(importedLetter)
+  await page.getByTestId('cover-letter-frontier-import-btn').click()
+  await expect(page.locator('.cl-textarea')).toHaveValue(importedLetter)
 })

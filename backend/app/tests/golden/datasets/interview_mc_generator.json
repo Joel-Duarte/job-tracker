@@ -1,0 +1,24 @@
+[
+  {
+    "id": "mc_gen_backend_distributed",
+    "pipeline": "interview_mc_generator",
+    "persona_id": "marcus_ai_backend",
+    "company_name": "CloudScale Systems",
+    "position": "Senior Distributed Systems Engineer",
+    "job_spec": "Design resilient high-throughput APIs in Python/FastAPI, PostgreSQL partitioning, Redis caching, and Kubernetes autoscaling.",
+    "turns_summary": "Starting initial round.",
+    "expected_keywords_any": ["redis", "cache", "postgres", "partition", "queue", "fastapi", "kubernetes", "replication", "latency", "idempotenc", "fail"],
+    "human_rationale": "Generated MC challenge must have 4 options (A-D), valid correct_key, non-empty explanations, and backend/distributed systems relevance."
+  },
+  {
+    "id": "mc_gen_frontend_react",
+    "pipeline": "interview_mc_generator",
+    "persona_id": "elena_frontend_react",
+    "company_name": "PixelCraft UI",
+    "position": "Senior Frontend Engineer",
+    "job_spec": "Build accessible design systems in React, Next.js, TypeScript, core web vitals performance, and Playwright E2E testing.",
+    "turns_summary": "Round 1 completed cleanly.",
+    "expected_keywords_any": ["react", "next", "typescript", "render", "state", "accessib", "aria", "hydration", "memo", "cache", "dom", "bundle"],
+    "human_rationale": "Generated MC challenge must tailor to frontend React/TypeScript/accessibility architecture."
+  }
+]

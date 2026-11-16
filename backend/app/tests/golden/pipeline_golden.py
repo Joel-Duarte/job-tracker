@@ -21,6 +21,12 @@ PIPELINE_DATASET_FILES: tuple[str, ...] = (
     "cv_anonymization.json",
     "role_alignment_dossier.json",
     "interview_star_eval.json",
+    "interview_mc_generator.json",
+    "interview_mc_eval.json",
+    "interview_drilldown.json",
+    "interview_question_gen.json",
+    "llm_judge.json",
+    "agent_system.json",
     "system_design_interviewer.json",
     "system_design_coach.json",
 )

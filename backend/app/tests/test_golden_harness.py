@@ -176,6 +176,9 @@ def test_local_gate_infers_minimal_impacted_pipelines():
         "application_qa",
         "assessment",
         "cover_letter",
+        "interview_mc_generator",
+        "interview_question_gen",
+        "llm_judge",
         "role_alignment_dossier",
     ]
     assert infer_impacted_pipelines(

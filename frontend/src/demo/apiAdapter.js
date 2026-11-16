@@ -711,10 +711,44 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  const frontierDeliverableMatch = urlPath.match(
+    /^\/applications\/([^/]+)\/(cover-letter|questions|interview-guide)\/frontier-prompt$/
+  )
+  if (frontierDeliverableMatch && method === 'post') {
+    const [, appId, kind] = frontierDeliverableMatch
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (!app) return notFound()
+    const company = app.company?.name || app.company_name || 'Target Company'
+    const position = app.position || 'Target Role'
+    const cvText = db.candidate_profile?.raw_text || 'Candidate CV Summary'
+    let promptBody = `# Frontier ${kind} Prompt — ${company} (${position})\n\nCandidate CV:\n${cvText.slice(0, 600)}`
+    if (kind === 'questions') {
+      promptBody += `\n\nQuestions JSON:\n${JSON.stringify(data.questions || [], null, 2)}`
+    } else if (kind === 'interview-guide') {
+      promptBody += `\n\nLanguage: ${data.language || 'en'}\nSections: ${(data.selected_sections || []).join(', ')}`
+    } else {
+      promptBody += `\n\nTone: ${data.tone || 'professional'} | Length: ${data.length || 'standard'}`
+    }
+    return ok({
+      markdown_prompt: promptBody,
+      filename: `${kind}-prompt-${appId}.md`,
+      company_name: company,
+      position,
+    })
+  }
+
   const appGuideMatch = urlPath.match(/^\/applications\/([^/]+)\/interview-guide$/)
   if (appGuideMatch) {
     const appId = appGuideMatch[1]
     const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (method === 'patch') {
+      if (!app) return notFound()
+      app.interview_guide_html = data.interview_guide_html || ''
+      app.interview_guide_language = data.language || 'en'
+      app.interview_guide_generated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(app)
+    }
     if (method === 'post') {
       const company = app?.company?.name || app?.company_name || 'Target Company'
       const position = app?.position || 'Software Engineer'
@@ -2200,12 +2234,52 @@ export async function handleDemoRequest(config) {
       db.agent_chats = [chat, ...(db.agent_chats || [])]
     }
 
-    const replyText = getDemoAgentReply(db, lastUserMsg)
+    let replyText = getDemoAgentReply(db, lastUserMsg)
+    const actionsPerformed = []
+    if (/system\s*design/i.test(lastUserMsg)) {
+      const urlShort = /url[\s-]*shortener/i.test(lastUserMsg)
+      const challenges = db.system_design_challenges || []
+      const targetChallenge = urlShort
+        ? challenges.find((c) => c.slug === 'url-shortener')
+        : null
+      if (targetChallenge) {
+        const sid = Date.now() % 100000
+        const newSess = {
+          id: sid,
+          challenge_id: targetChallenge.id,
+          challenge: { ...targetChallenge },
+          status: 'IN_PROGRESS',
+          stage: 'REQUIREMENTS',
+          mode: 'ADAPTIVE',
+          overall_score: null,
+          requirements_transcript: [],
+          requirements_ledger: {},
+          diagram_versions: [],
+          defense_transcript: [],
+          created_at: new Date().toISOString(),
+        }
+        db.system_design_sessions = [newSess, ...(db.system_design_sessions || [])]
+        actionsPerformed.push({
+          action: 'start_system_design',
+          args: { challenge_or_topic: targetChallenge.slug },
+          result: { status: 'started', session_id: sid, challenge_title: targetChallenge.title },
+        })
+        replyText = `I have prepared a live System Design Lab session for **${targetChallenge.title}**. Click the chip below to jump straight in.`
+      } else {
+        actionsPerformed.push({
+          action: 'start_system_design',
+          args: {},
+          result: { status: 'lobby_ready', session_id: null },
+        })
+        replyText = `The **System Design Lab** is ready. Click **Open System Design Lab** below to pick or customize a challenge.`
+      }
+    }
 
     const assistantMsg = {
       id: `msg_${Date.now()}`,
       role: 'assistant',
       content: replyText,
+      actions: actionsPerformed,
     }
 
     chat.messages.push({ id: `msg_${Date.now() - 1}`, role: 'user', content: lastUserMsg })
@@ -2215,7 +2289,7 @@ export async function handleDemoRequest(config) {
     return ok({
       reply: assistantMsg.content,
       chat_id: chatId,
-      actions_performed: [],
+      actions_performed: actionsPerformed,
     })
   }
 

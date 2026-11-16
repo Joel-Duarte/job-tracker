@@ -46,7 +46,16 @@ FILE_TO_PIPELINES: dict[str, tuple[str, ...]] = {
     "backend/app/services/role_alignment_dossier_service.py": (
         "role_alignment_dossier",
     ),
-    "backend/app/services/interview_simulator_service.py": ("interview_star_eval",),
+    "backend/app/services/interview_simulator_service.py": (
+        "interview_star_eval",
+        "interview_mc_generator",
+        "interview_mc_eval",
+        "interview_drilldown",
+        "interview_question_gen",
+    ),
+    "backend/app/services/llm_judge.py": ("llm_judge",),
+    "backend/app/services/agent_tools.py": ("agent_system",),
+    "backend/app/routers/agent_chat.py": ("agent_system",),
     "backend/app/tests/golden/pipeline_golden.py": tuple(
         p for p in ALL_PIPELINES if p != "system_design"
     ),
@@ -55,6 +64,9 @@ FILE_TO_PIPELINES: dict[str, tuple[str, ...]] = {
         "cover_letter",
         "application_qa",
         "role_alignment_dossier",
+        "llm_judge",
+        "interview_mc_generator",
+        "interview_question_gen",
     ),
     "backend/app/tests/golden/datasets/jd_extraction.json": ("jd_extraction",),
     "backend/app/tests/golden/datasets/assessment.json": ("assessment",),
@@ -68,6 +80,18 @@ FILE_TO_PIPELINES: dict[str, tuple[str, ...]] = {
     "backend/app/tests/golden/datasets/interview_star_eval.json": (
         "interview_star_eval",
     ),
+    "backend/app/tests/golden/datasets/interview_mc_generator.json": (
+        "interview_mc_generator",
+    ),
+    "backend/app/tests/golden/datasets/interview_mc_eval.json": ("interview_mc_eval",),
+    "backend/app/tests/golden/datasets/interview_drilldown.json": (
+        "interview_drilldown",
+    ),
+    "backend/app/tests/golden/datasets/interview_question_gen.json": (
+        "interview_question_gen",
+    ),
+    "backend/app/tests/golden/datasets/llm_judge.json": ("llm_judge",),
+    "backend/app/tests/golden/datasets/agent_system.json": ("agent_system",),
     "backend/app/tests/golden/datasets/system_design_interviewer.json": (
         "system_design_interviewer",
     ),

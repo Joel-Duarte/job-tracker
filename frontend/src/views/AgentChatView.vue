@@ -598,6 +598,15 @@ async function enterInterviewFromChat(sessionId) {
   await handleLoadInterviewSession(sessionId)
 }
 
+async function enterSystemDesignFromChat(sessionId = null) {
+  activeMode.value = 'system_design'
+  if (sessionId) {
+    await handleLoadSdSession(sessionId)
+  } else {
+    handleOpenSdLobby()
+  }
+}
+
 async function handleEvaluateAnswer() {
   const currentTurn = interviewStore.currentTurn
   const isMC = currentTurn?.question_type === 'MULTIPLE_CHOICE' || (currentTurn?.options && currentTurn.options.length)
@@ -833,6 +842,10 @@ function formatActionLabel(act) {
   }
   if (act.action === 'get_mock_interview_history') {
     return `Retrieved past simulation sessions & readiness ratings`
+  }
+  if (act.action === 'start_system_design') {
+    const title = act.result?.challenge_title || act.args?.challenge_or_topic
+    return title ? `Prepared System Design Lab (${title})` : 'Prepared System Design Lab'
   }
   if (act.action === 'get_company_details') {
     const comp = act.args?.company_or_id || 'Company'
@@ -1277,6 +1290,25 @@ function getScoreBadgeClass(score) {
                       >
                         <Sparkles :size="13" class="text-primary" />
                         <span>Open Mock Interview Hub</span>
+                        <ArrowRight :size="12" />
+                      </button>
+
+                      <!-- 2b. System Design Lab interactive jump -->
+                      <button
+                        v-else-if="act.action === 'start_system_design'"
+                        class="action-chip action-chip-interactive"
+                        data-testid="agent-action-open-system-design"
+                        @click="enterSystemDesignFromChat(act.result?.session_id || act.session_id || null)"
+                        title="Click to jump into System Design Lab"
+                      >
+                        <Layers :size="13" class="text-primary" />
+                        <span>
+                          {{
+                            (act.result?.session_id || act.session_id)
+                              ? `Open System Design (#${act.result?.session_id || act.session_id}${act.result?.challenge_title ? ` · ${act.result.challenge_title}` : ''})`
+                              : 'Open System Design Lab'
+                          }}
+                        </span>
                         <ArrowRight :size="12" />
                       </button>
 

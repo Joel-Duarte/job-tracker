@@ -33,6 +33,7 @@ from app.services.job_saver import persist_or_stage_job_assessment
 from app.services.llm import (
     anonymize_and_parse_cv,
     assess_job_posting,
+    build_application_company_context,
     extract_job_spec,
     generate_application_answers,
     generate_cover_letter,
@@ -54,6 +55,22 @@ def get_company_research_semaphore() -> asyncio.Semaphore:
     if _company_research_semaphore is None:
         _company_research_semaphore = asyncio.Semaphore(2)
     return _company_research_semaphore
+
+
+def _build_judge_target_context(
+    company_name: str,
+    position_name: str,
+    job_desc: str | None,
+    company_research: dict | None,
+) -> str:
+    """Builds separate target opportunity context so the judge does not flag company/role references."""
+    parts = [f"Target Company: {company_name}", f"Target Position: {position_name}"]
+    cr_ctx = build_application_company_context(company_research)
+    if cr_ctx:
+        parts.append(f"Company Research Facts:\n{cr_ctx}")
+    if job_desc:
+        parts.append(f"Job Description Excerpt:\n{job_desc[:1500]}")
+    return "\n\n".join(parts)
 
 
 async def _execute_application_qa_steps(
@@ -162,6 +179,10 @@ async def _execute_application_qa_steps(
             and settings.enable_llm_judge
             and settings.llm_judge_audit_application_qa
         ):
+            judge_target_ctx = _build_judge_target_context(
+                company_name, position_name, job_desc, company_research
+            )
+
             retries = 0
             while True:
                 joined_text = "\n".join(
@@ -176,6 +197,7 @@ async def _execute_application_qa_steps(
                     generated_text=joined_text,
                     context_label=f"Application QA for {company_name}",
                     task_type="APPLICATION_QA",
+                    target_context=judge_target_ctx,
                 )
                 audit_summary = audit.model_dump()
 
@@ -367,6 +389,10 @@ async def _execute_cover_letter_steps(
             and settings.enable_llm_judge
             and settings.llm_judge_audit_cover_letter
         ):
+            judge_target_ctx = _build_judge_target_context(
+                company_name, position_name, job_desc, company_research
+            )
+
             retries = 0
             while True:
                 audit = await audit_generation_grounding(
@@ -375,6 +401,7 @@ async def _execute_cover_letter_steps(
                     generated_text=cl_text,
                     context_label=f"Cover Letter for {company_name}",
                     task_type="COVER_LETTER",
+                    target_context=judge_target_ctx,
                 )
                 audit_summary = audit.model_dump()
 

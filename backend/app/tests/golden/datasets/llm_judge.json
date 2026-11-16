@@ -1,0 +1,38 @@
+[
+  {
+    "id": "judge_pass_grounded_with_target_context",
+    "pipeline": "llm_judge",
+    "persona_id": "marcus_ai_backend",
+    "task_type": "COVER_LETTER",
+    "context_label": "Cover Letter for Bridge351 — Junior Agentic AI Scientist",
+    "target_context": "Target Company: Bridge351\nTarget Position: Junior Agentic AI Scientist\nCompany Research Facts:\n- Mission and Products: Provides trusted insights and telemetry analytics for over 2,500 enterprises across gaming and SaaS workflows.",
+    "generated_text": "Dear Bridge351 Hiring Team,\n\nI am writing to apply for the Junior Agentic AI Scientist position at Bridge351. As a backend and AI platform engineer with 8 years of experience architecting FastAPI microservices, LangGraph agent pipelines, and pgvector semantic retrieval at Orbital Cloud Ltd, I am excited to contribute to Bridge351's platform delivering trusted insights for over 2,500 enterprises.\n\nAt Atlas Telemetry Systems, I built Python and Go ingestion APIs alongside LLM structured extraction tooling using OpenAI API and PyTorch, which aligns closely with your gaming and SaaS analytics goals.\n\nSincerely,\nMarcus Vance",
+    "expected_passed": true,
+    "min_confidence": 0.7,
+    "human_rationale": "Regression guard for historical false positives: mentioning target employer Bridge351, target position Junior Agentic AI Scientist, and researched company scale (2,500 enterprises) from target_context is valid and MUST NOT be flagged as candidate hallucination."
+  },
+  {
+    "id": "judge_flag_fabricated_metrics_and_degree",
+    "pipeline": "llm_judge",
+    "persona_id": "marcus_ai_backend",
+    "task_type": "COVER_LETTER",
+    "context_label": "Cover Letter for Acme Data — Staff AI Architect",
+    "target_context": "Target Company: Acme Data\nTarget Position: Staff AI Architect\nJob Description Excerpt:\nRequires Rust, Kafka, and distributed storage optimization.",
+    "generated_text": "Dear Acme Data Team,\n\nHolding a PhD in Machine Learning from ETH Zurich, I have spent 4 years leading Rust microservice migrations in production and reduced database query latency by 45% across 10 billion daily events.\n\nSincerely,\nMarcus Vance",
+    "expected_passed": false,
+    "expected_claims_count_min": 1,
+    "human_rationale": "Candidate CV lists B.Sc. (not PhD from ETH Zurich), has zero Rust production claims, and contains no '45%' / '10 billion daily events' metrics."
+  },
+  {
+    "id": "judge_pass_honest_gap_acknowledgement",
+    "pipeline": "llm_judge",
+    "persona_id": "marcus_ai_backend",
+    "task_type": "APPLICATION_QA",
+    "context_label": "Application QA for VertexFlow",
+    "target_context": "Target Company: VertexFlow\nTarget Position: Senior Backend Engineer\nJob Description Excerpt:\nExperience with Kafka or Snowflake is required.",
+    "generated_text": "Q: Describe your production experience with Kafka and Snowflake.\nA: While my hands-on production experience focuses on PostgreSQL, Redis event workers, and Celery pipelines rather than Snowflake or Kafka directly, I have designed high-throughput Python and Go ingestion APIs and asynchronous job queues at Orbital Cloud Ltd and Atlas Telemetry Systems, giving me strong transferable distributed messaging foundations to ramp up rapidly on VertexFlow's stack.",
+    "expected_passed": true,
+    "min_confidence": 0.7,
+    "human_rationale": "Explicitly acknowledging a missing tool (Kafka/Snowflake) and pivoting to documented Redis/Celery/PostgreSQL experience MUST pass grounding audit."
+  }
+]

@@ -10,13 +10,20 @@ export const ApplicationsAPI = {
   delete: (id) => apiClient.delete(`/applications/${id}`),
   byStatus: () => apiClient.get('/applications/by-status'),
   generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
+  prepareInterviewGuideFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/interview-guide/frontier-prompt`, data),
+  updateInterviewGuide: (id, data) => apiClient.patch(`/applications/${id}/interview-guide`, data),
   clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
   getCoverLetter: (id) => apiClient.get(`/applications/${id}/cover-letter`),
   generateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/generate`, data),
+  prepareCoverLetterFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/cover-letter/frontier-prompt`, data),
   updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
   regenerateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/regenerate`, data),
   getApplicationQuestions: (id) => apiClient.get(`/applications/${id}/questions`),
   generateApplicationQuestions: (id, data = {}) => apiClient.post(`/applications/${id}/questions/generate`, data),
+  prepareQuestionsFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/questions/frontier-prompt`, data),
   updateApplicationQuestions: (id, data) => apiClient.patch(`/applications/${id}/questions`, data),
   analyzeSpec: (id, data = {}) => apiClient.post(`/applications/${id}/analyze-spec`, data),
 }

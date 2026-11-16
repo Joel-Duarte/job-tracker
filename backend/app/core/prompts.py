@@ -465,9 +465,10 @@ DEFAULT_PROMPTS = {
         "6. Database Actions / Status Changes: Use `update_application_pipeline` when the user instructs you to change a status (e.g. 'Move Stripe to Offer', 'Mark Stripe as Rejected'). For batch transitions across multiple active applications (e.g. withdrawing active applications upon accepting an offer), use `bulk_transition_applications`.\n"
         "7. Company Directory & Intelligence: Use `get_company_details` to check company domain, notes, pros/red flags, and AI web research dossiers. Use `list_companies` to survey tracked employers, `update_company_notes` to record candidate thoughts/ratings, and `enqueue_company_research` to queue background AI research.\n"
         "8. Mock Interview Simulations & Scorecards: Use `start_mock_interview` to launch live practice sessions with specific personas ('TECHNICAL_BAR_RAISER', 'HIRING_MANAGER', 'BEHAVIORAL_CULTURE', 'SUPPORTIVE_COACH') and question modes ('TEXT_CONVERSATIONAL', 'MULTIPLE_CHOICE', 'HYBRID'). Use `get_mock_interview_history` to inspect past session debriefs, scores, and readiness ratings.\n"
-        "9. Cover Letters & Application Q&A: Use `get_cover_letter` to inspect drafted letters and `enqueue_cover_letter_generation` to trigger background drafting. Use `get_application_questions` and `enqueue_application_questions` to answer application form questions grounded in the candidate's CV.\n"
-        "10. Career Track & Role Alignment: Use `get_role_alignment_dossier` to inspect executive market positioning, tailored bullet rewrites, interview talking points, and skill bridge roadmaps.\n"
-        "11. Live Web Research: Use `search_web` and `fetch_webpage_content` when the user explicitly asks for external real-time data, company news, salaries, or engineering blogs.\n\n"
+        "9. System Design Lab: Use `start_system_design` when the user wants to open the System Design Lab or practice a system design problem (e.g. URL shortener, rate limiter, chat/notification system, or tailored to a target company).\n"
+        "10. Cover Letters & Application Q&A: Use `get_cover_letter` to inspect drafted letters and `enqueue_cover_letter_generation` to trigger background drafting. Use `get_application_questions` and `enqueue_application_questions` to answer application form questions grounded in the candidate's CV.\n"
+        "11. Career Track & Role Alignment: Use `get_role_alignment_dossier` to inspect executive market positioning, tailored bullet rewrites, interview talking points, and skill bridge roadmaps.\n"
+        "12. Live Web Research: Use `search_web` and `fetch_webpage_content` when the user explicitly asks for external real-time data, company news, salaries, or engineering blogs.\n\n"
         "--------------------------------------------------\n"
         "KNOWLEDGE BASE SCHEMA & RETRIEVAL STRUCTURE\n"
         "--------------------------------------------------\n"
@@ -834,16 +835,24 @@ DEFAULT_PROMPTS = {
     "llm_judge": (
         "You are an expert technical QA auditor and Grounding Judge.\n\n"
         "Your task is to audit a generated recruitment deliverable (e.g. Cover Letter, Q&A, Interview Guide) "
-        "and rigorously verify that it contains ZERO ungrounded claims, fabricated metrics, or invented facts "
-        "compared to the authoritative candidate CV.\n\n"
+        "and rigorously verify that all claims about the candidate contain ZERO ungrounded facts, fabricated metrics, "
+        "or invented experience compared to the authoritative candidate CV.\n\n"
         "--------------------------------------------------\n"
         "STRICT GROUNDING & HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
-        "- The only facts about the candidate that may be cited are those explicitly present in <untrusted_candidate_cv>.\n"
-        "- Metrics, percentages, dollar amounts, team sizes, and years of experience MUST perfectly match the CV. If the CV says 'decreased latency by 15%', the generation cannot say 'decreased latency by 25%'.\n"
-        "- Technologies and skills MUST be present in the CV. Do not allow the generation to claim experience in a tool not on the CV just because it was in the job description.\n"
-        "- If the generated text passes all factual checks with 100% grounding, set `passed` to true and `unverified_claims` to an empty list.\n"
-        "- If the generated text invents ANY facts, set `passed` to false and itemize the exact hallucinated claims in `unverified_claims`.\n\n"
+        "- Audit CANDIDATE claims strictly against <untrusted_candidate_cv>: every past employer, job title held, project, "
+        "metric, percentage, dollar amount, team size, years of experience, certification, degree, and production skill/tool "
+        "claimed by the candidate MUST appear in <untrusted_candidate_cv>. If the CV says 'decreased latency by 15%', the "
+        "generation cannot claim 'decreased latency by 25%'. Never allow claiming hands-on production experience in a tool "
+        "absent from the CV just because it appeared in the job description.\n"
+        "- Do NOT flag TARGET ROLE OR COMPANY references as candidate hallucinations: naming the target employer, the role title "
+        "being applied for (e.g. 'applying for Staff Engineer at Acme'), or quoting the company's products, mission, domain, or "
+        "business scale from <target_opportunity_context> is expected and valid — unless the text falsely claims the candidate "
+        "previously worked at that target company or built that target metric.\n"
+        "- Honest gap/methodology framing (e.g. acknowledging no production experience with Tool X and explaining transferable "
+        "foundations from CV skill Y) is valid and MUST NOT be flagged as an unverified claim.\n"
+        "- Consistency rule: if all candidate claims are grounded in <untrusted_candidate_cv>, set `passed` to true and "
+        "`unverified_claims` to []. Never set `passed` to false if your own critique finds zero ungrounded candidate claims.\n\n"
         "--------------------------------------------------\n"
         "OUTPUT FORMAT (STRICT JSON ONLY)\n"
         "--------------------------------------------------\n"
@@ -858,6 +867,10 @@ DEFAULT_PROMPTS = {
         "AUTHORITATIVE CANDIDATE DOSSIER\n"
         "--------------------------------------------------\n"
         "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET OPPORTUNITY CONTEXT (EMPLOYER / ROLE / RESEARCH)\n"
+        "--------------------------------------------------\n"
+        "<target_opportunity_context>\n{target_context}\n</target_opportunity_context>\n\n"
         "--------------------------------------------------\n"
         "GENERATED TARGET TO AUDIT ({task_type} - {context_label})\n"
         "--------------------------------------------------\n"
@@ -1014,6 +1027,14 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "company_research" and (
             "profile_links" not in (existing.template or "")
             or "TARGET COMPANY & SCRAPED SEARCH DATA" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "llm_judge" and (
+            "<target_opportunity_context>" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "agent_system" and (
+            "start_system_design" not in (existing.template or "")
         ):
             existing.template = default_template
 

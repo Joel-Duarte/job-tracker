@@ -95,6 +95,12 @@ async def run_golden_suite(
     )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
+    if pipe_scenarios:
+        from app.core.prompts import seed_default_prompts
+
+        async with session_factory() as seed_db:
+            await seed_default_prompts(seed_db)
+
     async def _run_pipe(sc: dict[str, Any]) -> dict[str, Any]:
         async with sem:
             async with session_factory() as db:

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "qgen_backend_kafka_postgres",
+    "pipeline": "interview_question_gen",
+    "persona_id": "marcus_ai_backend",
+    "company_name": "CloudScale Systems",
+    "position": "Senior Backend & AI Platform Engineer",
+    "job_spec": "High-throughput FastAPI APIs, PostgreSQL replication & query tuning, Redis worker queues, and Kubernetes reliability.",
+    "turns_summary": "No prior questions asked yet.",
+    "expected_keywords_any": ["fastapi", "postgres", "redis", "kubernetes", "scale", "latency", "api", "llm", "agent", "pgvector", "queue", "fail", "architect", "design"],
+    "human_rationale": "First tailored question for Backend/AI persona should probe concrete distributed backend/DB/AI architecture experience."
+  },
+  {
+    "id": "qgen_frontend_accessibility",
+    "pipeline": "interview_question_gen",
+    "persona_id": "elena_frontend_react",
+    "company_name": "PixelCraft UI",
+    "position": "Senior Frontend Engineer",
+    "job_spec": "React, TypeScript, WCAG accessibility, Core Web Vitals optimization, and Playwright automated verification.",
+    "turns_summary": "Turn 1 asked about React state management.",
+    "expected_keywords_any": ["accessib", "wcag", "aria", "performance", "vitals", "render", "typescript", "playwright", "test", "react", "next", "component", "keyboard"],
+    "human_rationale": "Next question should pivot cleanly to accessibility, performance, or TypeScript/Playwright engineering on Elena's CV + JD."
+  }
+]

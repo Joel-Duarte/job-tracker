@@ -1,0 +1,32 @@
+[
+  {
+    "id": "mc_eval_correct_choice",
+    "pipeline": "interview_mc_eval",
+    "position": "Senior Backend Engineer",
+    "company_name": "StreamGrid",
+    "job_spec": "High-throughput distributed caching and rate limiting at scale.",
+    "question_asked": "You need to shard an in-memory rate-limiter cluster while minimizing key movement when adding nodes. Which strategy is optimal?",
+    "options_text": "- A: Modulo hashing (hash(key) % N) across server indices\n- B: Consistent hashing ring with virtual nodes\n- C: Store all counters in a single unsharded primary SQL table with row locks\n- D: Round-robin counter writes across random cache nodes",
+    "selected_option": "B",
+    "user_answer": "Virtual nodes keep key redistribution proportional (~1/N) during scaling instead of rehashing most keys.",
+    "min_score": 88,
+    "max_score": 100,
+    "expected_critique_any": ["correct"],
+    "human_rationale": "Candidate selected optimal Option B with sound rationale; should score 95-100 and state Option B is Correct."
+  },
+  {
+    "id": "mc_eval_incorrect_choice",
+    "pipeline": "interview_mc_eval",
+    "position": "Senior Backend Engineer",
+    "company_name": "StreamGrid",
+    "job_spec": "High-throughput distributed caching and rate limiting at scale.",
+    "question_asked": "You need to shard an in-memory rate-limiter cluster while minimizing key movement when adding nodes. Which strategy is optimal?",
+    "options_text": "- A: Modulo hashing (hash(key) % N) across server indices\n- B: Consistent hashing ring with virtual nodes\n- C: Store all counters in a single unsharded primary SQL table with row locks\n- D: Round-robin counter writes across random cache nodes",
+    "selected_option": "C",
+    "user_answer": "Single SQL table avoids cache misses.",
+    "min_score": 0,
+    "max_score": 45,
+    "expected_critique_any": ["incorrect", "flaw", "bottleneck", "option b", "consistent hashing"],
+    "human_rationale": "Candidate chose single unsharded SQL lock bottleneck instead of Option B; should score <= 40 and identify why Option C is flawed and B is optimal."
+  }
+]
