@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+import os
+import socket
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +14,9 @@ from sqlalchemy.orm.attributes import flag_modified
 import app.core.database as db_module
 from app.core.ai_queue import (
     concurrency_manager,
+    get_worker_instance_id,
+    is_shutting_down,
+    is_task_running_locally,
     register_running_task,
     unregister_running_task,
 )
@@ -28,6 +33,7 @@ from app.services.job_saver import persist_or_stage_job_assessment
 from app.services.llm import (
     anonymize_and_parse_cv,
     assess_job_posting,
+    build_application_company_context,
     extract_job_spec,
     generate_application_answers,
     generate_cover_letter,
@@ -49,6 +55,22 @@ def get_company_research_semaphore() -> asyncio.Semaphore:
     if _company_research_semaphore is None:
         _company_research_semaphore = asyncio.Semaphore(2)
     return _company_research_semaphore
+
+
+def _build_judge_target_context(
+    company_name: str,
+    position_name: str,
+    job_desc: str | None,
+    company_research: dict | None,
+) -> str:
+    """Builds separate target opportunity context so the judge does not flag company/role references."""
+    parts = [f"Target Company: {company_name}", f"Target Position: {position_name}"]
+    cr_ctx = build_application_company_context(company_research)
+    if cr_ctx:
+        parts.append(f"Company Research Facts:\n{cr_ctx}")
+    if job_desc:
+        parts.append(f"Job Description Excerpt:\n{job_desc[:1500]}")
+    return "\n\n".join(parts)
 
 
 async def _execute_application_qa_steps(
@@ -157,6 +179,10 @@ async def _execute_application_qa_steps(
             and settings.enable_llm_judge
             and settings.llm_judge_audit_application_qa
         ):
+            judge_target_ctx = _build_judge_target_context(
+                company_name, position_name, job_desc, company_research
+            )
+
             retries = 0
             while True:
                 joined_text = "\n".join(
@@ -171,6 +197,7 @@ async def _execute_application_qa_steps(
                     generated_text=joined_text,
                     context_label=f"Application QA for {company_name}",
                     task_type="APPLICATION_QA",
+                    target_context=judge_target_ctx,
                 )
                 audit_summary = audit.model_dump()
 
@@ -362,6 +389,10 @@ async def _execute_cover_letter_steps(
             and settings.enable_llm_judge
             and settings.llm_judge_audit_cover_letter
         ):
+            judge_target_ctx = _build_judge_target_context(
+                company_name, position_name, job_desc, company_research
+            )
+
             retries = 0
             while True:
                 audit = await audit_generation_grounding(
@@ -370,6 +401,7 @@ async def _execute_cover_letter_steps(
                     generated_text=cl_text,
                     context_label=f"Cover Letter for {company_name}",
                     task_type="COVER_LETTER",
+                    target_context=judge_target_ctx,
                 )
                 audit_summary = audit.model_dump()
 
@@ -1064,8 +1096,794 @@ async def _execute_email_sync_steps(
         await db.commit()
 
 
+def _resolve_worker_binding_type(task_type: str) -> str:
+    if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
+        return "EMAIL_EXTRACTION"
+    if task_type in ["APPLICATION_ASSESSMENT"]:
+        return "JOB_ASSESSMENT"
+    if task_type in ["SYSTEM_DESIGN_REVIEW", "SYSTEM_DESIGN_EVALUATION"]:
+        return "SYSTEM_DESIGN_REVIEWER"
+    if task_type in ["SYSTEM_DESIGN_CHALLENGE_GEN"]:
+        return "SYSTEM_DESIGN_INTERVIEWER"
+    return task_type
+
+
+def _initial_stage_for_task(task_type: str | None) -> str:
+    stage_map = {
+        "CV_EXTRACTION": "SCRUBBING",
+        "COVER_LETTER": "GENERATING",
+        "ROLE_ALIGNMENT_DOSSIER": "SYNTHESIZING",
+        "COMPANY_RESEARCH": "WEB_SEARCH",
+        "EMAIL_SYNC": "PARSING",
+        "EMAIL_INTAKE": "PARSING",
+        "SYSTEM_DESIGN_REVIEW": "ANALYZING",
+        "SYSTEM_DESIGN_EVALUATION": "ANALYZING",
+        "SYSTEM_DESIGN_CHALLENGE_GEN": "GENERATING",
+    }
+    return stage_map.get(task_type or "", "FETCHING")
+
+
+_CLAIM_LOCK = asyncio.Lock()
+_IN_PROCESS_CLAIMED: set[int] = set()
+_TRANSIENT_RETRY_DELAYS: tuple[float, ...] = (0.5, 1.5)
+
+
+class _TaskCancelledError(Exception):
+    """Raised when a task is found CANCELLED in the DB between worker steps."""
+
+
+def _resume_stage_for_task(
+    task_type: str | None, result_json: dict[str, Any] | None
+) -> str:
+    """Choose the next non-completed stage for a checkpointed task on retry/recovery."""
+    checkpoint = (
+        result_json.get("_checkpoint")
+        if isinstance(result_json, dict)
+        and isinstance(result_json.get("_checkpoint"), dict)
+        else {}
+    )
+    completed = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+    if task_type == "SYSTEM_DESIGN_REVIEW":
+        return "SAVING" if "ANALYZING" in completed else "ANALYZING"
+    if task_type == "SYSTEM_DESIGN_EVALUATION":
+        return "SAVING" if "EVALUATING" in completed else "ANALYZING"
+    if task_type == "SYSTEM_DESIGN_CHALLENGE_GEN":
+        return "SAVING" if "GENERATING" in completed else "GENERATING"
+    return _initial_stage_for_task(task_type)
+
+
+DEFAULT_LEASE_TTL_SECONDS = 60
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+
+class _LeaseLostError(Exception):
+    """Raised when a worker loses task ownership/lease before or during execution."""
+
+
+def _parse_iso_ts(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _is_transient_ai_error(exc: Exception) -> bool:
+    """Classify transient provider/network/rate-limit failures vs permanent validation errors."""
+    if isinstance(
+        exc,
+        (
+            ValueError,
+            FileNotFoundError,
+            LookupError,
+            PermissionError,
+            json.JSONDecodeError,
+            _TaskCancelledError,
+            _LeaseLostError,
+            asyncio.CancelledError,
+        ),
+    ):
+        return False
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError)):
+        return True
+    msg = str(exc).lower()
+    permanent_markers = (
+        "validation",
+        "not found",
+        "requires ",
+        "already completed",
+        "locked before",
+        "must not be",
+        "missing at",
+    )
+    if any(marker in msg for marker in permanent_markers):
+        return False
+    transient_markers = (
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "timeout",
+        "timed out",
+        "rate limit",
+        "too many requests",
+        "temporarily unavailable",
+        "connection error",
+        "connecterror",
+        "connection refused",
+        "server disconnected",
+        "remoteprotocolerror",
+        "apiconnectionerror",
+        "service unavailable",
+    )
+    return any(marker in msg for marker in transient_markers)
+
+
+def _ensure_checkpoint_meta(
+    task: IntakeEvaluationTaskModel,
+    *,
+    increment_attempt: bool = False,
+    worker_id: str | None = None,
+) -> dict[str, Any]:
+    """Ensure task.result_json['_checkpoint'] contains consistent durability & telemetry metadata."""
+    now_iso = datetime.now(UTC).isoformat()
+    payload = dict(task.result_json or {})
+    existing = payload.get("_checkpoint")
+    checkpoint = dict(existing) if isinstance(existing, dict) else {}
+    checkpoint.setdefault("completed_steps", [])
+    checkpoint.setdefault("step_attempts", {})
+    checkpoint.setdefault("step_timestamps", {})
+    checkpoint.setdefault("attempt_count", 0)
+    checkpoint["last_activity_at"] = now_iso
+    checkpoint["worker_host"] = socket.gethostname()
+    checkpoint["worker_pid"] = os.getpid()
+    checkpoint["worker_instance_id"] = worker_id or get_worker_instance_id()
+    if increment_attempt:
+        checkpoint["attempt_count"] = int(checkpoint["attempt_count"]) + 1
+    payload["_checkpoint"] = checkpoint
+    task.result_json = payload
+    flag_modified(task, "result_json")
+    return checkpoint
+
+
+def _acquire_lease_on_checkpoint(
+    task: IntakeEvaluationTaskModel,
+    worker_id: str,
+    *,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    increment_attempt: bool = False,
+) -> dict[str, Any]:
+    """Record ownership lease metadata in task.result_json['_checkpoint']."""
+    now = datetime.now(UTC)
+    now_iso = now.isoformat()
+    expires_iso = (now + timedelta(seconds=ttl_seconds)).isoformat()
+    checkpoint = _ensure_checkpoint_meta(
+        task, increment_attempt=increment_attempt, worker_id=worker_id
+    )
+    checkpoint["lease_owner"] = worker_id
+    checkpoint["lease_acquired_at"] = now_iso
+    checkpoint["heartbeat_at"] = now_iso
+    checkpoint["lease_expires_at"] = expires_iso
+    checkpoint["lease_ttl_seconds"] = int(ttl_seconds)
+    flag_modified(task, "result_json")
+    return checkpoint
+
+
+def _clear_lease_on_checkpoint(task: IntakeEvaluationTaskModel) -> dict[str, Any]:
+    """Clear active lease ownership metadata from task.result_json['_checkpoint']."""
+    payload = dict(task.result_json or {})
+    existing = payload.get("_checkpoint")
+    if not isinstance(existing, dict):
+        return {}
+    checkpoint = dict(existing)
+    checkpoint["lease_owner"] = None
+    checkpoint["lease_expires_at"] = None
+    payload["_checkpoint"] = checkpoint
+    task.result_json = payload
+    flag_modified(task, "result_json")
+    return checkpoint
+
+
+async def renew_task_lease(
+    task_id: int,
+    worker_id: str,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    session_factory: Any = None,
+) -> bool:
+    """Renew an active PROCESSING task lease only if this worker_id still owns it."""
+    factory = session_factory or db_module.AsyncSessionLocal
+    async with factory() as session:
+        stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id == task_id
+        )
+        if session.bind and session.bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+        task = (await session.execute(stmt)).scalar_one_or_none()
+        if not task or task.status != "PROCESSING":
+            return False
+        payload = dict(task.result_json or {})
+        existing = payload.get("_checkpoint")
+        checkpoint = dict(existing) if isinstance(existing, dict) else {}
+        if checkpoint.get("lease_owner") != worker_id:
+            return False
+        now = datetime.now(UTC)
+        now_iso = now.isoformat()
+        checkpoint["heartbeat_at"] = now_iso
+        checkpoint["last_activity_at"] = now_iso
+        checkpoint["lease_expires_at"] = (
+            now + timedelta(seconds=ttl_seconds)
+        ).isoformat()
+        checkpoint["lease_ttl_seconds"] = int(ttl_seconds)
+        payload["_checkpoint"] = checkpoint
+        task.result_json = payload
+        flag_modified(task, "result_json")
+        await session.commit()
+        return True
+
+
+async def _lease_heartbeat_loop(
+    task_id: int,
+    worker_id: str,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+) -> None:
+    """Periodically renew the worker's PostgreSQL lease while a task is in flight."""
+    while not is_shutting_down():
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            break
+        if is_shutting_down():
+            break
+        try:
+            renewed = await renew_task_lease(
+                task_id, worker_id, ttl_seconds=ttl_seconds
+            )
+            if not renewed:
+                logger.warning(
+                    "Worker %s lost lease renewal for task %d; stopping heartbeat.",
+                    worker_id,
+                    task_id,
+                )
+                break
+        except asyncio.CancelledError:
+            break
+        except Exception as err:
+            logger.warning(
+                "Heartbeat renewal error for task %d (worker %s): %s",
+                task_id,
+                worker_id,
+                err,
+            )
+
+
+async def _assert_not_cancelled(task_id: int, db: AsyncSession) -> None:
+    """Query fresh DB task status and abort cleanly if the user cancelled the task."""
+    status_val = (
+        await db.execute(
+            select(IntakeEvaluationTaskModel.status).where(
+                IntakeEvaluationTaskModel.id == task_id
+            )
+        )
+    ).scalar_one_or_none()
+    if status_val == "CANCELLED":
+        raise _TaskCancelledError(f"Task {task_id} was cancelled in database.")
+
+
+async def _assert_owns_lease(
+    task_id: int,
+    db: AsyncSession,
+    worker_id: str | None = None,
+    *,
+    for_update: bool = False,
+    allow_cancelled: bool = False,
+) -> None:
+    """Verify the task is still PROCESSING and owned by worker_id (optional row lock)."""
+    stmt = select(
+        IntakeEvaluationTaskModel.status, IntakeEvaluationTaskModel.result_json
+    ).where(IntakeEvaluationTaskModel.id == task_id)
+    if for_update and db.bind and db.bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update()
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise _LeaseLostError(f"Task {task_id} no longer exists.")
+    status_val, result_json = row
+    if status_val == "CANCELLED":
+        if not allow_cancelled:
+            raise _TaskCancelledError(f"Task {task_id} was cancelled in database.")
+    elif status_val != "PROCESSING":
+        raise _LeaseLostError(
+            f"Task {task_id} is {status_val} (no longer PROCESSING); aborting stale worker."
+        )
+    cp = result_json.get("_checkpoint") if isinstance(result_json, dict) else None
+    lease_owner = cp.get("lease_owner") if isinstance(cp, dict) else None
+    if worker_id and lease_owner and lease_owner != worker_id:
+        raise _LeaseLostError(
+            f"Task {task_id} lease owned by {lease_owner}, not {worker_id}."
+        )
+
+
+async def _begin_step(
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    step_name: str,
+    worker_id: str | None = None,
+) -> dict[str, Any]:
+    """Assert active lease ownership, record step start metadata, and commit stage transition."""
+    await _assert_owns_lease(int(task.id), db, worker_id)
+    now_iso = datetime.now(UTC).isoformat()
+    checkpoint = _ensure_checkpoint_meta(task, worker_id=worker_id)
+    timestamps = dict(checkpoint.get("step_timestamps") or {})
+    entry = dict(timestamps.get(step_name) or {})
+    entry["started_at"] = now_iso
+    timestamps[step_name] = entry
+    checkpoint["step_timestamps"] = timestamps
+    checkpoint["current_step"] = step_name
+    attempts = dict(checkpoint.get("step_attempts") or {})
+    attempts[step_name] = int(attempts.get(step_name, 0)) + 1
+    checkpoint["step_attempts"] = attempts
+    task.stage = step_name
+    flag_modified(task, "result_json")
+    await db.commit()
+    return checkpoint
+
+
+async def _complete_step(
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    step_name: str,
+    worker_id: str | None = None,
+    **extra_checkpoint_fields: Any,
+) -> dict[str, Any]:
+    """Persist intermediate step outputs and mark step completed in _checkpoint."""
+    await _assert_owns_lease(
+        int(task.id), db, worker_id, for_update=True, allow_cancelled=True
+    )
+    now_iso = datetime.now(UTC).isoformat()
+    checkpoint = _ensure_checkpoint_meta(task, worker_id=worker_id)
+    completed = [str(s) for s in (checkpoint.get("completed_steps") or [])]
+    if step_name not in completed:
+        completed.append(step_name)
+    checkpoint["completed_steps"] = completed
+    timestamps = dict(checkpoint.get("step_timestamps") or {})
+    entry = dict(timestamps.get(step_name) or {})
+    entry["completed_at"] = now_iso
+    timestamps[step_name] = entry
+    checkpoint["step_timestamps"] = timestamps
+    checkpoint["current_step"] = None
+    for key, val in extra_checkpoint_fields.items():
+        checkpoint[key] = val
+    flag_modified(task, "result_json")
+    await db.commit()
+    return checkpoint
+
+
+async def _run_with_transient_retry(
+    task_id: int,
+    step_name: str,
+    coro_factory: Any,
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    worker_id: str | None = None,
+) -> Any:
+    """Run an AI/IO step with bounded backoff retries only on transient errors."""
+    delays = _TRANSIENT_RETRY_DELAYS
+    for attempt_idx in range(len(delays) + 1):
+        await _assert_owns_lease(task_id, db, worker_id)
+        try:
+            return await coro_factory()
+        except Exception as exc:
+            if isinstance(exc, (_TaskCancelledError, asyncio.CancelledError)):
+                raise
+            if attempt_idx < len(delays) and _is_transient_ai_error(exc):
+                delay = delays[attempt_idx]
+                logger.warning(
+                    "Transient error on task %d step %s (attempt %d/%d): %s. Retrying in %.2fs",
+                    task_id,
+                    step_name,
+                    attempt_idx + 1,
+                    len(delays) + 1,
+                    exc,
+                    delay,
+                )
+                try:
+                    await db.rollback()
+                    refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+                    if refreshed is not None:
+                        cp = _ensure_checkpoint_meta(refreshed, increment_attempt=True)
+                        attempts = dict(cp.get("step_attempts") or {})
+                        attempts[step_name] = int(attempts.get(step_name, 0)) + 1
+                        cp["step_attempts"] = attempts
+                        cp["last_transient_error"] = str(exc)[:400]
+                        flag_modified(refreshed, "result_json")
+                        await db.commit()
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
+                continue
+            raise
+
+
+async def _handle_step_exception(
+    task_id: int,
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    err: Exception,
+    label: str,
+) -> None:
+    """Record FAILED cleanly while preserving _checkpoint unless cancelled."""
+    if isinstance(err, _TaskCancelledError):
+        logger.info("%s task %d aborted due to DB cancellation.", label, task_id)
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+            if isinstance(refreshed, IntakeEvaluationTaskModel):
+                await db.refresh(refreshed)
+        except Exception:
+            pass
+        return
+
+    if isinstance(err, _LeaseLostError):
+        logger.warning(
+            "%s task %d aborted due to lost lease ownership (%s); leaving DB untouched.",
+            label,
+            task_id,
+            err,
+        )
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return
+
+    logger.error("Failed processing %s task %d: %s", label, task_id, err, exc_info=True)
+    try:
+        await db.rollback()
+        refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+        target_task = (
+            refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+        )
+        if target_task.status == "CANCELLED":
+            return
+        cp = _ensure_checkpoint_meta(target_task)
+        cp["last_error"] = str(err)[:500]
+        _clear_lease_on_checkpoint(target_task)
+        target_task.status = "FAILED"
+        target_task.stage = "FAILED"
+        target_task.error_message = str(err)
+        target_task.completed_at = datetime.now(UTC)
+        flag_modified(target_task, "result_json")
+        await db.commit()
+    except Exception as rollback_err:
+        logger.error(
+            "Error setting failure state for %s task %d: %s",
+            label,
+            task_id,
+            rollback_err,
+        )
+
+
+async def _execute_system_design_review_steps(
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
+) -> None:
+    """Checkpointed 3-step pipeline for SYSTEM_DESIGN_REVIEW: PREPARING -> ANALYZING -> SAVING."""
+    task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
+    try:
+        payload = dict(task.result_json or {})
+        session_id = payload.get("session_id")
+        diagram_version = payload.get("diagram_version")
+        if not session_id:
+            _clear_lease_on_checkpoint(task)
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = "No session_id found for SYSTEM_DESIGN_REVIEW task."
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        from app.services.system_design_service import SystemDesignService
+
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+
+        if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
+            prepared_ctx = await SystemDesignService.prepare_diagram_review_context(
+                db,
+                session_id=int(session_id),
+                diagram_version=int(diagram_version)
+                if diagram_version is not None
+                else None,
+                use_web_search=bool(payload.get("use_web_search", False)),
+            )
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
+            )
+        else:
+            prepared_ctx = dict(checkpoint["prepared_ctx"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "ANALYZING" not in completed_steps or not checkpoint.get("review_result"):
+            await _begin_step(task, db, "ANALYZING", worker_id=effective_worker_id)
+            inference_out = await _run_with_transient_retry(
+                task_id,
+                "ANALYZING",
+                lambda: SystemDesignService.run_diagram_vlm_inference(db, prepared_ctx),
+                task,
+                db,
+                worker_id=effective_worker_id,
+            )
+            review_result = inference_out["review"]
+            provider_telemetry = inference_out["provider_telemetry"]
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "ANALYZING",
+                worker_id=effective_worker_id,
+                review_result=review_result,
+                provider_telemetry=provider_telemetry,
+            )
+        else:
+            review_result = dict(checkpoint["review_result"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "SAVING" not in completed_steps:
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+            session = await SystemDesignService.persist_architecture_review(
+                db, session_id=int(session_id), review_dict=review_result
+            )
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "SAVING",
+                worker_id=effective_worker_id,
+                reviews_count=len(session.architecture_reviews or []),
+            )
+        else:
+            session = await SystemDesignService.get_session(db, int(session_id))
+
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+        latest_payload = dict(task.result_json or payload)
+        latest_payload["reviews_count"] = len(session.architecture_reviews or [])
+        latest_payload["_checkpoint"] = checkpoint
+        task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.error_message = None
+        task.completed_at = datetime.now(UTC)
+        flag_modified(task, "result_json")
+        await db.commit()
+    except Exception as err:
+        await _handle_step_exception(task_id, task, db, err, "system design review")
+
+
+async def _execute_system_design_evaluation_steps(
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
+) -> None:
+    """Checkpointed 3-step pipeline for SYSTEM_DESIGN_EVALUATION: PREPARING -> EVALUATING -> SAVING."""
+    task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
+    try:
+        payload = dict(task.result_json or {})
+        session_id = payload.get("session_id")
+        if not session_id:
+            _clear_lease_on_checkpoint(task)
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                "No session_id found for SYSTEM_DESIGN_EVALUATION task."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        from app.services.system_design_service import SystemDesignService
+
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+
+        if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
+            prepared_ctx = await SystemDesignService.prepare_final_evaluation_context(
+                db, session_id=int(session_id)
+            )
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
+            )
+        else:
+            prepared_ctx = dict(checkpoint["prepared_ctx"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "EVALUATING" not in completed_steps or not checkpoint.get(
+            "evaluation_result"
+        ):
+            await _begin_step(task, db, "EVALUATING", worker_id=effective_worker_id)
+            inference_out = await _run_with_transient_retry(
+                task_id,
+                "EVALUATING",
+                lambda: SystemDesignService.run_final_evaluation_inference(
+                    db, prepared_ctx
+                ),
+                task,
+                db,
+                worker_id=effective_worker_id,
+            )
+            evaluation_result = inference_out["evaluation"]
+            provider_telemetry = inference_out["provider_telemetry"]
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "EVALUATING",
+                worker_id=effective_worker_id,
+                evaluation_result=evaluation_result,
+                provider_telemetry=provider_telemetry,
+            )
+        else:
+            evaluation_result = dict(checkpoint["evaluation_result"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "SAVING" not in completed_steps:
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+            updated_session = await SystemDesignService.persist_final_evaluation(
+                db,
+                session_id=int(session_id),
+                eval_dict=evaluation_result,
+                idempotent_if_completed=True,
+            )
+            checkpoint = await _complete_step(
+                task, db, "SAVING", worker_id=effective_worker_id
+            )
+        else:
+            updated_session = await SystemDesignService.get_session(db, int(session_id))
+
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+        latest_payload = dict(task.result_json or payload)
+        latest_payload["overall_score"] = updated_session.overall_score
+        latest_payload["readiness_rating"] = updated_session.readiness_rating
+        latest_payload["final_evaluation"] = updated_session.final_evaluation
+        latest_payload["_checkpoint"] = checkpoint
+        task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.error_message = None
+        task.completed_at = datetime.now(UTC)
+        flag_modified(task, "result_json")
+        await db.commit()
+    except Exception as err:
+        await _handle_step_exception(task_id, task, db, err, "system design evaluation")
+
+
+async def _execute_system_design_challenge_gen_steps(
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
+) -> None:
+    """Checkpointed 3-step pipeline for SYSTEM_DESIGN_CHALLENGE_GEN: PREPARING -> GENERATING -> SAVING."""
+    task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
+    try:
+        payload = dict(task.result_json or {})
+        request_payload = dict(payload.get("request_payload") or {})
+
+        from app.services.system_design_service import SystemDesignService
+
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+
+        if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
+            prepared_ctx = await SystemDesignService.prepare_challenge_gen_context(
+                db, request_payload
+            )
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
+            )
+        else:
+            prepared_ctx = dict(checkpoint["prepared_ctx"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "GENERATING" not in completed_steps or not checkpoint.get(
+            "parsed_challenge"
+        ):
+            await _begin_step(task, db, "GENERATING", worker_id=effective_worker_id)
+            inference_out = await _run_with_transient_retry(
+                task_id,
+                "GENERATING",
+                lambda: SystemDesignService.run_challenge_gen_inference(
+                    db, prepared_ctx
+                ),
+                task,
+                db,
+                worker_id=effective_worker_id,
+            )
+            parsed_challenge = inference_out["parsed"]
+            provider_telemetry = inference_out["provider_telemetry"]
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "GENERATING",
+                worker_id=effective_worker_id,
+                parsed_challenge=parsed_challenge,
+                provider_telemetry=provider_telemetry,
+            )
+        else:
+            parsed_challenge = dict(checkpoint["parsed_challenge"])
+
+        completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
+        if "SAVING" not in completed_steps or not checkpoint.get("challenge_id"):
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+            challenge = await SystemDesignService.persist_generated_challenge(
+                db, prepared_ctx, parsed_challenge
+            )
+            checkpoint = await _complete_step(
+                task,
+                db,
+                "SAVING",
+                worker_id=effective_worker_id,
+                challenge_id=int(challenge.id),
+                challenge_slug=str(challenge.slug),
+            )
+        else:
+            challenge = None
+
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
+        latest_payload = dict(task.result_json or payload)
+        latest_payload["challenge_id"] = int(
+            checkpoint.get("challenge_id") or (challenge.id if challenge else 0)
+        )
+        latest_payload["challenge_slug"] = str(
+            checkpoint.get("challenge_slug") or (challenge.slug if challenge else "")
+        )
+        latest_payload["_checkpoint"] = checkpoint
+        task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.error_message = None
+        task.completed_at = datetime.now(UTC)
+        flag_modified(task, "result_json")
+        await db.commit()
+    except Exception as err:
+        await _handle_step_exception(
+            task_id, task, db, err, "system design challenge generation"
+        )
+
+
 async def _execute_evaluation_steps(
-    task: IntakeEvaluationTaskModel, db: AsyncSession
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
 ) -> None:
     task_id = int(task.id)
     async with trace_operation(
@@ -1127,21 +1945,58 @@ async def _execute_evaluation_steps(
                 ctx["error"] = task.error_message
             return
 
+        if task.task_type == "SYSTEM_DESIGN_REVIEW":
+            await _execute_system_design_review_steps(task, db, worker_id=worker_id)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "SYSTEM_DESIGN_EVALUATION":
+            await _execute_system_design_evaluation_steps(task, db, worker_id=worker_id)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "SYSTEM_DESIGN_CHALLENGE_GEN":
+            await _execute_system_design_challenge_gen_steps(
+                task, db, worker_id=worker_id
+            )
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
         try:
             current_json = dict(task.result_json or {})
             checkpoint = dict(current_json.get("_checkpoint") or {})
 
             content = task.raw_text or checkpoint.get("content")
             clean_job_url = normalize_job_url(task.job_url)
+            min_job_text_chars = 100
+            short_job_text_threshold = 400
+            used_scraped_fallback = False
 
-            # Stage 1: Fetch URL if content not already provided
-            if not content and clean_job_url:
+            stripped_content = content.strip() if content else ""
+            needs_url_scrape = bool(clean_job_url) and (
+                not stripped_content
+                or len(stripped_content) < min_job_text_chars
+                or (
+                    len(stripped_content) < short_job_text_threshold
+                    and not validate_job_content(stripped_content, min_matches=2)
+                )
+            )
+
+            # Stage 1: Fetch URL if content is missing or appears to be an incomplete snippet
+            if needs_url_scrape:
                 task.stage = "FETCHING"
                 await db.commit()
 
                 scraped = await scrape_job_url(clean_job_url)
-                if scraped.text:
+                if scraped.text and len(scraped.text.strip()) > len(stripped_content):
                     content = scraped.text
+                    used_scraped_fallback = True
                     checkpoint["content"] = content
                     current_json["_checkpoint"] = checkpoint
                     task.result_json = dict(current_json)
@@ -1158,8 +2013,24 @@ async def _execute_evaluation_steps(
                 ctx["outputs"] = {"status": task.status, "stage": task.stage}
                 return
 
+            if len(content.strip()) < min_job_text_chars:
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = (
+                    f"SCRAPE_FAILED: Extracted job description is too short ({len(content.strip())} chars). "
+                    "Please provide the full job description text."
+                )
+                task.completed_at = datetime.now(UTC)
+                await db.commit()
+                ctx["error"] = task.error_message
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                return
+
             # Lightweight Keyword Filtering Validation (only for scraped pages, skipped if user explicitly provided the JD text)
-            is_user_provided_text = bool(task.raw_text and task.raw_text.strip())
+            is_user_provided_text = (
+                bool(task.raw_text and task.raw_text.strip())
+                and not used_scraped_fallback
+            )
             if not is_user_provided_text and not validate_job_content(
                 content, min_matches=2
             ):
@@ -1185,8 +2056,11 @@ async def _execute_evaluation_steps(
                     page_title=current_json.get("page_title"),
                 )
                 if not job_spec.job_found:
-                    if is_user_provided_text:
-                        # User explicitly pasted the text — trust their input and proceed
+                    if (
+                        is_user_provided_text
+                        and len(content.strip()) >= short_job_text_threshold
+                    ):
+                        # User explicitly pasted substantial text — trust their input and proceed
                         # even if the LLM didn't recognise it as a job posting.
                         logger.warning(
                             "Task %s: LLM returned job_found=False for user-provided text. "
@@ -1196,7 +2070,7 @@ async def _execute_evaluation_steps(
                     else:
                         task.status = "FAILED"
                         task.stage = "FAILED"
-                        task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+                        task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy. Please provide the full job description text."
                         task.completed_at = datetime.now(UTC)
                         await db.commit()
                         ctx["error"] = task.error_message
@@ -1345,6 +2219,31 @@ async def _execute_evaluation_steps(
                 matching_skills=match_info.get("matching_skills"),
                 missing_skills=match_info.get("missing_skills"),
             )
+
+            # Guard against persona leakage ('Technical Bar') or workplace-mode leakage ('Hybrid')
+            # in assessment.company by preferring the dedicated JD_EXTRACTION company when valid.
+            if spec_dict:
+                from app.services.domain_resolver import is_invalid_company_name
+
+                spec_company = spec_dict.get("company")
+                if spec_company and not is_invalid_company_name(spec_company):
+                    if is_invalid_company_name(assessment.company):
+                        assessment.company = str(spec_company).strip()
+                spec_position = spec_dict.get("position")
+                if spec_position and str(spec_position).strip().lower() not in {
+                    "not specified",
+                    "unknown",
+                }:
+                    if (
+                        not assessment.position
+                        or assessment.position.strip().lower()
+                        in {
+                            "not specified",
+                            "unknown",
+                            "unspecified position",
+                        }
+                    ):
+                        assessment.position = str(spec_position).strip()
 
             task.stage = "SAVING"
             await db.commit()
@@ -1530,198 +2429,455 @@ async def _execute_evaluation_steps(
             ctx["outputs"] = {"status": "FAILED", "stage": "FAILED"}
 
 
-async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) -> None:
+_DISPATCHED_TASKS: set[asyncio.Task] = set()
+
+
+async def _resolve_provider_concurrency(
+    session: AsyncSession, task_type: str
+) -> tuple[int | None, int]:
+    """Resolve provider_id and max_concurrency for the target binding type."""
+    target_binding_type = _resolve_worker_binding_type(task_type)
+    binding_stmt = (
+        select(AITaskBindingModel, AIProviderModel)
+        .join(
+            AIProviderModel,
+            AITaskBindingModel.provider_id == AIProviderModel.id,
+        )
+        .where(
+            AITaskBindingModel.task_type.in_([target_binding_type, "GLOBAL_DEFAULT"]),
+            AITaskBindingModel.is_active,
+            AIProviderModel.is_active,
+        )
+    )
+    rows = (await session.execute(binding_stmt)).all()
+    exact_row = next((r for r in rows if r[0].task_type == target_binding_type), None)
+    global_row = next((r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None)
+    selected_row = exact_row or global_row or (rows[0] if rows else None)
+    provider_id = selected_row[1].id if selected_row else None
+    max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+    return (provider_id, max_concurrency)
+
+
+async def _requeue_task_on_shutdown(
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
+) -> None:
+    """Re-queue an interrupted PROCESSING task on graceful shutdown if this worker still owns its lease."""
+    try:
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            t = await db.get(IntakeEvaluationTaskModel, task_id)
+            if t and t.status == "PROCESSING":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                cp = _ensure_checkpoint_meta(t, worker_id=worker_id)
+                cp["interrupted_by_shutdown_at"] = datetime.now(UTC).isoformat()
+                _clear_lease_on_checkpoint(t)
+                t.status = "QUEUED"
+                t.stage = _resume_stage_for_task(t.task_type, t.result_json)
+                t.error_message = "Paused cleanly during server shutdown; queued for automatic resume."
+                t.completed_at = None
+                flag_modified(t, "result_json")
+                await db.commit()
+            return
+
+        async with db_module.AsyncSessionLocal() as recovery_session:
+            stmt = select(IntakeEvaluationTaskModel).where(
+                IntakeEvaluationTaskModel.id == task_id
+            )
+            if (
+                recovery_session.bind
+                and recovery_session.bind.dialect.name == "postgresql"
+            ):
+                stmt = stmt.with_for_update(skip_locked=True)
+            t = (await recovery_session.execute(stmt)).scalar_one_or_none()
+            if t and t.status == "PROCESSING":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                cp = _ensure_checkpoint_meta(t, worker_id=worker_id)
+                cp["interrupted_by_shutdown_at"] = datetime.now(UTC).isoformat()
+                _clear_lease_on_checkpoint(t)
+                t.status = "QUEUED"
+                t.stage = _resume_stage_for_task(t.task_type, t.result_json)
+                t.error_message = "Paused cleanly during server shutdown; queued for automatic resume."
+                t.completed_at = None
+                flag_modified(t, "result_json")
+                await recovery_session.commit()
+    except Exception as shutdown_err:
+        logger.warning(
+            "Error re-queuing task %d during shutdown: %s", task_id, shutdown_err
+        )
+
+
+async def _mark_task_cancelled(
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
+) -> None:
+    """Persist CANCELLED status cleanly when an in-flight task receives cancellation."""
+    try:
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            t = await db.get(IntakeEvaluationTaskModel, task_id)
+            if t and t.status != "CANCELLED":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                _clear_lease_on_checkpoint(t)
+                t.status = "CANCELLED"
+                t.stage = "CANCELLED"
+                t.error_message = "Task stopped by user"
+                t.completed_at = datetime.now(UTC)
+                await db.commit()
+            return
+
+        async with db_module.AsyncSessionLocal() as cancel_session:
+            t = await cancel_session.get(IntakeEvaluationTaskModel, task_id)
+            if t and t.status != "CANCELLED":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                _clear_lease_on_checkpoint(t)
+                t.status = "CANCELLED"
+                t.stage = "CANCELLED"
+                t.error_message = "Task stopped by user"
+                t.completed_at = datetime.now(UTC)
+                await cancel_session.commit()
+    except Exception as cancel_db_err:
+        logger.warning(
+            "Error recording cancelled state in DB for task %d: %s",
+            task_id,
+            cancel_db_err,
+        )
+
+
+async def process_evaluation_task(
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
+) -> None:
     """
-    Processes a single queued intake evaluation task asynchronously within
-    the provider's configured concurrency limits.
-    Registers in-flight task in memory so user cancellation can abort ongoing HTTP/LLM calls.
+    Atomically claims and processes a single QUEUED evaluation task within
+    the provider's configured concurrency limits, maintaining a renewable lease.
     """
+    effective_worker_id = worker_id or get_worker_instance_id()
+    async with _CLAIM_LOCK:
+        if task_id in _IN_PROCESS_CLAIMED:
+            logger.info(
+                "Evaluation task %d is already claimed in this worker process; skipping duplicate run.",
+                task_id,
+            )
+            return
+        _IN_PROCESS_CLAIMED.add(task_id)
+
     curr_task = asyncio.current_task()
     if curr_task:
         register_running_task(task_id, curr_task)
 
+    heartbeat_task: asyncio.Task[None] | None = None
     try:
         if db is not None:
             stmt = select(IntakeEvaluationTaskModel).where(
                 IntakeEvaluationTaskModel.id == task_id
             )
-            res = await db.execute(stmt)
-            task = res.scalar_one_or_none()
+            if db.bind and db.bind.dialect.name == "postgresql":
+                stmt = stmt.with_for_update(skip_locked=True)
+            task = (await db.execute(stmt)).scalar_one_or_none()
 
-            if not task or task.status == "CANCELLED":
-                logger.warning("Intake task %d not found or cancelled", task_id)
+            if not task or task.status != "QUEUED":
+                logger.info(
+                    "Skipping intake task %d (not found or status=%s)",
+                    task_id,
+                    getattr(task, "status", None),
+                )
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
-                target_binding_type = "EMAIL_EXTRACTION"
-            elif task_type in ["APPLICATION_ASSESSMENT"]:
-                target_binding_type = "JOB_ASSESSMENT"
-            else:
-                target_binding_type = task_type
-
-            binding_stmt = (
-                select(AITaskBindingModel, AIProviderModel)
-                .join(
-                    AIProviderModel,
-                    AITaskBindingModel.provider_id == AIProviderModel.id,
-                )
-                .where(
-                    AITaskBindingModel.task_type.in_(
-                        [target_binding_type, "GLOBAL_DEFAULT"]
-                    ),
-                    AITaskBindingModel.is_active,
-                    AIProviderModel.is_active,
-                )
+            provider_id, max_concurrency = await _resolve_provider_concurrency(
+                db, task_type
             )
-            binding_res = await db.execute(binding_stmt)
-            rows = binding_res.all()
-
-            exact_row = next(
-                (r for r in rows if r[0].task_type == target_binding_type), None
+            task.status = "PROCESSING"
+            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                task.stage = _resume_stage_for_task(task.task_type, task.result_json)
+            _acquire_lease_on_checkpoint(
+                task, effective_worker_id, increment_attempt=True
             )
-            global_row = next(
-                (r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None
-            )
-            selected_row = exact_row or global_row or (rows[0] if rows else None)
-
-            provider_id = selected_row[1].id if selected_row else None
-            max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+            await db.commit()
 
             async with concurrency_manager.acquire(
                 provider_id, max_concurrency, priority=1
             ):
-                task.status = "PROCESSING"
-                if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                    task.stage = (
-                        "SCRUBBING"
-                        if task.task_type == "CV_EXTRACTION"
-                        else (
-                            "GENERATING"
-                            if task.task_type == "COVER_LETTER"
-                            else (
-                                "SYNTHESIZING"
-                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
-                                else (
-                                    "WEB_SEARCH"
-                                    if task.task_type == "COMPANY_RESEARCH"
-                                    else (
-                                        "PARSING"
-                                        if task.task_type
-                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                        else "FETCHING"
-                                    )
-                                )
-                            )
+                status_val = (
+                    await db.execute(
+                        select(IntakeEvaluationTaskModel.status).where(
+                            IntakeEvaluationTaskModel.id == task_id
                         )
                     )
-                await db.commit()
-                await _execute_evaluation_steps(task, db)
+                ).scalar_one_or_none()
+                if status_val == "CANCELLED":
+                    return
+                await _execute_evaluation_steps(task, db, worker_id=effective_worker_id)
                 return
 
         async with db_module.AsyncSessionLocal() as session:
             stmt = select(IntakeEvaluationTaskModel).where(
                 IntakeEvaluationTaskModel.id == task_id
             )
-            res = await session.execute(stmt)
-            task = res.scalar_one_or_none()
+            if session.bind and session.bind.dialect.name == "postgresql":
+                stmt = stmt.with_for_update(skip_locked=True)
+            task = (await session.execute(stmt)).scalar_one_or_none()
 
-            if not task or task.status == "CANCELLED":
-                logger.warning("Intake task %d not found or cancelled", task_id)
+            if not task or task.status != "QUEUED":
+                logger.info(
+                    "Skipping intake task %d (locked, missing, or status=%s)",
+                    task_id,
+                    getattr(task, "status", None),
+                )
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
-                target_binding_type = "EMAIL_EXTRACTION"
-            elif task_type in ["APPLICATION_ASSESSMENT"]:
-                target_binding_type = "JOB_ASSESSMENT"
-            else:
-                target_binding_type = task_type
-
-            # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
-            binding_stmt = (
-                select(AITaskBindingModel, AIProviderModel)
-                .join(
-                    AIProviderModel,
-                    AITaskBindingModel.provider_id == AIProviderModel.id,
-                )
-                .where(
-                    AITaskBindingModel.task_type.in_(
-                        [target_binding_type, "GLOBAL_DEFAULT"]
-                    ),
-                    AITaskBindingModel.is_active,
-                    AIProviderModel.is_active,
-                )
+            provider_id, max_concurrency = await _resolve_provider_concurrency(
+                session, task_type
             )
-            binding_res = await session.execute(binding_stmt)
-            rows = binding_res.all()
 
-            exact_row = next(
-                (r for r in rows if r[0].task_type == target_binding_type), None
+            # Atomically transition QUEUED -> PROCESSING under the row lock before releasing
+            task.status = "PROCESSING"
+            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                task.stage = _resume_stage_for_task(task.task_type, task.result_json)
+            _acquire_lease_on_checkpoint(
+                task, effective_worker_id, increment_attempt=True
             )
-            global_row = next(
-                (r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None
-            )
-            selected_row = exact_row or global_row or (rows[0] if rows else None)
+            await session.commit()
 
-            provider_id = selected_row[1].id if selected_row else None
-            max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+        heartbeat_task = asyncio.create_task(
+            _lease_heartbeat_loop(task_id, effective_worker_id)
+        )
 
-        # 2. Acquire Provider Semaphore to strictly gate task execution based on provider's max concurrency setting
+        # Acquire provider semaphore strictly bounding concurrent execution
         async with concurrency_manager.acquire(
             provider_id, max_concurrency, priority=1
         ):
             async with db_module.AsyncSessionLocal() as session:
                 task = await session.get(IntakeEvaluationTaskModel, task_id)
-                if not task or task.status == "CANCELLED":
+                if not task or task.status != "PROCESSING":
+                    return
+                cp = (
+                    dict(task.result_json.get("_checkpoint"))
+                    if isinstance(task.result_json, dict)
+                    and isinstance(task.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                if cp.get("lease_owner") != effective_worker_id:
+                    logger.warning(
+                        "Worker %s lost lease for task %d before execution started.",
+                        effective_worker_id,
+                        task_id,
+                    )
                     return
 
-                task.status = "PROCESSING"
-                if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                    task.stage = (
-                        "SCRUBBING"
-                        if task.task_type == "CV_EXTRACTION"
-                        else (
-                            "GENERATING"
-                            if task.task_type == "COVER_LETTER"
-                            else (
-                                "SYNTHESIZING"
-                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
-                                else (
-                                    "WEB_SEARCH"
-                                    if task.task_type == "COMPANY_RESEARCH"
-                                    else (
-                                        "PARSING"
-                                        if task.task_type
-                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                        else "FETCHING"
-                                    )
-                                )
-                            )
-                        )
-                    )
+                _acquire_lease_on_checkpoint(task, effective_worker_id)
                 await session.commit()
-
-                await _execute_evaluation_steps(task, session)
+                await _execute_evaluation_steps(
+                    task, session, worker_id=effective_worker_id
+                )
     except asyncio.CancelledError:
-        logger.info(
-            "Evaluation task %d received in-flight cancellation signal.", task_id
-        )
-        try:
-            async with db_module.AsyncSessionLocal() as cancel_session:
-                t = await cancel_session.get(IntakeEvaluationTaskModel, task_id)
-                if t and t.status != "CANCELLED":
-                    t.status = "CANCELLED"
-                    t.stage = "CANCELLED"
-                    t.error_message = "Task stopped by user"
-                    t.completed_at = datetime.now(UTC)
-                    await cancel_session.commit()
-        except Exception as cancel_db_err:
-            logger.warning(
-                "Error recording cancelled state in DB for task %d: %s",
+        if is_shutting_down():
+            logger.info(
+                "Evaluation task %d interrupted by graceful shutdown; re-queuing with checkpoint preserved.",
                 task_id,
-                cancel_db_err,
             )
+            await _requeue_task_on_shutdown(
+                task_id, db=db, worker_id=effective_worker_id
+            )
+        else:
+            logger.info(
+                "Evaluation task %d received in-flight cancellation signal.", task_id
+            )
+            await _mark_task_cancelled(task_id, db=db, worker_id=effective_worker_id)
         raise
     finally:
+        if heartbeat_task is not None and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
         unregister_running_task(task_id)
+        async with _CLAIM_LOCK:
+            _IN_PROCESS_CLAIMED.discard(task_id)
+
+
+async def recover_and_dispatch_queue_tasks(
+    session_factory: Any = None,
+    *,
+    startup: bool = False,
+    stale_after_seconds: int = 300,
+    dispatch_limit: int = 20,
+) -> dict[str, Any]:
+    """
+    Recover orphaned PROCESSING tasks whose renewable lease has expired and dispatch QUEUED tasks.
+    Uses SELECT ... FOR UPDATE SKIP LOCKED on PostgreSQL so sibling containers never collide.
+    """
+    if is_shutting_down():
+        return {"recovered_count": 0, "dispatched_count": 0, "dispatched_task_ids": []}
+
+    factory = session_factory or db_module.AsyncSessionLocal
+    now = datetime.now(UTC)
+    recovered_count = 0
+    queued_ids_to_dispatch: list[int] = []
+
+    async with factory() as session:
+        proc_stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.status == "PROCESSING"
+        )
+        if session.bind and session.bind.dialect.name == "postgresql":
+            proc_stmt = proc_stmt.with_for_update(skip_locked=True)
+        processing_tasks = (await session.execute(proc_stmt)).scalars().all()
+        for task in processing_tasks:
+            tid = int(task.id)
+            if is_task_running_locally(tid) or tid in _IN_PROCESS_CLAIMED:
+                continue
+
+            cp = (
+                dict(task.result_json.get("_checkpoint"))
+                if isinstance(task.result_json, dict)
+                and isinstance(task.result_json.get("_checkpoint"), dict)
+                else {}
+            )
+            lease_expires_ts = _parse_iso_ts(cp.get("lease_expires_at"))
+            should_recover = False
+            if lease_expires_ts is not None:
+                # Renewable lease is authoritative: only recover once lease genuinely expires.
+                should_recover = now >= lease_expires_ts
+            else:
+                activity_ts = (
+                    _parse_iso_ts(cp.get("last_activity_at")) or task.created_at
+                )
+                if activity_ts is not None and activity_ts.tzinfo is None:
+                    activity_ts = activity_ts.replace(tzinfo=UTC)
+                age_seconds = (
+                    (now - activity_ts).total_seconds()
+                    if activity_ts is not None
+                    else 0.0
+                )
+                if startup or age_seconds >= float(stale_after_seconds):
+                    should_recover = True
+
+            if should_recover:
+                updated_cp = _ensure_checkpoint_meta(task)
+                updated_cp["recovery_count"] = (
+                    int(updated_cp.get("recovery_count", 0)) + 1
+                )
+                updated_cp["last_recovered_at"] = now.isoformat()
+                _clear_lease_on_checkpoint(task)
+                task.status = "QUEUED"
+                task.stage = _resume_stage_for_task(task.task_type, task.result_json)
+                task.error_message = (
+                    "Recovered interrupted task after lease expiry; resuming."
+                )
+                task.completed_at = None
+                flag_modified(task, "result_json")
+                recovered_count += 1
+
+        if recovered_count:
+            await session.commit()
+
+        queued_stmt = (
+            select(IntakeEvaluationTaskModel)
+            .where(IntakeEvaluationTaskModel.status == "QUEUED")
+            .order_by(
+                IntakeEvaluationTaskModel.created_at.asc(),
+                IntakeEvaluationTaskModel.id.asc(),
+            )
+            .limit(dispatch_limit)
+        )
+        queued_tasks = (await session.execute(queued_stmt)).scalars().all()
+        for qtask in queued_tasks:
+            qtid = int(qtask.id)
+            if is_task_running_locally(qtid) or qtid in _IN_PROCESS_CLAIMED:
+                continue
+            queued_ids_to_dispatch.append(qtid)
+
+    for qtid in queued_ids_to_dispatch:
+        bg_task = asyncio.create_task(process_evaluation_task(qtid))
+        _DISPATCHED_TASKS.add(bg_task)
+        bg_task.add_done_callback(_DISPATCHED_TASKS.discard)
+
+    if recovered_count or queued_ids_to_dispatch:
+        logger.info(
+            "Queue recovery/dispatcher pass (startup=%s): recovered=%d, dispatched=%s",
+            startup,
+            recovered_count,
+            queued_ids_to_dispatch,
+        )
+    return {
+        "recovered_count": recovered_count,
+        "dispatched_count": len(queued_ids_to_dispatch),
+        "dispatched_task_ids": queued_ids_to_dispatch,
+    }
+
+
+async def queue_recovery_and_dispatcher_loop(
+    session_factory: Any = None,
+    *,
+    poll_interval_seconds: float = 3.0,
+    stale_after_seconds: int = 300,
+) -> None:
+    """Background loop that recovers orphaned tasks at startup and periodically dispatches QUEUED work."""
+    first_pass = True
+    while not is_shutting_down():
+        try:
+            await recover_and_dispatch_queue_tasks(
+                session_factory=session_factory,
+                startup=first_pass,
+                stale_after_seconds=stale_after_seconds,
+            )
+            first_pass = False
+        except asyncio.CancelledError:
+            break
+        except Exception as err:
+            logger.error("Queue recovery/dispatcher loop error: %s", err, exc_info=True)
+            first_pass = False
+
+        try:
+            await asyncio.sleep(poll_interval_seconds)
+        except asyncio.CancelledError:
+            break

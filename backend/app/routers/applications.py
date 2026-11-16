@@ -39,14 +39,21 @@ from app.schemas.applications import (
     CompanySummary,
     CoverLetterResponse,
     CoverLetterUpdateRequest,
+    DeliverableFrontierPromptResponse,
     EventSummary,
     GenerateApplicationQuestionsRequest,
     GenerateCoverLetterRequest,
     GenerateInterviewGuideRequest,
+    InterviewGuideUpdateRequest,
     JobPostingDetail,
 )
 from app.schemas.intake import IntakeEvaluationTaskResponse
 from app.services.company_resolver import resolve_or_create_company
+from app.services.deliverable_frontier_service import (
+    build_cover_letter_frontier_prompt,
+    build_interview_guide_frontier_prompt,
+    build_questions_frontier_prompt,
+)
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.interview_guide import (
     clear_interview_guide,
@@ -1780,6 +1787,22 @@ async def generate_app_cover_letter(
     )
 
 
+@router.post(
+    "/{application_id}/cover-letter/frontier-prompt",
+    response_model=DeliverableFrontierPromptResponse,
+    summary="Prepare self-contained Frontier prompt for external cover letter drafting",
+)
+async def prepare_cover_letter_frontier_prompt(
+    application_id: int,
+    payload: GenerateCoverLetterRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await build_cover_letter_frontier_prompt(db, application_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
 @router.patch(
     "/{application_id}/cover-letter",
     response_model=CoverLetterResponse,
@@ -1923,6 +1946,45 @@ async def clear_app_interview_guide(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
+
+
+@router.post(
+    "/{application_id}/interview-guide/frontier-prompt",
+    response_model=DeliverableFrontierPromptResponse,
+    summary="Prepare self-contained Frontier prompt for external interview guide generation",
+)
+async def prepare_interview_guide_frontier_prompt(
+    application_id: int,
+    payload: GenerateInterviewGuideRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await build_interview_guide_frontier_prompt(db, application_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.patch(
+    "/{application_id}/interview-guide",
+    response_model=ApplicationDetailResponse,
+    summary="Save externally generated or imported interview preparation guide HTML",
+)
+async def update_app_interview_guide(
+    application_id: int,
+    payload: InterviewGuideUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    app = (await db.execute(stmt)).scalar_one_or_none()
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+    app.interview_guide_html = payload.interview_guide_html.strip()
+    app.interview_guide_language = (payload.language or "en").strip() or "en"
+    app.interview_guide_generated_at = datetime.now(UTC)
+    await db.commit()
+    return await get_application(application_id, db)
 
 
 @router.post(
@@ -2191,3 +2253,24 @@ async def update_application_questions(
         ],
         status="COMPLETED" if any(q["answer"] for q in updated_list) else "DRAFT",
     )
+
+
+@router.post(
+    "/{application_id}/questions/frontier-prompt",
+    response_model=DeliverableFrontierPromptResponse,
+    summary="Prepare self-contained Frontier prompt for external Application Q&A drafting",
+)
+async def prepare_questions_frontier_prompt(
+    application_id: int,
+    payload: GenerateApplicationQuestionsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add at least one application question before preparing a Frontier prompt.",
+        )
+    try:
+        return await build_questions_frontier_prompt(db, application_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

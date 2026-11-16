@@ -191,6 +191,15 @@ function getTaskDisplayTitle(task) {
   if (task.task_type === 'EMBEDDING') {
     return 'Vector Embedding Generation'
   }
+  if (task.task_type === 'SYSTEM_DESIGN_REVIEW') {
+    return task.title_hint || 'System Design Vision Review'
+  }
+  if (task.task_type === 'SYSTEM_DESIGN_EVALUATION') {
+    return task.title_hint || 'System Design Final Evaluation'
+  }
+  if (task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN') {
+    return task.title_hint || 'System Design Challenge Generation'
+  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
@@ -212,6 +221,9 @@ function getTaskTypeIcon(type) {
   if (type === 'COVER_LETTER') return FileText
   if (type === 'APPLICATION_QA') return HelpCircle
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return Mail
+  if (type === 'SYSTEM_DESIGN_REVIEW') return Layers
+  if (type === 'SYSTEM_DESIGN_EVALUATION') return ShieldCheck
+  if (type === 'SYSTEM_DESIGN_CHALLENGE_GEN') return Sparkles
   return Briefcase
 }
 
@@ -223,7 +235,37 @@ function getTaskTypeLabel(type) {
   if (type === 'COVER_LETTER') return 'Cover Letter Generation'
   if (type === 'APPLICATION_QA') return 'Form Q&A'
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return 'Email Sync'
+  if (type === 'SYSTEM_DESIGN_REVIEW') return 'System Design Review'
+  if (type === 'SYSTEM_DESIGN_EVALUATION') return 'System Design Evaluation'
+  if (type === 'SYSTEM_DESIGN_CHALLENGE_GEN') return 'SD Challenge Gen'
   return 'Job Assessment'
+}
+
+function getSdCheckpoint(task) {
+  const cp = task?.result_json?._checkpoint
+  return cp && typeof cp === 'object' ? cp : {}
+}
+
+function getSdCompletedSteps(task) {
+  const steps = getSdCheckpoint(task).completed_steps
+  return new Set(Array.isArray(steps) ? steps.map((s) => String(s)) : [])
+}
+
+function getSdAttemptCount(task) {
+  return Number(getSdCheckpoint(task).attempt_count || 0)
+}
+
+function getSdProviderTelemetry(task) {
+  const t = getSdCheckpoint(task).provider_telemetry
+  return t && typeof t === 'object' ? t : null
+}
+
+function isSdTaskType(type) {
+  return [
+    'SYSTEM_DESIGN_REVIEW',
+    'SYSTEM_DESIGN_EVALUATION',
+    'SYSTEM_DESIGN_CHALLENGE_GEN',
+  ].includes(type)
 }
 
 const runningCount = computed(() => queueStore.runningCount)
@@ -291,9 +333,12 @@ async function retryTask(taskId) {
   }
 }
 
+const JD_ELIGIBLE_TASK_TYPES = new Set(['JOB_ASSESSMENT', 'APPLICATION_ASSESSMENT'])
+
 function isManualDescriptionEligible(task) {
   if (!task) return false
-  if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
+  const normalizedType = task.task_type || 'JOB_ASSESSMENT'
+  if (!JD_ELIGIBLE_TASK_TYPES.has(normalizedType)) return false
   if (!['FAILED', 'CANCELLED', 'ERROR'].includes(task.status)) return false
   const msg = (task.error_message || '').toUpperCase()
   return (
@@ -307,6 +352,95 @@ function isManualDescriptionEligible(task) {
     task.raw_text.trim().length === 0 ||
     Boolean(task.error_message)
   )
+}
+
+function getFailedTaskAction(task) {
+  if (!task || isManualDescriptionEligible(task)) return null
+  const t = task.task_type
+  if (
+    t === 'SYSTEM_DESIGN_REVIEW' ||
+    t === 'SYSTEM_DESIGN_EVALUATION' ||
+    t === 'SYSTEM_DESIGN_CHALLENGE_GEN'
+  ) {
+    const sid = task.result_json?.session_id
+    return {
+      label: sid ? 'Open Session' : 'Open Lab',
+      title: sid ? 'Return to the System Design session' : 'Open the System Design Lab',
+      to: sid ? `/chat?mode=system_design&sessionId=${sid}` : '/chat?mode=system_design',
+      icon: Layers,
+      testId: 'queue-error-sd-link',
+    }
+  }
+  if (t === 'CV_EXTRACTION' || t === 'ROLE_ALIGNMENT_DOSSIER') {
+    return {
+      label: 'View Profile',
+      title: 'Inspect your Candidate Profile & CV extraction settings',
+      to: '/profile',
+      icon: UserCheck,
+      testId: 'queue-error-profile-link',
+    }
+  }
+  if (t === 'COMPANY_RESEARCH') {
+    const cid = task.result_json?.company_id
+    if (cid) {
+      return {
+        label: 'View Company',
+        title: 'Inspect company details',
+        onClick: () => uiStore.openCompanyDrawer(cid),
+        icon: Building2,
+        testId: 'queue-error-company-btn',
+      }
+    }
+    return {
+      label: 'View Companies',
+      title: 'Inspect company directory',
+      to: '/companies',
+      icon: Building2,
+      testId: 'queue-error-company-link',
+    }
+  }
+  if (t === 'EMAIL_SYNC' || t === 'EMAIL_INTAKE') {
+    return {
+      label: 'Email Settings',
+      title: 'Check IMAP/Email sync credentials and settings',
+      to: '/settings?tab=email_accounts',
+      icon: Mail,
+      testId: 'queue-error-email-link',
+    }
+  }
+  if (t === 'APPLICATION_QA') {
+    const appId =
+      task.result_json?.application_id ||
+      (task.raw_text && /^\d+$/.test(String(task.raw_text).trim())
+        ? Number(task.raw_text.trim())
+        : null)
+    if (appId) {
+      return {
+        label: 'Open Q&A Studio',
+        title: 'Open application Q&A drawer',
+        onClick: () => uiStore.openAppQuestionsModal(appId),
+        icon: HelpCircle,
+        testId: 'queue-error-qa-btn',
+      }
+    }
+    return {
+      label: 'View Applications',
+      title: 'Inspect applications board',
+      to: '/applications',
+      icon: Briefcase,
+      testId: 'queue-error-apps-link',
+    }
+  }
+  if (t === 'COVER_LETTER') {
+    return {
+      label: 'View Applications',
+      title: 'Inspect application cover letters',
+      to: '/applications',
+      icon: FileText,
+      testId: 'queue-error-cover-letter-link',
+    }
+  }
+  return null
 }
 
 function openFixJDModal(task) {
@@ -559,6 +693,33 @@ onMounted(() => {
           >
             <Mail :size="12" />
             <span>Email Sync</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_REVIEW' }"
+            data-testid="queue-filter-sd-review"
+            @click="typeFilter = 'SYSTEM_DESIGN_REVIEW'"
+          >
+            <Layers :size="12" />
+            <span>SD Review</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_EVALUATION' }"
+            data-testid="queue-filter-sd-eval"
+            @click="typeFilter = 'SYSTEM_DESIGN_EVALUATION'"
+          >
+            <ShieldCheck :size="12" />
+            <span>SD Eval</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_CHALLENGE_GEN' }"
+            data-testid="queue-filter-sd-gen"
+            @click="typeFilter = 'SYSTEM_DESIGN_CHALLENGE_GEN'"
+          >
+            <Sparkles :size="12" />
+            <span>SD Gen</span>
           </button>
         </div>
 
@@ -847,7 +1008,9 @@ onMounted(() => {
                   'type-qa': task.task_type === 'APPLICATION_QA',
                   'type-dossier': task.task_type === 'ROLE_ALIGNMENT_DOSSIER',
                   'type-company-research': task.task_type === 'COMPANY_RESEARCH',
-                  'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'
+                  'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE',
+                  'type-sd-review': task.task_type === 'SYSTEM_DESIGN_REVIEW',
+                  'type-sd-eval': task.task_type === 'SYSTEM_DESIGN_EVALUATION' || task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN'
                 }"
               >
                 <component :is="getTaskTypeIcon(task.task_type)" :size="12" />
@@ -910,7 +1073,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -1392,6 +1555,69 @@ onMounted(() => {
                 </div>
               </div>
             </div>
+
+            <!-- 9. SYSTEM DESIGN REVIEW, EVALUATION & CHALLENGE GEN STEPPER (Checkpoint-Aware Stages) -->
+            <div v-else-if="isSdTaskType(task.task_type)" class="pipeline-stepper sd-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'QUEUED',
+                  done: ['PREPARING', 'ANALYZING', 'EVALUATING', 'GENERATING', 'SAVING', 'COMPLETE'].includes(task.stage) || getSdCompletedSteps(task).size > 0 || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Queued</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'PREPARING',
+                  done: getSdCompletedSteps(task).has('PREPARING') || ['ANALYZING', 'EVALUATING', 'GENERATING', 'SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">Preparing</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: ['ANALYZING', 'EVALUATING', 'GENERATING'].includes(task.stage),
+                  done: getSdCompletedSteps(task).has('ANALYZING') || getSdCompletedSteps(task).has('EVALUATING') || getSdCompletedSteps(task).has('GENERATING') || ['SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">{{
+                  task.task_type === 'SYSTEM_DESIGN_REVIEW'
+                    ? 'Analyzing Architecture'
+                    : task.task_type === 'SYSTEM_DESIGN_EVALUATION'
+                      ? 'Evaluating Rubric'
+                      : 'Generating Challenge'
+                }}</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'SAVING',
+                  done: getSdCompletedSteps(task).has('SAVING') || task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">4</div>
+                <span class="node-label">Saving</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">5</div>
+                <span class="node-label">Complete</span>
+              </div>
+            </div>
           </div>
           
           <!-- Error Alert Banner with Provide/Edit Description & Retry Actions -->
@@ -1401,15 +1627,36 @@ onMounted(() => {
               <span>{{ task.error_message }}</span>
             </div>
             <div class="error-actions-right">
-              <!-- Manual Description Action for Scraping/Keyword Failures -->
+              <!-- Manual Description Action ONLY for job intake / assessment failures -->
               <button
                 v-if="isManualDescriptionEligible(task)"
                 class="btn btn-primary btn-xs btn-fix-jd"
+                data-testid="queue-fix-jd-btn"
                 @click="openFixJDModal(task)"
                 :title="task.raw_text && task.raw_text.trim() ? 'Manually edit the job description text' : 'Manually supply the job description text'"
               >
                 <Edit3 :size="12" />
                 <span>{{ task.raw_text && task.raw_text.trim() ? 'Edit Job Description' : 'Provide Description' }}</span>
+              </button>
+              <router-link
+                v-else-if="getFailedTaskAction(task)?.to"
+                :to="getFailedTaskAction(task).to"
+                class="btn btn-primary btn-xs"
+                :data-testid="getFailedTaskAction(task).testId"
+                :title="getFailedTaskAction(task).title"
+              >
+                <component :is="getFailedTaskAction(task).icon" :size="12" />
+                <span>{{ getFailedTaskAction(task).label }} &rarr;</span>
+              </router-link>
+              <button
+                v-else-if="getFailedTaskAction(task)?.onClick"
+                class="btn btn-primary btn-xs"
+                :data-testid="getFailedTaskAction(task).testId"
+                :title="getFailedTaskAction(task).title"
+                @click="getFailedTaskAction(task).onClick()"
+              >
+                <component :is="getFailedTaskAction(task).icon" :size="12" />
+                <span>{{ getFailedTaskAction(task).label }} &rarr;</span>
               </button>
               <button
                 class="btn btn-secondary btn-xs btn-retry-error"
@@ -1426,7 +1673,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
+            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -1594,6 +1841,47 @@ onMounted(() => {
                 >
                   <Building2 :size="12" />
                   <span>View Companies &rarr;</span>
+                </router-link>
+              </div>
+            </template>
+
+            <!-- System Design Review / Evaluation / Challenge Gen Context -->
+            <template v-else-if="isSdTaskType(task.task_type)">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <ShieldCheck v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION'" :size="12" />
+                  <Sparkles v-else-if="task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN'" :size="12" />
+                  <Layers v-else :size="12" />
+                  <span>{{
+                    task.task_type === 'SYSTEM_DESIGN_REVIEW'
+                      ? 'Architecture Reviewed'
+                      : task.task_type === 'SYSTEM_DESIGN_EVALUATION'
+                        ? 'Final Evaluation Ready'
+                        : 'Challenge Generated'
+                  }}</span>
+                </span>
+                <span v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION' && task.result_json?.overall_score !== undefined" class="footer-meta-text">
+                  Score: {{ Math.round(task.result_json.overall_score) }}/100 ({{ task.result_json.readiness_rating || 'GRADED' }})
+                </span>
+                <span v-else-if="task.result_json?.diagram_version" class="footer-meta-text">
+                  Revision v{{ task.result_json.diagram_version }}
+                </span>
+                <span v-if="getSdProviderTelemetry(task)" class="footer-meta-text">
+                  • {{ getSdProviderTelemetry(task).last_used_provider || getSdProviderTelemetry(task).primary_provider }}
+                  <template v-if="getSdProviderTelemetry(task).fallback_used">(failover)</template>
+                </span>
+                <span v-if="getSdAttemptCount(task) > 1" class="footer-meta-text">
+                  • Attempts: {{ getSdAttemptCount(task) }}
+                </span>
+              </div>
+              <div class="footer-right">
+                <router-link
+                  :to="task.result_json?.session_id ? `/chat?mode=system_design&sessionId=${task.result_json.session_id}` : '/chat?mode=system_design'"
+                  class="btn btn-primary btn-xs"
+                  data-testid="queue-open-sd-session-btn"
+                >
+                  <Layers :size="12" />
+                  <span>{{ task.result_json?.session_id ? 'Open Session' : 'Open Lab' }} &rarr;</span>
                 </router-link>
               </div>
             </template>
@@ -2060,6 +2348,18 @@ onMounted(() => {
   background-color: var(--primary-subtle);
   color: var(--primary);
   border: 1px solid var(--primary-glow);
+}
+
+.task-type-tag.type-sd-review {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
+}
+
+.task-type-tag.type-sd-eval {
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
 }
 
 .pipeline-stepper-box {

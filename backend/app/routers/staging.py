@@ -602,12 +602,6 @@ async def resolve_staging_item(
             elif staged_item.email_received_at:
                 application.last_activity_at = staged_item.email_received_at
 
-        # Update application status if modified
-        if payload.status:
-            application.status = payload.status
-        if clean_job_url and not application.job_url:
-            application.job_url = clean_job_url
-
         # Extract specs from payload or staged item
         extracted = (
             staged_item.extracted_data
@@ -618,6 +612,30 @@ async def resolve_staging_item(
                 else {}
             )
         )
+
+        # Update application status if modified, or advance forward-only from extracted stage
+        if payload.status:
+            application.status = payload.status
+        elif application.status in {"ASSESSMENT", "APPLIED", "ONLINE_ASSESSMENT"}:
+            staged_stage_map = {
+                "ONLINE_ASSESSMENT": "ONLINE_ASSESSMENT",
+                "RECRUITER_CONTACT": "TECHNICAL_INTERVIEW",
+                "PHONE_SCREEN": "TECHNICAL_INTERVIEW",
+                "TECHNICAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+                "BEHAVIORAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+                "ONSITE_INTERVIEW": "TECHNICAL_INTERVIEW",
+                "FINAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+                "INTERVIEW": "TECHNICAL_INTERVIEW",
+                "OFFER": "OFFER",
+                "OFFER_RECEIVED": "OFFER",
+            }
+            mapped_status = staged_stage_map.get(
+                str(extracted.get("status") or "").upper()
+            )
+            if mapped_status and mapped_status != application.status:
+                application.status = mapped_status
+        if clean_job_url and not application.job_url:
+            application.job_url = clean_job_url
 
         desc_md = (
             payload.description_markdown.strip()

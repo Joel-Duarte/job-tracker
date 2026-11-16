@@ -36,8 +36,12 @@ RUN useradd -m -u 1001 -s /bin/bash appuser
 # Copy virtual environment and application code from builder
 COPY --from=builder --chown=appuser:appuser /app /app
 
+# Ensure default writable diagram storage directory exists for non-root appuser
+RUN mkdir -p /app/data/system_design && chown -R appuser:appuser /app/data
+
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+ENV SYSTEM_DESIGN_DATA_DIR="/app/data/system_design"
 
 USER appuser
 

@@ -165,6 +165,23 @@ class GenerateInterviewGuideRequest(BaseModel):
     )
 
 
+class InterviewGuideUpdateRequest(BaseModel):
+    interview_guide_html: str = Field(
+        ...,
+        description="Sanitized HTML content for the imported or edited interview guide",
+    )
+    language: str | None = Field(
+        default="en", description="Language code e.g. en, pt, es, de, fr, it, nl"
+    )
+
+
+class DeliverableFrontierPromptResponse(BaseModel):
+    markdown_prompt: str
+    filename: str
+    company_name: str
+    position: str
+
+
 # --- Query Filter Schema ---
 
 

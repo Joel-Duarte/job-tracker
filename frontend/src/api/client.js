@@ -14,7 +14,14 @@ apiClient.interceptors.request.use(
   async (config) => {
     if (isDemoModeEnabled()) {
       config.adapter = async (adapterConfig) => {
-        return await handleDemoRequest(adapterConfig)
+        const res = await handleDemoRequest(adapterConfig)
+        if (res && typeof res.status === 'number' && res.status >= 400) {
+          const err = new Error(res.data?.detail || `Demo HTTP ${res.status}`)
+          err.response = { status: res.status, data: res.data, config: adapterConfig }
+          err.config = adapterConfig
+          throw err
+        }
+        return res
       }
     }
     return config
@@ -88,7 +95,11 @@ apiClient.interceptors.response.use(
     }
 
     console.error('[API Error]:', message)
-    return Promise.reject(new Error(message))
+    const err = new Error(message)
+    err.status = error.response?.status ?? null
+    err.response = error.response ?? null
+    err.data = data ?? null
+    return Promise.reject(err)
   }
 )
 

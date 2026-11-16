@@ -35,6 +35,13 @@ test('profile route redirects to profile settings', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'My Profile / CV' })).toHaveClass(/active/)
 })
 
+test('system-design route redirects to Agent chat System Design Lab tab', async ({ page }) => {
+  await page.goto('/system-design')
+  await expect(page).toHaveURL(/\/chat\?mode=system_design$/)
+  await expect(page.getByTestId('mode-btn-system-design')).toHaveClass(/active/)
+  await expect(page.locator('.system-design-view')).toBeVisible()
+})
+
 test('analytics tabs reveal the selected dashboard and navigates smoothly to tasks', async ({ page, isMobile }) => {
   await page.goto('/analytics')
   await page.getByRole('button', { name: 'Pipeline Funnel Performance' }).click()
@@ -54,6 +61,11 @@ test('analytics tabs reveal the selected dashboard and navigates smoothly to tas
 
 test('settings tabs switch and profile route is deep linkable', async ({ page }) => {
   await page.goto('/settings')
+  await page.getByRole('button', { name: /Advanced: Task-Specific Overrides/ }).click()
+  await expect(page.getByTestId('prompt-compare-default-btn')).toBeVisible()
+  await page.getByTestId('prompt-compare-default-btn').click()
+  await expect(page.getByTestId('prompt-eval-results')).toContainText('2/2')
+  await expect(page.getByTestId('prompt-eval-delta')).toContainText('Default baseline:')
   await page.getByRole('button', { name: /AI Providers/ }).click()
   await expect(page.locator('.tab-content')).toBeVisible()
   await page.getByRole('button', { name: 'Preferences' }).click()

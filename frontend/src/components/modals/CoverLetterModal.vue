@@ -27,12 +27,16 @@ import {
   ExternalLink,
 } from 'lucide-vue-next'
 import { downloadCoverLetterPdf } from '../../utils/pdfGenerator'
+import FrontierPromptBridge from '../common/FrontierPromptBridge.vue'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 const queueStore = useQueueStore()
 
 const { isCoverLetterModalOpen, coverLetterAppId } = storeToRefs(uiStore)
+const frontierBridgeRef = ref(null)
+const frontierPromptData = ref(null)
+const isPreparingFrontier = ref(false)
 
 const application = ref(null)
 const isLoadingApp = ref(false)
@@ -515,6 +519,67 @@ function close() {
   uiStore.closeCoverLetterModal()
 }
 
+async function handlePrepareCoverLetterFrontier() {
+  if (!coverLetterAppId.value) return
+  isPreparingFrontier.value = true
+  try {
+    const res = await ApplicationsAPI.prepareCoverLetterFrontierPrompt(coverLetterAppId.value, {
+      tone: tone.value,
+      length: length.value,
+      custom_instructions: customInstructions.value,
+      include_company_research: includeCompanyResearch.value,
+      company_research: includeCompanyResearch.value ? companyResearch.value : null,
+    })
+    frontierPromptData.value = res.data
+    try {
+      await navigator.clipboard?.writeText(res.data.markdown_prompt)
+      uiStore.showToast('Frontier prompt copied! Paste into ChatGPT/Claude/Gemini, then import result below.', 'success')
+    } catch {
+      uiStore.showToast('Frontier prompt ready! Copy it below and paste back the result.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to prepare Frontier prompt', 'error')
+  } finally {
+    isPreparingFrontier.value = false
+  }
+}
+
+async function handleImportCoverLetterFrontier(rawText) {
+  let finalText = String(rawText || '').trim()
+  const fenced = finalText.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidateJson = fenced ? fenced[1].trim() : finalText
+  if (candidateJson.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(candidateJson)
+      const extracted = parsed.cover_letter_text || parsed.cover_letter || parsed.text
+      if (typeof extracted === 'string' && extracted.trim()) {
+        finalText = extracted.trim()
+      }
+    } catch {
+      // Plain text cover letter pasted directly
+    }
+  }
+  editableText.value = finalText
+  autoSaveStatus.value = 'saving'
+  try {
+    const res = await ApplicationsAPI.updateCoverLetter(coverLetterAppId.value, {
+      cover_letter_text: finalText,
+      cover_letter_status: 'GENERATED',
+    })
+    if (application.value) {
+      application.value.cover_letter_text = res.data.cover_letter_text
+      application.value.cover_letter_status = res.data.cover_letter_status || 'GENERATED'
+      application.value.cover_letter_generated_at = res.data.cover_letter_generated_at
+    }
+    autoSaveStatus.value = 'saved'
+    frontierBridgeRef.value?.clearImport()
+    uiStore.showToast('Imported external cover letter and saved!', 'success')
+  } catch (err) {
+    autoSaveStatus.value = 'error'
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to save imported cover letter', 'error')
+  }
+}
+
 onUnmounted(() => {
   stopPolling()
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
@@ -831,6 +896,18 @@ onUnmounted(() => {
                   <span>{{ charCount }} characters</span>
                 </div>
               </div>
+
+              <FrontierPromptBridge
+                ref="frontierBridgeRef"
+                class="mt-3"
+                test-id-prefix="cover-letter-frontier"
+                :loading="isPreparingFrontier"
+                :prompt-data="frontierPromptData"
+                paste-placeholder="Paste the cover letter returned by Claude/ChatGPT/Gemini here..."
+                import-label="Apply & Save Cover Letter"
+                @prepare="handlePrepareCoverLetterFrontier"
+                @import="handleImportCoverLetterFrontier"
+              />
             </div>
           </div>
         </div>

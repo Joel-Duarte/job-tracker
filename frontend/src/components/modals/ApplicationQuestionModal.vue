@@ -27,12 +27,16 @@ import {
   RefreshCw,
   ExternalLink,
 } from 'lucide-vue-next'
+import FrontierPromptBridge from '../common/FrontierPromptBridge.vue'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 const queueStore = useQueueStore()
 
 const { isAppQuestionsModalOpen, appQuestionsAppId } = storeToRefs(uiStore)
+const frontierBridgeRef = ref(null)
+const frontierPromptData = ref(null)
+const isPreparingFrontier = ref(false)
 
 const application = ref(null)
 const isLoadingApp = ref(false)
@@ -464,6 +468,69 @@ function handleClose() {
   uiStore.closeAppQuestionsModal()
 }
 
+async function handlePrepareQuestionsFrontier() {
+  if (!appQuestionsAppId.value) return
+  const validQs = questions.value.filter((q) => q.question && q.question.trim())
+  if (!validQs.length) {
+    uiStore.showToast('Add at least one question first.', 'warning')
+    return
+  }
+  isPreparingFrontier.value = true
+  try {
+    const res = await ApplicationsAPI.prepareQuestionsFrontierPrompt(appQuestionsAppId.value, {
+      questions: validQs,
+      tone: tone.value,
+      custom_instructions: customInstructions.value,
+      include_company_research: includeCompanyResearch.value,
+      company_research: includeCompanyResearch.value ? companyResearch.value : null,
+    })
+    frontierPromptData.value = res.data
+    try {
+      await navigator.clipboard?.writeText(res.data.markdown_prompt)
+      uiStore.showToast('Frontier Q&A prompt copied! Run externally and paste back the JSON array.', 'success')
+    } catch {
+      uiStore.showToast('Frontier Q&A prompt ready! Copy it below and paste back the JSON.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to prepare Q&A Frontier prompt', 'error')
+  } finally {
+    isPreparingFrontier.value = false
+  }
+}
+
+async function handleImportQuestionsFrontier(rawText) {
+  const txt = String(rawText || '').trim()
+  const fenced = txt.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidate = fenced ? fenced[1].trim() : txt
+  try {
+    let parsed = JSON.parse(candidate)
+    if (parsed && !Array.isArray(parsed)) {
+      parsed = parsed.answers || parsed.questions || []
+    }
+    if (!Array.isArray(parsed) || !parsed.length) {
+      throw new Error('Expected a non-empty JSON array of { id, question, answer } objects.')
+    }
+    let updatedCount = 0
+    const byId = new Map(parsed.filter((item) => item && item.id).map((item) => [String(item.id), item]))
+    questions.value = questions.value.map((q, idx) => {
+      const match = byId.get(String(q.id)) || parsed[idx]
+      if (match && typeof match.answer === 'string' && match.answer.trim()) {
+        updatedCount += 1
+        return { ...q, answer: match.answer.trim(), status: 'GENERATED' }
+      }
+      return q
+    })
+    if (!updatedCount) {
+      throw new Error('No matching answers found in JSON payload.')
+    }
+    await saveQuestionsToServer()
+    frontierBridgeRef.value?.clearImport()
+    uiStore.showToast(`Imported & saved ${updatedCount} external Q&A answer(s)!`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Could not parse JSON array from Frontier response.', 'error')
+  }
+}
+
 onUnmounted(() => {
   stopPolling()
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
@@ -815,6 +882,18 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+
+          <FrontierPromptBridge
+            ref="frontierBridgeRef"
+            test-id-prefix="questions-frontier"
+            :loading="isPreparingFrontier"
+            :prepare-disabled="questions.filter((q) => q.question && q.question.trim()).length === 0"
+            :prompt-data="frontierPromptData"
+            paste-placeholder='Paste the JSON array [{"id": "...", "question": "...", "answer": "..."}] returned by Claude/ChatGPT/Gemini...'
+            import-label="Import & Save Q&A JSON"
+            @prepare="handlePrepareQuestionsFrontier"
+            @import="handleImportQuestionsFrontier"
+          />
         </div>
       </div>
 

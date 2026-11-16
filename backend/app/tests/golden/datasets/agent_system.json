@@ -1,0 +1,31 @@
+[
+  {
+    "id": "agent_upcoming_interviews",
+    "pipeline": "agent_system",
+    "user_prompt": "What upcoming interviews or confirmed interview dates do I have on my calendar right now?",
+    "expected_tools_any": ["get_upcoming_interviews"],
+    "human_rationale": "Rule 1 of agent_system explicitly mandates calling get_upcoming_interviews for upcoming interview/date questions."
+  },
+  {
+    "id": "agent_move_stage_offer",
+    "pipeline": "agent_system",
+    "user_prompt": "Please move my Stripe application to the OFFER stage because they just sent an offer.",
+    "expected_tools_any": ["update_application_pipeline", "list_applications"],
+    "preferred_primary_tool": "update_application_pipeline",
+    "human_rationale": "Status update instruction should invoke update_application_pipeline (or first look up Stripe if ID unknown — accepting list/get lookup or direct update on first tool turn)."
+  },
+  {
+    "id": "agent_open_system_design",
+    "pipeline": "agent_system",
+    "user_prompt": "Open the System Design Lab so I can practice designing a URL Shortener.",
+    "expected_tools_any": ["start_system_design"],
+    "human_rationale": "Requests to open System Design Lab or practice a system design topic should invoke start_system_design."
+  },
+  {
+    "id": "agent_launch_mock_interview",
+    "pipeline": "agent_system",
+    "user_prompt": "Start a live Technical Bar Raiser mock interview session for me to practice.",
+    "expected_tools_any": ["start_mock_interview"],
+    "human_rationale": "Requests to launch an interactive mock interview simulation should invoke start_mock_interview."
+  }
+]

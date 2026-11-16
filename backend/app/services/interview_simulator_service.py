@@ -55,13 +55,16 @@ async def _invoke_llm_adaptive(
     messages: list[Any],
     tracer: Any,
     db: AsyncSession,
+    task_type: str | None = None,
 ) -> Any:
     """
     Invokes LLM adaptively:
     - For local endpoints (LM Studio, Ollama, local IP): No artificial timeout (runs until completion on slow hardware).
     - For cloud endpoints (OpenAI, Anthropic): 120s timeout protection against network hangs.
     """
-    config = await get_active_llm_config_dict(db)
+    config = await get_active_llm_config_dict(
+        db, task_type=task_type or "GLOBAL_DEFAULT"
+    )
     is_local = is_local_llm_endpoint(
         config.get("api_base"), config.get("provider_name")
     )

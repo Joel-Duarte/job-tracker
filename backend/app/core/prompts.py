@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import select
@@ -6,6 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.prompts import PromptModel
 
 _PROMPT_CACHE: dict[str, str] = {}
+_PROMPT_OVERRIDE_CTX: ContextVar[dict[str, str] | None] = ContextVar(
+    "_PROMPT_OVERRIDE_CTX", default=None
+)
+
+
+@contextmanager
+def prompt_overrides(overrides: dict[str, str] | None):
+    """Temporarily override named prompt templates in the active async context without mutating DB."""
+    if not overrides:
+        yield
+        return
+    current = dict(_PROMPT_OVERRIDE_CTX.get() or {})
+    current.update(overrides)
+    token = _PROMPT_OVERRIDE_CTX.set(current)
+    try:
+        yield
+    finally:
+        _PROMPT_OVERRIDE_CTX.reset(token)
 
 
 def clear_prompt_cache(prompt_name: str | None = None) -> None:
@@ -284,7 +304,7 @@ DEFAULT_PROMPTS = {
         "EXTRACTION RULES\n"
         "--------------------------------------------------\n"
         "- position: Extract the exact, specific position title (e.g. 'Senior AI Engineer', 'Staff Distributed Systems Engineer'). If a Candidate Page Title or Title Hint is provided in the Context Anchors below, treat it as a strong authoritative anchor: verify whether it accurately reflects the vacancy and adopt or refine it, rather than substituting an unrelated generic title (e.g. 'Full Stack Software Engineer') found in body boilerplate.\n"
-        "- company: Extract strictly the clean canonical hiring employer name (e.g. 'Stripe', 'Linear', 'Datadog'). Strip corporate suffixes ('Inc.', 'LLC', 'Ltd') and portal wrappers (' - Careers', 'Job Opening at...'). Never return ATS platforms (Greenhouse, Lever, Ashby, Workday) or job boards / aggregators (LinkedIn, Indeed, RemoteOK, WeWorkRemotely, YCombinator, Cord).\n"
+        "- company: Extract strictly the clean canonical hiring employer name (e.g. 'Stripe', 'Linear', 'Datadog', 'Hays'). Strip corporate suffixes ('Inc.', 'LLC', 'Ltd') and portal wrappers (' - Careers', 'Job Opening at...'). Never return ATS platforms (Greenhouse, Lever, Ashby, Workday), job boards / aggregators (LinkedIn, Indeed, RemoteOK, WeWorkRemotely, YCombinator, Cord), or workplace modes ('Hybrid', 'Remote', 'On-site').\n"
         "- company_url: The official corporate website root domain of the employer (e.g. 'stripe.com', 'linear.app', 'anthropic.com', 'datadoghq.com'). You may draw on explicit text links or high-confidence knowledge of canonical tech employers. Strip protocols (https://), www, and subpaths. If unknown or an obscure entity without a clear canonical domain, set to null; never guess random domains.\n"
         "- detected_language: Primary natural/spoken language of the posting (e.g. 'English', 'German', 'French', 'Portuguese', 'Spanish').\n"
         "- required_spoken_languages: Natural/spoken language requirements. For each, specify 'language', 'requirement' ('mandatory' or 'preferred'), and 'proficiency' ('Native', 'Fluent / C1', 'B2', or null). If no language requirements are explicitly listed, infer detected_language as 'mandatory'.\n"
@@ -348,6 +368,22 @@ DEFAULT_PROMPTS = {
         "- Candidate withdrew -> status: 'WITHDRAWN', event_type: 'WITHDRAWAL_CONFIRMED'\n\n"
         "Email Content:\n<untrusted_email_content>\n{email_content}\n</untrusted_email_content>"
     ),
+    "email_match_tiebreaker": (
+        "You are an entity-resolution tiebreaker for a job application tracker.\n"
+        "Decide whether the incoming email belongs to ONE of the candidate applications below, or `null` if unrelated.\n\n"
+        "Rules:\n"
+        "1. Company / Brand Match: Match exact company names and corporate parent/brand aliases (e.g., 'Alphabet Recruiting' -> 'Google', 'AWS' -> 'Amazon', 'Square' -> 'Block'). Do not penalize `.invalid` test domains. If NO candidate company or brand alias matches (e.g., 'Stealth Fintech' vs 'Google'/'Orbital Cloud'), return `matched_application_id: null` and `confidence: 0.0`.\n"
+        "2. Role Discipline Match: Once the company matches, select the candidate whose role discipline fits the email (e.g., Backend/Platform/Infra vs Frontend/Design; Systems vs Mobile) with `confidence >= 0.85`. Ignore omitted seniority words ('Senior', 'Staff') or omitted sub-specialties ('AI', 'Distributed'). Only return `null` if two active roles at the same company have the SAME discipline and cannot be distinguished.\n"
+        "3. Active Over Archived: Strongly prefer ACTIVE applications (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) over `ARCHIVED` unless no active match exists.\n"
+        "4. Closed-Set Output: `matched_application_id` MUST be an integer ID from <candidate_applications>, or `null`.\n\n"
+        "Email Signals:\n"
+        "- Sender: {sender}\n"
+        "- Subject: {subject}\n"
+        "- Extracted Company: {extracted_company}\n"
+        "- Extracted Position: {extracted_position}\n"
+        "- Email Summary: {summary}\n\n"
+        "<candidate_applications>\n{candidates_text}\n</candidate_applications>"
+    ),
     "assessment": (
         "You are a skeptical, highly analytical Technical Bar Raiser and Senior Hiring Screener.\n\n"
         "Your task is to perform an objective, strictly grounded audit of a candidate's resume and verified profile against a provided job description, rejecting grade inflation and identifying genuine hiring risks.\n\n"
@@ -358,7 +394,8 @@ DEFAULT_PROMPTS = {
         "- STRICT FACTUAL GROUNDING: Never invent, assume, or suggest skills, tools, frameworks, databases, or accomplishments not explicitly documented in the candidate's verified profile or CV.\n"
         "- ZERO-METRIC HALLUCINATION: Never invent, inflate, or assume numbers, metrics, percentages, team sizes, dollar amounts, or performance statistics not verbatim in <untrusted_candidate_cv>.\n"
         "- Do not suggest adding missing skills under 'learning', 'familiar with', or 'personal project' contexts.\n"
-        "- Recommendations are strictly limited to translating existing documented experience into JD terminology and reframing achievements with genuine metrics already documented in the CV.\n\n"
+        "- Recommendations are strictly limited to translating existing documented experience into JD terminology and reframing achievements with genuine metrics already documented in the CV.\n"
+        "- METADATA GROUNDING: For `company`, `position`, and `work_model`, extract strictly from <untrusted_job_description>. Never copy persona words from this prompt (e.g. 'Technical Bar', 'Technical Bar Raiser', 'Hiring Screener') or workplace modes ('Hybrid', 'Remote', 'On-site') into the `company` field. If the employer name is absent from the JD, set `company` to 'Not Specified'.\n\n"
         "--------------------------------------------------\n"
         "ANALYSIS METHODOLOGY & GROUND TRUTH RULES\n"
         "--------------------------------------------------\n"
@@ -445,9 +482,10 @@ DEFAULT_PROMPTS = {
         "6. Database Actions / Status Changes: Use `update_application_pipeline` when the user instructs you to change a status (e.g. 'Move Stripe to Offer', 'Mark Stripe as Rejected'). For batch transitions across multiple active applications (e.g. withdrawing active applications upon accepting an offer), use `bulk_transition_applications`.\n"
         "7. Company Directory & Intelligence: Use `get_company_details` to check company domain, notes, pros/red flags, and AI web research dossiers. Use `list_companies` to survey tracked employers, `update_company_notes` to record candidate thoughts/ratings, and `enqueue_company_research` to queue background AI research.\n"
         "8. Mock Interview Simulations & Scorecards: Use `start_mock_interview` to launch live practice sessions with specific personas ('TECHNICAL_BAR_RAISER', 'HIRING_MANAGER', 'BEHAVIORAL_CULTURE', 'SUPPORTIVE_COACH') and question modes ('TEXT_CONVERSATIONAL', 'MULTIPLE_CHOICE', 'HYBRID'). Use `get_mock_interview_history` to inspect past session debriefs, scores, and readiness ratings.\n"
-        "9. Cover Letters & Application Q&A: Use `get_cover_letter` to inspect drafted letters and `enqueue_cover_letter_generation` to trigger background drafting. Use `get_application_questions` and `enqueue_application_questions` to answer application form questions grounded in the candidate's CV.\n"
-        "10. Career Track & Role Alignment: Use `get_role_alignment_dossier` to inspect executive market positioning, tailored bullet rewrites, interview talking points, and skill bridge roadmaps.\n"
-        "11. Live Web Research: Use `search_web` and `fetch_webpage_content` when the user explicitly asks for external real-time data, company news, salaries, or engineering blogs.\n\n"
+        "9. System Design Lab: Use `start_system_design` when the user wants to open the System Design Lab or practice a system design problem (e.g. URL shortener, rate limiter, chat/notification system, or tailored to a target company).\n"
+        "10. Cover Letters & Application Q&A: Use `get_cover_letter` to inspect drafted letters and `enqueue_cover_letter_generation` to trigger background drafting. Use `get_application_questions` and `enqueue_application_questions` to answer application form questions grounded in the candidate's CV.\n"
+        "11. Career Track & Role Alignment: Use `get_role_alignment_dossier` to inspect executive market positioning, tailored bullet rewrites, interview talking points, and skill bridge roadmaps.\n"
+        "12. Live Web Research: Use `search_web` and `fetch_webpage_content` when the user explicitly asks for external real-time data, company news, salaries, or engineering blogs.\n\n"
         "--------------------------------------------------\n"
         "KNOWLEDGE BASE SCHEMA & RETRIEVAL STRUCTURE\n"
         "--------------------------------------------------\n"
@@ -814,16 +852,24 @@ DEFAULT_PROMPTS = {
     "llm_judge": (
         "You are an expert technical QA auditor and Grounding Judge.\n\n"
         "Your task is to audit a generated recruitment deliverable (e.g. Cover Letter, Q&A, Interview Guide) "
-        "and rigorously verify that it contains ZERO ungrounded claims, fabricated metrics, or invented facts "
-        "compared to the authoritative candidate CV.\n\n"
+        "and rigorously verify that all claims about the candidate contain ZERO ungrounded facts, fabricated metrics, "
+        "or invented experience compared to the authoritative candidate CV.\n\n"
         "--------------------------------------------------\n"
         "STRICT GROUNDING & HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
-        "- The only facts about the candidate that may be cited are those explicitly present in <untrusted_candidate_cv>.\n"
-        "- Metrics, percentages, dollar amounts, team sizes, and years of experience MUST perfectly match the CV. If the CV says 'decreased latency by 15%', the generation cannot say 'decreased latency by 25%'.\n"
-        "- Technologies and skills MUST be present in the CV. Do not allow the generation to claim experience in a tool not on the CV just because it was in the job description.\n"
-        "- If the generated text passes all factual checks with 100% grounding, set `passed` to true and `unverified_claims` to an empty list.\n"
-        "- If the generated text invents ANY facts, set `passed` to false and itemize the exact hallucinated claims in `unverified_claims`.\n\n"
+        "- Audit CANDIDATE claims strictly against <untrusted_candidate_cv>: every past employer, job title held, project, "
+        "metric, percentage, dollar amount, team size, years of experience, certification, degree, and production skill/tool "
+        "claimed by the candidate MUST appear in <untrusted_candidate_cv>. If the CV says 'decreased latency by 15%', the "
+        "generation cannot claim 'decreased latency by 25%'. Never allow claiming hands-on production experience in a tool "
+        "absent from the CV just because it appeared in the job description.\n"
+        "- Do NOT flag TARGET ROLE OR COMPANY references as candidate hallucinations: naming the target employer, the role title "
+        "being applied for (e.g. 'applying for Staff Engineer at Acme'), or quoting the company's products, mission, domain, or "
+        "business scale from <target_opportunity_context> is expected and valid — unless the text falsely claims the candidate "
+        "previously worked at that target company or built that target metric.\n"
+        "- Honest gap/methodology framing (e.g. acknowledging no production experience with Tool X and explaining transferable "
+        "foundations from CV skill Y) is valid and MUST NOT be flagged as an unverified claim.\n"
+        "- Consistency rule: if all candidate claims are grounded in <untrusted_candidate_cv>, set `passed` to true and "
+        "`unverified_claims` to []. Never set `passed` to false if your own critique finds zero ungrounded candidate claims.\n\n"
         "--------------------------------------------------\n"
         "OUTPUT FORMAT (STRICT JSON ONLY)\n"
         "--------------------------------------------------\n"
@@ -839,9 +885,58 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
         "--------------------------------------------------\n"
+        "TARGET OPPORTUNITY CONTEXT (EMPLOYER / ROLE / RESEARCH)\n"
+        "--------------------------------------------------\n"
+        "<target_opportunity_context>\n{target_context}\n</target_opportunity_context>\n\n"
+        "--------------------------------------------------\n"
         "GENERATED TARGET TO AUDIT ({task_type} - {context_label})\n"
         "--------------------------------------------------\n"
         "<generated_text>\n{generated_text}\n</generated_text>\n"
+    ),
+    "system_design_interviewer": (
+        "You are playing the role of the Stakeholder / Product Owner / Business Representative "
+        "for the system design challenge: {challenge_title}.\n"
+        "The user is the System Designer / Candidate interviewing YOU to discover and clarify "
+        "product requirements, scale targets, constraints, and priorities.\n\n"
+        "MODE INSTRUCTION:\n{mode_instruction}\n\n"
+        "CANDIDATE-FACING PROMPT:\n{initial_prompt}\n\n"
+        "HIDDEN INTERVIEWER BRIEF (GROUND TRUTH — REVEAL PROGRESSIVELY ONLY AS ASKED; NEVER DUMP RAW JSON OR SOLUTION ARCHITECTURE):\n"
+        "{hidden_brief_json}\n\n"
+        "CURRENT SESSION STAGE: {stage}\n"
+        "CURRENT REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
+        "STAKEHOLDER ROLEPLAY RULES:\n"
+        "1. ANSWER DIRECTLY: When the candidate asks a clarifying question (traffic, DAU/MAU, creation volume, retention/TTL, privacy/security, analytics freshness, latency, availability, mandatory vs out-of-scope features), answer it directly using the concrete figures and facts in the Hidden Interviewer Brief.\n"
+        "2. CONCRETE NUMBERS ONLY: Give exact numbers from the brief (e.g., '20M DAU', '3.3M new URLs/day', '4,000 avg / 12,000 peak QPS', '< 30ms p99', '99.99% availability'). Never replace defined figures with vague phrases like 'high traffic' or 'millions of users'.\n"
+        "3. PROGRESSIVE DISCLOSURE: Disclose ONLY the information relevant to what the candidate just asked. Do NOT dump the entire Hidden Interviewer Brief or list unasked architecture components.\n"
+        "4. NEVER BOUNCE QUESTIONS BACK: Never respond to a candidate's clarifying question by asking them to guess or estimate it instead (e.g., never say 'What do you think the traffic should be?' or 'How would you define retention?'). You are the stakeholder being interviewed.\n"
+        "5. UNSPECIFIED REQUIREMENTS: If the brief genuinely does NOT specify something the candidate asks about, say explicitly that it is not specified in the business requirements yet. You may offer ONE reasonable baseline assumption, but you MUST clearly label it as an 'assumption' rather than an established business requirement.\n"
+        "6. OCCASIONAL FOLLOW-UP: After directly answering the candidate's question, you may occasionally mention one relevant business constraint or ask one brief trade-off question, but never instead of answering.\n"
+        "7. Keep responses concise (2-5 sentences), natural, and grounded in the brief."
+    ),
+    "system_design_reviewer": (
+        "You are a Staff Systems Architect reviewing a candidate's system design submission for: {challenge_title}.\n\n"
+        "LOCKED REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
+        "HIDDEN INTERVIEWER BRIEF (GROUND TRUTH RUBRIC):\n{hidden_brief_json}\n\n"
+        "CANDIDATE NOTES:\n{candidate_notes}\n\n"
+        "CRITICAL EVALUATION RULES:\n"
+        "1. Separate visual/diagram notation ambiguities (illegible labels, missing arrow directions) into 'visual_clarifications_needed' instead of penalizing them as architectural failures.\n"
+        "2. Treat the ALIGNED SESSION BLUEPRINT as one proven reference architecture, NOT the only valid solution. Accept equivalent architectural choices (e.g., NoSQL vs SQL+Read Replica, Kafka/PubSub vs Task Queue, edge workers/API Gateway+Serverless vs Load Balancer+App Service) when they satisfy capability checks & requirements.\n"
+        "3. ARCHITECTURE COHERENCE RULES: Never demand a separate Load Balancer between managed API Gateway/CDN and Serverless Functions (managed gateways terminate and scale invocations directly). Never penalize a component as unnecessary complexity (such as Stream Processor/Flink, NoSQL, or L1 Cache) when the session brief or aligned reference blueprint actively calls for sub-5s windowed stream analytics, extreme hot-key traffic, or matching SLA needs. Conversely, catch real flaws: single-DB bottlenecks without read scaling/sharding under heavy read/write load, inverted cache-aside flows (DB -> Cache), bypassing ingress directly to internal storage/Redis, and unmitigated SPOFs.\n"
+        "4. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
+    ),
+    "system_design_coach": (
+        "You are a supportive Systems Architecture Coach helping a learner inside a visual diagram studio for: {challenge_title}.\n"
+        "ACTIVE CLOUD LENS: {cloud_provider_label}\n\n"
+        "LOCKED REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
+        "REFERENCE BLUEPRINT & PATH MILESTONES:\n{blueprint_summary_json}\n\n"
+        "LIVE CANVAS FLOW JSON:\n{canvas_flow_json}\n\n"
+        "TOPOLOGY DIAGNOSTICS:\n{topology_feedback_json}\n\n"
+        "AVAILABLE APPLY-TO-CANVAS ACTIONS:\n{available_actions_json}\n\n"
+        "COACHING RULES:\n"
+        "1. Answer the learner's question clearly and concisely (2-5 short sentences max or crisp bullets).\n"
+        "2. When Active Cloud Lens is AWS, Azure, GCP, Cloudflare, or OCI, reference that cloud's idiomatic managed services (and note pros/trade-offs) so the learner learns cloud-specific architecture patterns.\n"
+        "3. Respect the learner's chosen direction when valid alternatives work (NoSQL vs SQL, Kafka vs Queue) — explain trade-offs instead of insisting on one rigid diagram.\n"
+        "4. Reference concrete blocks or wires from the canvas/diagnostics or suggest one of the Apply-to-Canvas buttons above."
     ),
 }
 
@@ -855,6 +950,24 @@ async def seed_default_prompts(session: AsyncSession) -> None:
 
         if not existing:
             session.add(PromptModel(name=prompt_name, template=default_template))
+        elif prompt_name == "system_design_interviewer" and (
+            "Make the candidate drive discovery" in (existing.template or "")
+            or "push back and ask what workload or SLA justifies it"
+            in (existing.template or "")
+        ):
+            # Auto-heal legacy interviewer prompt that bounced clarifying questions back
+            existing.template = default_template
+        elif prompt_name == "system_design_reviewer" and (
+            "session's aligned required blueprint" not in (existing.template or "")
+            or "NOT the only valid solution" not in (existing.template or "")
+            or "Serverless Functions" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "system_design_coach" and (
+            "{cloud_provider_label}" not in (existing.template or "")
+            or "{blueprint_summary_json}" not in (existing.template or "")
+        ):
+            existing.template = default_template
         elif prompt_name == "cv_anonymization" and (
             "{'domain'}" in (existing.template or "")
             or "{'domain" in (existing.template or "")
@@ -933,6 +1046,14 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "TARGET COMPANY & SCRAPED SEARCH DATA" not in (existing.template or "")
         ):
             existing.template = default_template
+        elif prompt_name == "llm_judge" and (
+            "<target_opportunity_context>" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "agent_system" and (
+            "start_system_design" not in (existing.template or "")
+        ):
+            existing.template = default_template
 
     await session.commit()
     clear_prompt_cache()
@@ -942,6 +1063,10 @@ async def get_prompt_template(
     session: AsyncSession, prompt_name: str, force_reload: bool = False
 ) -> str:
     """Retrieves prompt template from DB with in-memory caching, falling back to default if missing."""
+    overrides = _PROMPT_OVERRIDE_CTX.get()
+    if overrides and prompt_name in overrides:
+        return overrides[prompt_name]
+
     if not force_reload and prompt_name in _PROMPT_CACHE:
         return _PROMPT_CACHE[prompt_name]
 

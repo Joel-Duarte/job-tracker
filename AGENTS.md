@@ -21,6 +21,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `ActionItemsView`: High-priority to-do hub generated automatically from recruitment emails and application updates.
   - `StagingView`: Triage and manual 2-step resolution area for ambiguous or low-confidence email extractions.
   - `AgentChatView`: Unified conversational assistant and live interactive mock interview simulation suite supporting multi-turn drill downs, multiple-choice challenges, voice transcription, debrief scorecards, and session continuation across practice formats.
+  - `SystemDesignView`: Interactive System Design Lab (`/system-design`) guiding candidates through requirements discovery, an editable/lockable requirements ledger, external diagram image uploads/paste (`v1..vN`), multimodal architecture review, interactive trade-off defence, and evidence-based final evaluation scorecards.
   - `DiagnosticsView`: Deep system telemetry dashboard (`/diagnostics`) tracking execution latency, trace spans, error rates, token consumption, and dollar savings.
 
 ### Backend
@@ -38,6 +39,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (job spec extraction, email categorization, candidate assessment, zero-hallucination cover letter, and application form Q&A generation).
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
   - `interview_simulator_service.py`: Interactive role-playing mock interview simulator supporting multiple question formats (`TEXT_CONVERSATIONAL`, `MULTIPLE_CHOICE`, `HYBRID`), interviewer personas (`TECHNICAL_BAR_RAISER`, `HIRING_MANAGER`, `BEHAVIORAL_CULTURE`, `SUPPORTIVE_COACH`), adaptive local (unlimited)/cloud (120s) timeouts, real-time STAR evaluation, and post-session debrief scorecards saved to application notes and timeline events.
+  - `system_design_service.py`: Independent domain service for System Design Lab (`/api/v1/system-design/*`) managing curated challenges with protected hidden `interviewer_brief` criteria, PostgreSQL session lifecycle, Stage B requirements discovery & ledger extraction, disk-stored diagram revisions (`v1..vN`), queue-backed multimodal vision reviews (`SYSTEM_DESIGN_REVIEW`), Stage E trade-off defence, and evidence-based Stage F final rubric evaluations (`SYSTEM_DESIGN_EVALUATION`).
   - `email_fetcher.py`: Connects to IMAP or OAuth; shared MIME normalization preserves quote boundaries, canonical Internet Message-ID, provider aliases, and structured calendar attachments.
   - `email_normalization.py` / `email_scheduling.py`: Isolate newest-message evidence, resolve real UTC instants, distinguish prose proposals from task deadlines, and apply organizer calendar revisions with durable occurrence identity. Ambiguous boundaries/calendar data route to staging.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline, including `APPLICATION_QA` and `COVER_LETTER` generation tasks.
@@ -82,6 +84,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - **Bulk Transition Engine (`POST /api/v1/applications/bulk-transition`):** Transitions batches of matching non-terminal applications simultaneously (e.g., auto-withdrawing or archiving remaining active applications upon accepting an offer via `PostHireModal`). Bulk operations automatically generate application timeline events and dismiss associated pending `ActionItemModel` tasks.
 - **Candidate Profile:** `CandidateCVModel` stores raw resumes, anonymized versions, extracted skills, domain expertise, spoken languages with proficiencies (`spoken_languages`), and years of experience.
 - **Mock Interview Simulations:** `InterviewSessionModel` manages multi-turn interview simulations optionally tied to target job applications. Stores per-turn challenge and candidate response transcripts (`turns_data`), question mode (`question_mode`), overall readiness rating (`readiness_rating`), overall score (`overall_score`), and debrief summary feedback (`summary_feedback`).
+- **System Design Lab:** `SystemDesignChallengeModel` stores curated system design scenarios alongside hidden `interviewer_brief` criteria (never returned by candidate-facing schemas). `SystemDesignSessionModel` persists authoritative session state (`requirements_transcript`, `requirements_ledger`, `diagrams_metadata`, `architecture_reviews`, `defence_transcript`, `final_evaluation`) while diagram image binaries live on disk under `backend/data/system_design/session_{id}/v{N}.{ext}`.
 - **System Settings & Onboarding:** `SystemSettingsModel` persists browser-detected IANA `display_timezone` with a protected manual override (`timezone_source`), and tracks global runtime settings, feature flags (`enable_email_intake`, `enable_embeddings`, `enable_web_search`, `enable_auto_cover_letter, enable_llm_judge`), search engine configuration (`search_provider`, `searxng_url`), and onboarding completion state (`has_completed_onboarding`).
 - **Email Accounts:** `EmailAccountModel` manages multi-provider email synchronization (`IMAP`, `GMAIL_OAUTH`, `MS_GRAPH_OAUTH`) with encrypted credentials, token refresh lifecycles, and mailbox folder selection.
 - **Intake/Staging:** Raw leads are ingested as `StagingItemModel` or evaluated directly into `IntakeEvaluationTaskModel`. Supports bulk task management endpoints (`POST /api/v1/intake/evaluations/bulk-retry` and `POST /api/v1/intake/evaluations/bulk-delete`).
@@ -118,10 +121,13 @@ When executing backend tests to verify code changes (during TDD or before comple
    uv run pytest
    ```
 
-3. **Tier 3 (Explicit Test Database URL):**
-   If testing against a dedicated local or remote PostgreSQL instance:
+3. **Tier 3 (Explicit Test Database URL — Dedicated Test DB Only):**
+   > [!CAUTION]
+   > **NEVER point `TEST_DATABASE_URL` at a running production or development database** (e.g., `job-tracker-postgresdb` / port `10556` / database `postgres`). `conftest.py` runs `drop_all` / `create_all` and will wipe all data. Always use Tier 1 (Testcontainers) or create a dedicated, isolated test database (e.g., `job_tracker_test`) before setting `TEST_DATABASE_URL`.
+
+   If testing against a dedicated local or remote test PostgreSQL database:
    ```bash
-   TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54320/postgres" uv run pytest
+   TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54320/job_tracker_test" uv run pytest
    ```
 
 4. **Tier 4 (Constrained Sandbox Fallback):**

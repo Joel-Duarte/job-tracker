@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.ai_queue import cancel_running_task
 from app.core.config import settings
@@ -1467,12 +1468,29 @@ async def retry_evaluation_task(
             detail=f"Evaluation task {task_id} not found.",
         )
 
+    if task.status in ("PROCESSING", "COMPLETED"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot retry task {task_id} while status is {task.status}.",
+        )
+
+    from app.services.evaluation_worker import _resume_stage_for_task
+
+    payload = dict(task.result_json) if isinstance(task.result_json, dict) else {}
+    existing_cp = payload.get("_checkpoint")
+    checkpoint = dict(existing_cp) if isinstance(existing_cp, dict) else {}
+    checkpoint["manual_retry_count"] = int(checkpoint.get("manual_retry_count", 0)) + 1
+    checkpoint["last_manual_retry_at"] = datetime.now(UTC).isoformat()
+    payload["_checkpoint"] = checkpoint
+
+    task.result_json = payload
     task.status = "QUEUED"
     if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
-        task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+        task.stage = _resume_stage_for_task(task.task_type, payload)
     task.error_message = None
     task.completed_at = None
     task.created_at = datetime.now(UTC)
+    flag_modified(task, "result_json")
     await db.commit()
     await db.refresh(task)
 
@@ -1587,11 +1605,25 @@ async def bulk_retry_evaluation_tasks(
                 skipped_count += 1
                 continue
 
+            from app.services.evaluation_worker import _resume_stage_for_task
+
+            payload_json = (
+                dict(task.result_json) if isinstance(task.result_json, dict) else {}
+            )
+            cp = (
+                dict(payload_json.get("_checkpoint"))
+                if isinstance(payload_json.get("_checkpoint"), dict)
+                else {}
+            )
+            cp["manual_retry_count"] = int(cp.get("manual_retry_count", 0)) + 1
+            cp["last_manual_retry_at"] = datetime.now(UTC).isoformat()
+            payload_json["_checkpoint"] = cp
+            task.result_json = payload_json
+            flag_modified(task, "result_json")
+
             task.status = "QUEUED"
             if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
-                task.stage = (
-                    "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
-                )
+                task.stage = _resume_stage_for_task(task.task_type, payload_json)
             task.error_message = None
             task.completed_at = None
             task.created_at = datetime.now(UTC)

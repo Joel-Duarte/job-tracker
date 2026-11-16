@@ -497,10 +497,11 @@ async def test_agent_tools_unit_handlers():
     # 22. Test LangChain Tool Factory Registration
     tools = create_agent_tools(db, enable_web_search=False)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 24
+    assert len(tools) == 25
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
     assert "start_mock_interview" in tool_names
+    assert "start_system_design" in tool_names
     assert "get_mock_interview_history" in tool_names
     assert "get_candidate_profile" in tool_names
     assert "get_company_details" in tool_names
@@ -517,7 +518,24 @@ async def test_agent_tools_unit_handlers():
 
     # With web search enabled:
     tools_web = create_agent_tools(db, enable_web_search=True)
-    assert len(tools_web) == 26
+    assert len(tools_web) == 27
     web_tool_names = [t.name for t in tools_web]
     assert "search_web" in web_tool_names
     assert "fetch_webpage_content" in web_tool_names
+
+
+@pytest.mark.asyncio
+async def test_execute_start_system_design_lobby_and_challenge(db_session):
+    from app.services.agent_tools import execute_start_system_design
+
+    lobby_res = await execute_start_system_design(db_session)
+    assert lobby_res["status"] == "lobby_ready"
+    assert lobby_res["session_id"] is None
+    assert lobby_res["challenge_count"] >= 1
+
+    started_res = await execute_start_system_design(
+        db_session, challenge_or_topic="url-shortener"
+    )
+    assert started_res["status"] == "started"
+    assert isinstance(started_res["session_id"], int)
+    assert started_res["challenge_slug"] == "url-shortener"

@@ -1,0 +1,63 @@
+[
+  {
+    "id": "jd_structured_backend_comp",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Standard technical posting with cookie boilerplate + explicit USD annual band; 'why_hiring' is unstated so must stay null (anti-hallucination).",
+    "title_hint": "Senior Python & AI Engineer",
+    "page_title": "Senior Python & AI Engineer - Orbital Cloud",
+    "raw_webpage_data": "Home | Careers | Privacy Policy | Accept All Cookies\nOrbital Cloud — Engineering Careers\nRole: Senior Python & AI Engineer (Remote - Europe / US East)\nCompensation: $150,000 - $180,000 USD per year + equity.\n\nAbout the Team:\nWe build resilient APIs and retrieval-augmented LLM pipelines.\n\nResponsibilities:\n- Design and scale FastAPI microservices backed by PostgreSQL and Redis.\n- Build reliable multi-step LangGraph and OpenAI API agent evaluation pipelines.\n- Improve observability, latency SLAs, and Kubernetes deployment automation.\n\nRequirements:\n- 5+ years of production Python experience (FastAPI or Django).\n- Hands-on experience with PostgreSQL, Redis, and Kubernetes.\n- Prior work integrating OpenAI API or open-weights LLM inference.\nFooter | Terms | Sitemap",
+    "expect_job_found": true,
+    "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Redis"],
+    "expected_salary_min": 150000,
+    "expected_salary_max": 180000,
+    "must_be_null_if_unstated": ["why_hiring"]
+  },
+  {
+    "id": "jd_portuguese_eur_monthly_backend",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Non-English (Portuguese) hybrid posting with monthly EUR compensation — verifies multilingual extraction and monthly currency normalization.",
+    "title_hint": "Engenheiro de Software Backend",
+    "page_title": "Engenheiro de Software Backend - Lusitania Pay",
+    "raw_webpage_data": "Menu | Candidaturas | Politica de Privacidade\nLusitania Pay — Lisboa (Hibrido)\nCargo: Engenheiro de Software Backend (Python / Django)\nRemuneracao: €4.500 - €5.500 EUR / mes\nTipo de contrato: Permanente, Tempo Integral\n\nResponsabilidades:\n- Desenvolver APIs REST escalaveis com Python, Django e PostgreSQL.\n- Otimizar filas assincronas com Redis e pipelines de deploy no Docker.\n\nRequisitos:\n- 4+ anos de experiencia com Python e bases de dados relacionais (PostgreSQL).\n- Conhecimentos solidos em Redis, Docker e testes automatizados.",
+    "expect_job_found": true,
+    "required_skills_any": ["Python", "Django", "PostgreSQL", "Redis"],
+    "expected_salary_min": 4500,
+    "expected_salary_max": 5500,
+    "expected_currency": "EUR",
+    "expected_salary_period": "MONTHLY"
+  },
+  {
+    "id": "jd_non_job_cookie_junk",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Pure privacy/cookie gate with zero job listing must set job_found=False.",
+    "title_hint": null,
+    "page_title": "Privacy Preferences - Example Portal",
+    "raw_webpage_data": "We value your privacy. Choose which cookies to allow: Strictly Necessary, Analytics, Marketing.\nSign in to view your saved preferences. Copyright 2026 Example Portal Inc.\nContact support at support@example-portal.invalid or view Terms of Service and Cookie Policy.",
+    "expect_job_found": false,
+    "required_skills_any": []
+  },
+  {
+    "id": "jd_hybrid_agency_hays_style",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Regression test for Hybrid workplace-mode leakage into company field: posting prominently displays 'Hybrid' near the header for employer Hays.",
+    "title_hint": "Senior AI Software Engineer",
+    "page_title": "Senior AI Software Engineer - Hays",
+    "raw_webpage_data": "Hays\nSenior AI Software Engineer\nHybrid | Madrid / Remote | Full-time\n\nAbout the Role:\nWe are looking for a Senior AI Software Engineer to build LLM-backed workflow automation with Python, FastAPI, PostgreSQL, and Docker.\n\nRequirements:\n- 4+ years of production Python and FastAPI experience.\n- Solid PostgreSQL and Docker fundamentals.",
+    "expect_job_found": true,
+    "expected_company": "Hays",
+    "banned_companies": ["Hybrid", "Technical Bar", "Remote", "On-site"],
+    "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Docker"]
+  },
+  {
+    "id": "jd_ats_greenhouse_linkedin_wrapper",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Scraped job posting containing ATS ('Powered by Greenhouse') and job-board ('Apply on LinkedIn') boilerplate plus 'Remote' header must extract 'Beacon Analytics' as company.",
+    "title_hint": "Senior ML Platform Engineer",
+    "page_title": "Senior ML Platform Engineer - Beacon Analytics | Greenhouse",
+    "raw_webpage_data": "Apply on LinkedIn | Back to Jobs\nBeacon Analytics\nSenior ML Platform Engineer\nRemote\n\nResponsibilities:\n- Build scalable PyTorch and FastAPI model serving pipelines on Kubernetes.\n- Maintain PostgreSQL feature stores and CI/CD workflows.\n\nRequirements:\n- 4+ years Python, FastAPI, Docker, and PostgreSQL.\n\nPowered by Greenhouse",
+    "expect_job_found": true,
+    "expected_company": "Beacon Analytics",
+    "banned_companies": ["Greenhouse", "LinkedIn", "Remote", "Hybrid", "Technical Bar"],
+    "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Kubernetes"]
+  }
+]

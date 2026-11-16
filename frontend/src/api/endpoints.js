@@ -10,13 +10,20 @@ export const ApplicationsAPI = {
   delete: (id) => apiClient.delete(`/applications/${id}`),
   byStatus: () => apiClient.get('/applications/by-status'),
   generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
+  prepareInterviewGuideFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/interview-guide/frontier-prompt`, data),
+  updateInterviewGuide: (id, data) => apiClient.patch(`/applications/${id}/interview-guide`, data),
   clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
   getCoverLetter: (id) => apiClient.get(`/applications/${id}/cover-letter`),
   generateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/generate`, data),
+  prepareCoverLetterFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/cover-letter/frontier-prompt`, data),
   updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
   regenerateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/regenerate`, data),
   getApplicationQuestions: (id) => apiClient.get(`/applications/${id}/questions`),
   generateApplicationQuestions: (id, data = {}) => apiClient.post(`/applications/${id}/questions/generate`, data),
+  prepareQuestionsFrontierPrompt: (id, data = {}) =>
+    apiClient.post(`/applications/${id}/questions/frontier-prompt`, data),
   updateApplicationQuestions: (id, data) => apiClient.patch(`/applications/${id}/questions`, data),
   analyzeSpec: (id, data = {}) => apiClient.post(`/applications/${id}/analyze-spec`, data),
 }
@@ -73,6 +80,8 @@ export const PromptsAPI = {
   get: (name) => apiClient.get(`/prompts/${name}`),
   update: (name, template) => apiClient.patch(`/prompts/${name}`, { template }),
   reset: (name) => apiClient.post(`/prompts/${name}/reset`),
+  evaluate: (name, payload = {}) =>
+    apiClient.post(`/prompts/${name}/evaluate`, payload, { timeout: 600000 }),
 }
 
 export const StagingAPI = {
@@ -201,4 +210,89 @@ export const CompaniesAPI = {
   merge: (data) => apiClient.post('/companies/merge', data),
   bulkResearch: (data = {}) => apiClient.post('/companies/bulk-research', data),
   getDuplicates: () => apiClient.get('/companies/duplicates'),
+}
+
+export const SystemDesignAPI = {
+  getDiagramCatalog: () => apiClient.get('/system-design/catalog'),
+  listChallenges: (params = {}) => apiClient.get('/system-design/challenges', { params }),
+  getChallenge: (slugOrId) => apiClient.get(`/system-design/challenges/${slugOrId}`),
+  createChallenge: (data) => apiClient.post('/system-design/challenges', data),
+  generateChallenge: (data) => apiClient.post('/system-design/challenges/generate', data),
+  prepareFrontierChallengePrompt: (data) =>
+    apiClient.post('/system-design/challenges/frontier-prompt', data),
+  importFrontierChallenge: (data) => apiClient.post('/system-design/challenges/import', data),
+  prepareFrontierChallengeAuditPrompt: (challengeId) =>
+    apiClient.post(`/system-design/challenges/${challengeId}/frontier-audit-prompt`),
+  upgradeChallengeFromFrontier: (challengeId, data) =>
+    apiClient.put(`/system-design/challenges/${challengeId}/frontier-import`, data),
+  updateChallenge: (challengeId, data) =>
+    apiClient.put(`/system-design/challenges/${challengeId}`, data),
+  resetDefaultChallenges: () => apiClient.post('/system-design/challenges/reset-defaults'),
+  deleteChallenge: (challengeId) => apiClient.delete(`/system-design/challenges/${challengeId}`),
+  startSession: (data) => apiClient.post('/system-design/sessions', data),
+  listSessions: (params = {}) => apiClient.get('/system-design/sessions', { params }),
+  getSession: (sessionId) => apiClient.get(`/system-design/sessions/${sessionId}`),
+  deleteSession: (sessionId) => apiClient.delete(`/system-design/sessions/${sessionId}`),
+  updateMode: (sessionId, mode) =>
+    apiClient.patch(`/system-design/sessions/${sessionId}/mode`, { mode }),
+  sendRequirementsMessage: (sessionId, message, requestHint = false) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/message`, {
+      message,
+      request_hint: Boolean(requestHint),
+    }),
+  extractRequirementsLedger: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/extract`),
+  revealRequirementsLedger: (sessionId, lockAndProceed = false) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/reveal`, {
+      lock_and_proceed: Boolean(lockAndProceed),
+    }),
+  updateRequirementsLedger: (sessionId, ledgerPayload) =>
+    apiClient.put(`/system-design/sessions/${sessionId}/requirements/ledger`, ledgerPayload),
+  uploadDiagram: (sessionId, formData) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  submitCanvasDiagram: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/canvas`, payload),
+  getDiagramFlow: (sessionId, version) =>
+    apiClient.get(`/system-design/sessions/${sessionId}/diagrams/${version}/flow`),
+  requestDiagramHint: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/hint`, payload),
+  sendDiagramCoachMessage: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/coach-chat`, payload),
+  getDiagramImageUrl: (sessionId, version) =>
+    `/api/v1/system-design/sessions/${sessionId}/diagrams/${version}/image`,
+  reviewDiagram: (sessionId, data = {}) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review`, data),
+  sendDefenceMessage: (sessionId, message, { requestHint = false, useWebSearch = false } = {}) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/message`, {
+      message,
+      request_hint: Boolean(requestHint),
+      use_web_search: Boolean(useWebSearch),
+    }),
+  evaluateSession: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/evaluate`),
+  getFrontierPacket: (sessionId) =>
+    apiClient.get(`/system-design/sessions/${sessionId}/frontier-packet`),
+  importEvaluation: (sessionId, rawResponse) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/import-evaluation`, {
+      raw_response: rawResponse,
+    }),
+  prepareFrontierCoachPrompt: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/frontier-coach-prompt`, payload),
+  prepareFrontierReviewPrompt: (sessionId, diagramVersion = null) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review/frontier-prompt`, {
+      diagram_version: diagramVersion,
+    }),
+  importFrontierReview: (sessionId, rawResponse, diagramVersion = null) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review/import`, {
+      diagram_version: diagramVersion,
+      raw_response: rawResponse,
+    }),
+  prepareFrontierDefencePrompt: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/frontier-prompt`),
+  importFrontierDefence: (sessionId, summaryOrTranscript) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/import`, {
+      summary_or_transcript: summaryOrTranscript,
+    }),
 }

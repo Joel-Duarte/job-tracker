@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { displayTimezone } from './utils/emailTime'
 import { AIConfigAPI } from './api/endpoints'
 import { useUIStore } from './stores/uiStore'
@@ -18,6 +19,7 @@ import FloatingQueueWidget from './components/layout/FloatingQueueWidget.vue'
 import FloatingAgentChatWidget from './components/agent/FloatingAgentChatWidget.vue'
 import ToastNotification from './components/common/ToastNotification.vue'
 
+const route = useRoute()
 const uiStore = useUIStore()
 const aiStore = useAIStore()
 
@@ -45,7 +47,7 @@ onMounted(async () => {
 
 <template>
   <div class="app-layout">
-    <AppNavbar />
+    <AppNavbar v-if="!route.meta?.hideNavbar" />
     <main class="main-content">
       <router-view v-slot="{ Component }">
         <transition name="route-fade" mode="out-in">
@@ -62,8 +64,8 @@ onMounted(async () => {
     <OnboardingWizardModal />
     <QuickRetryModal />
     <IntakeQueueDrawer />
-    <FloatingQueueWidget />
-    <FloatingAgentChatWidget />
+    <FloatingQueueWidget v-if="!route.meta?.hideNavbar" />
+    <FloatingAgentChatWidget v-if="!route.meta?.hideNavbar" />
     <ToastNotification />
   </div>
 </template>

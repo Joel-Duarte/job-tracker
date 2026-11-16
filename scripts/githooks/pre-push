@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Optional local git pre-push hook (install via: git config core.hooksPath scripts/githooks
+# or invoke manually via: pre-commit run --hook-stage manual local-llm-golden-gate)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/backend"
+PYTHONPATH=. uv run python scripts/run_local_llm_gate.py --base origin/master --allow-offline

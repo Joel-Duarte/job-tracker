@@ -20,6 +20,13 @@ import {
 import { ApplicationsAPI } from '../../api/endpoints'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import FrontierPromptBridge from '../common/FrontierPromptBridge.vue'
+import DOMPurify from 'dompurify'
+import { renderChatMarkdown } from '../../utils/markdownRenderer'
+
+const frontierBridgeRef = ref(null)
+const frontierPromptData = ref(null)
+const isPreparingFrontier = ref(false)
 
 const props = defineProps({
   isOpen: Boolean,
@@ -291,6 +298,56 @@ function handleCopy() {
 function handleClose() {
   emit('close')
 }
+
+async function handlePrepareGuideFrontier() {
+  if (!props.applicationId) return
+  isPreparingFrontier.value = true
+  try {
+    const res = await ApplicationsAPI.prepareInterviewGuideFrontierPrompt(props.applicationId, {
+      language: selectedLanguage.value,
+      selected_sections: selectedSections.value,
+      include_company_research: includeCompanyResearch.value,
+      company_research: includeCompanyResearch.value ? companyResearch.value : null,
+    })
+    frontierPromptData.value = res.data
+    try {
+      await navigator.clipboard?.writeText(res.data.markdown_prompt)
+      uiStore.showToast('Frontier Interview Guide prompt copied! Paste back HTML or Markdown below.', 'success')
+    } catch {
+      uiStore.showToast('Frontier Interview Guide prompt ready! Copy it below.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to prepare Interview Guide prompt', 'error')
+  } finally {
+    isPreparingFrontier.value = false
+  }
+}
+
+async function handleImportGuideFrontier(rawText) {
+  let content = String(rawText || '').trim()
+  const fencedHtml = content.match(/```(?:html|markdown|md)?\s*([\s\S]*?)```/i)
+  if (fencedHtml) {
+    content = fencedHtml[1].trim()
+  }
+  const hasHtmlTags = /<\/?(h[1-4]|p|ul|ol|li|div|blockquote|section|article)\b/i.test(content)
+  const sanitizedHtml = hasHtmlTags
+    ? DOMPurify.sanitize(content)
+    : renderChatMarkdown(content)
+  try {
+    const res = await ApplicationsAPI.updateInterviewGuide(props.applicationId, {
+      interview_guide_html: sanitizedHtml,
+      language: selectedLanguage.value,
+    })
+    generatedGuideHtml.value = sanitizedHtml
+    guideLanguage.value = selectedLanguage.value
+    activeTab.value = 'preview'
+    frontierBridgeRef.value?.clearImport()
+    uiStore.showToast('Imported external Interview Guide and saved!', 'success')
+    emit('generated', res.data)
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to save imported guide', 'error')
+  }
+}
 </script>
 
 <template>
@@ -434,6 +491,18 @@ function handleClose() {
             <AlertCircle :size="16" class="text-danger" />
             <span>{{ generationError }}</span>
           </div>
+
+          <FrontierPromptBridge
+            ref="frontierBridgeRef"
+            test-id-prefix="interview-guide-frontier"
+            :loading="isPreparingFrontier"
+            :prepare-disabled="selectedSections.length === 0"
+            :prompt-data="frontierPromptData"
+            paste-placeholder="Paste the HTML or Markdown guide returned by Claude/ChatGPT/Gemini here..."
+            import-label="Import & Preview Guide"
+            @prepare="handlePrepareGuideFrontier"
+            @import="handleImportGuideFrontier"
+          />
         </div>
 
         <!-- Preview View (When Guide Exists) -->

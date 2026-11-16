@@ -25,6 +25,7 @@ services:
       - ./backend/app:/app/app
     environment:
       ENVIRONMENT: development
+      SYSTEM_DESIGN_DATA_DIR: /app/data/system_design
       SEED_DEV_DATA: "true"
       LOG_LEVEL: DEBUG
       SECRET_KEY: ${SECRET_KEY:-development-only-secret-key}

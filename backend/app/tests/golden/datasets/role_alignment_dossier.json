@@ -1,0 +1,32 @@
+[
+  {
+    "id": "dossier_backend_ai_shift",
+    "pipeline": "role_alignment_dossier",
+    "persona_id": "marcus_ai_backend",
+    "human_rationale": "Synthesizes RoleAlignmentDossierPayload grounded in Marcus's FastAPI/LangGraph/PostgreSQL CV (which has ZERO percentage metrics) without fabricating unverified percentages or invented projects.",
+    "role_track": "AI Platform Engineering",
+    "total_analyzed_jobs": 12,
+    "vocabulary_shifts": [
+      {
+        "cv_term": "FastAPI microservices",
+        "jd_term": "Production GenAI APIs",
+        "frequency_count": 8,
+        "rationale": "Target roles frame API services around LLM orchestration and inference SLAs."
+      },
+      {
+        "cv_term": "Celery job pipelines",
+        "jd_term": "Async Agent Task Workflows",
+        "frequency_count": 6,
+        "rationale": "Highlights durable asynchronous worker execution for agent evaluation."
+      }
+    ],
+    "bullet_reframes": [
+      {
+        "original_bullet": "Architected FastAPI microservices, LangGraph agent pipelines, and PostgreSQL + Redis event workers.",
+        "suggested_rewrite": "Architected Production GenAI APIs and Async Agent Task Workflows in FastAPI, LangGraph, PostgreSQL, and Redis.",
+        "reason": "Aligns existing distributed backend work directly to AI Platform role terminology."
+      }
+    ],
+    "ban_unverified_percentages": true
+  }
+]

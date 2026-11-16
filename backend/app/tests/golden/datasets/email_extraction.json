@@ -1,0 +1,90 @@
+[
+  {
+    "id": "email_interview_invite_with_deadline",
+    "pipeline": "email_extraction",
+    "human_rationale": "Recruiter advance email containing both an assignment deadline and proposed interview slots: action_required=True, deadline_evidence & meeting_proposal extracted, deprecated due_date kept null.",
+    "sender": "talent@orbital-cloud.invalid",
+    "subject": "Next Step: Technical Interview & Coding Task - Senior Python Engineer",
+    "date": "2026-11-12T10:30:00Z",
+    "email_content": "Hi Marcus,\n\nThank you for speaking with our recruiter. The hiring team at Orbital Cloud would like to advance you to the Technical Interview stage for the Senior Python Engineer role (Req #REQ-4821).\n\nCould you complete the short backend debugging assignment by Friday, November 20, 2026?\nAlso, please let us know if you are available for a 45-minute technical interview on Tuesday, November 17 at 14:00 UTC or Wednesday, November 18 at 16:00 UTC.\n\nBest regards,\nClara Chen",
+    "expect_company": "Orbital Cloud",
+    "expect_action_required": true,
+    "expect_non_empty_fields": ["status_evidence", "deadline_evidence", "meeting_proposal"],
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_quoted_thread_isolation",
+    "pipeline": "email_extraction",
+    "human_rationale": "Gmail thread trap: older quoted reply below mentions an old take-home deadline & rejection notice, while the NEWEST top message is simply an automated receipt confirmation. Must extract ONLY the newest message.",
+    "sender": "no-reply@ats.luminous-work.invalid",
+    "subject": "Re: Application Received - Senior Frontend Engineer",
+    "date": "2026-11-14T09:15:00Z",
+    "email_content": "Hello Elena,\n\nThis automated confirmation verifies that we received your updated portfolio submission for Senior Frontend Engineer at Luminous Workspace. No action is required from you while our team reviews submissions.\n\n--- On Nov 1, 2026, recruiter@othercorp.invalid wrote: ---\n> Hi Elena,\n> Your previous coding challenge for Backend Ops was due November 5, 2026 and we unfortunately decided not to move forward.",
+    "expect_action_required": false,
+    "expect_null_fields": ["due_date", "deadline_evidence"],
+    "banned_status_values": ["REJECTED"]
+  },
+  {
+    "id": "email_direct_rejection",
+    "pipeline": "email_extraction",
+    "human_rationale": "Polite rejection email with zero follow-up task: status=REJECTED and action_required=False.",
+    "sender": "careers@northstar-ledgers.invalid",
+    "subject": "Update on your application - Backend Engineer",
+    "date": "2026-11-13T16:00:00Z",
+    "email_content": "Hi Samir,\n\nThank you for interviewing for the Backend Engineer role at Northstar Ledgers. Unfortunately, we have decided not to move forward with your application at this time as we selected a candidate with more production systems experience.\n\nWe wish you the best in your job search.",
+    "expect_company": "Northstar Ledgers",
+    "expect_action_required": false,
+    "expected_status_any": ["REJECTED"],
+    "expect_null_fields": ["due_date", "deadline_evidence"]
+  },
+  {
+    "id": "email_thread_short_role_phone_screen",
+    "pipeline": "email_extraction",
+    "human_rationale": "Anonymized abstraction of thread follow-up where recruiter uses abbreviated role title ('Software Engineer AI') and confirms a phone screen.",
+    "sender": "talent@novatech.invalid",
+    "subject": "Re: Software Engineer AI - NovaTech",
+    "date": "2026-11-16T12:15:00Z",
+    "email_content": "Hi Alex,\n\nThank you for confirming our 30-minute introductory phone screen tomorrow at 11:00 UTC. No action is required from you prior to the call.\n\nBest,\nJordan",
+    "expect_company": "NovaTech",
+    "expect_action_required": false,
+    "expected_status_any": ["PHONE_SCREEN", "RECRUITER_CONTACT", "TECHNICAL_INTERVIEW"],
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_job_alert_digest",
+    "pipeline": "email_extraction",
+    "human_rationale": "Automated job board digest must be classified as JOB_ALERT or NEWSLETTER with action_required=False.",
+    "sender": "alerts@jobboard.invalid",
+    "subject": "12 new Senior Python Engineer jobs matching your alert",
+    "date": "2026-11-15T08:00:00Z",
+    "email_content": "Your daily job alert: 12 new Senior Python Engineer roles posted today.\n1. Backend Engineer at ExampleCo - Remote\n2. Platform Engineer at DemoCorp - Hybrid\nUnsubscribe or manage alert preferences.",
+    "expect_email_type_any": ["JOB_ALERT", "NEWSLETTER"],
+    "expect_action_required": false,
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_staffing_agency_named_client",
+    "pipeline": "email_extraction",
+    "human_rationale": "Staffing agency recruiting on behalf of a named client ('Luminous Workspace') must extract the client company rather than an ATS.",
+    "sender": "recruiter@hays-agency.invalid",
+    "subject": "Senior Frontend Engineer opportunity at Luminous Workspace",
+    "date": "2026-11-15T11:00:00Z",
+    "email_content": "Hi Elena,\n\nI am recruiting on behalf of our client Luminous Workspace for a Senior Frontend Engineer (React / TypeScript). Could you share your availability this week for a 20-minute intro call?\n\nBest,\nSam",
+    "expect_company": "Luminous Workspace",
+    "expect_action_required": true,
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_portuguese_interview_invite",
+    "pipeline": "email_extraction",
+    "human_rationale": "Non-English (Portuguese) interview invitation must extract company, interview status, and action_required=True.",
+    "sender": "talento@lusitania-pay.invalid",
+    "subject": "Convite para entrevista tecnica - Lusitania Pay",
+    "date": "2026-11-15T14:00:00Z",
+    "email_content": "Ola Marcus,\n\nA equipa da Lusitania Pay gostaria de agendar uma entrevista tecnica de 45 minutos para a vaga de Engenheiro Backend. Por favor indique a sua disponibilidade para esta quinta-feira.\n\nObrigado,\nEquipa de Talento",
+    "expect_company": "Lusitania Pay",
+    "expect_action_required": true,
+    "expected_status_any": ["TECHNICAL_INTERVIEW", "PHONE_SCREEN", "INTERVIEW"],
+    "expect_null_fields": ["due_date"]
+  }
+]

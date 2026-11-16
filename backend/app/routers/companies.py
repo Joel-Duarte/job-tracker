@@ -175,7 +175,7 @@ async def list_companies(
         IntakeEvaluationTaskModel.raw_text, IntakeEvaluationTaskModel.status
     ).where(
         IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
-        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING", "IN_PROGRESS"]),
     )
     active_res = await db.execute(active_stmt)
     active_task_map = {
@@ -325,7 +325,9 @@ async def create_company(
         # Check if an active research task already exists
         stmt_check = select(IntakeEvaluationTaskModel).where(
             IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
-            IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+            IntakeEvaluationTaskModel.status.in_(
+                ["QUEUED", "PROCESSING", "IN_PROGRESS"]
+            ),
             IntakeEvaluationTaskModel.raw_text == str(company.id),
         )
         existing_task = (await db.execute(stmt_check)).scalars().first()
@@ -513,7 +515,7 @@ async def get_company(
     # Active research task check for this company
     active_stmt = select(IntakeEvaluationTaskModel.status).where(
         IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
-        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING", "IN_PROGRESS"]),
         IntakeEvaluationTaskModel.raw_text == str(c.id),
     )
     active_task_status = (await db.execute(active_stmt)).scalars().first()
@@ -724,7 +726,7 @@ async def refresh_company_research(
     # Duplicate prevention: check if an active research task already exists
     stmt_check = select(IntakeEvaluationTaskModel).where(
         IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
-        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING", "IN_PROGRESS"]),
         IntakeEvaluationTaskModel.raw_text == str(c.id),
     )
     existing_task = (await db.execute(stmt_check)).scalars().first()
@@ -878,7 +880,7 @@ async def bulk_research_companies(
     # Duplicate prevention: find companies already queued or in progress
     active_stmt = select(IntakeEvaluationTaskModel.raw_text).where(
         IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
-        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING", "IN_PROGRESS"]),
     )
     active_res = await db.execute(active_stmt)
     active_ids = {int(r) for r in active_res.scalars().all() if r and str(r).isdigit()}

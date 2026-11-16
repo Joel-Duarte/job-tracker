@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sd_interviewer_url_shortener_scale",
+    "pipeline": "system_design_interviewer",
+    "human_rationale": "Candidate asks directly about DAU, read/write QPS ratio, and latency SLA on Design a URL Shortener -> interviewer must reply with concrete figures from hidden brief without bouncing the question back or leaking hidden architecture.",
+    "challenge_slug": "url-shortener",
+    "variant_id": "public-consumer-shortener",
+    "candidate_message": "What are the expected daily active users, read/write QPS ratio, and redirect p99 latency SLA?",
+    "request_hint": false,
+    "must_include_any": ["qps", "ms", "100", "30", "read", "latency", "redirect"],
+    "must_not_contain_any": ["I cannot share", "you tell me what QPS"]
+  },
+  {
+    "id": "sd_interviewer_hint_nudge",
+    "pipeline": "system_design_interviewer",
+    "human_rationale": "Candidate explicitly asks for coaching hint during Stage 1 requirements -> interviewer gives a helpful nudge toward an unexplored constraint area.",
+    "challenge_slug": "url-shortener",
+    "variant_id": "public-consumer-shortener",
+    "candidate_message": "Can you give me a hint on what requirement area I should clarify next?",
+    "request_hint": true,
+    "must_include_any": ["latency", "ttl", "expiration", "abus", "security", "scale", "read", "analytics", "availability", "constraint"],
+    "must_not_contain_any": []
+  }
+]

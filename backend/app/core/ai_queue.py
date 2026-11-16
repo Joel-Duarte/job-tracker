@@ -1,11 +1,21 @@
 import asyncio
 import heapq
 import logging
+import os
+import socket
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
+
+_WORKER_INSTANCE_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+
+
+def get_worker_instance_id() -> str:
+    """Returns a process-unique worker instance identifier (hostname:pid:uuid)."""
+    return _WORKER_INSTANCE_ID
 
 
 class PrioritySemaphore:
@@ -172,8 +182,20 @@ class ProviderConcurrencyManager:
 # Global singleton instance
 concurrency_manager = ProviderConcurrencyManager()
 
-# In-flight task registry for background evaluation workers
+# In-flight task registry and shutdown flag for background evaluation workers
 _RUNNING_TASKS: dict[int, asyncio.Task] = {}
+_SHUTTING_DOWN: bool = False
+
+
+def set_shutting_down(value: bool) -> None:
+    """Marks whether the worker host is shutting down gracefully."""
+    global _SHUTTING_DOWN
+    _SHUTTING_DOWN = value
+
+
+def is_shutting_down() -> bool:
+    """Returns True when graceful host shutdown has been requested."""
+    return _SHUTTING_DOWN
 
 
 def register_running_task(task_id: int, task: asyncio.Task) -> None:
@@ -184,6 +206,17 @@ def register_running_task(task_id: int, task: asyncio.Task) -> None:
 def unregister_running_task(task_id: int) -> None:
     """Removes a finished or cancelled task from the in-memory registry."""
     _RUNNING_TASKS.pop(task_id, None)
+
+
+def is_task_running_locally(task_id: int) -> bool:
+    """Returns True if task_id has an active (non-done) asyncio Task in this process."""
+    task = _RUNNING_TASKS.get(task_id)
+    if task is None:
+        return False
+    if task.done():
+        _RUNNING_TASKS.pop(task_id, None)
+        return False
+    return True
 
 
 def cancel_running_task(task_id: int) -> bool:
@@ -202,7 +235,10 @@ def cancel_running_task(task_id: int) -> bool:
 
 def get_running_task_ids() -> list[int]:
     """Returns list of currently active running task IDs."""
-    return [tid for tid, t in _RUNNING_TASKS.items() if not t.done()]
+    stale_ids = [tid for tid, t in _RUNNING_TASKS.items() if t.done()]
+    for tid in stale_ids:
+        _RUNNING_TASKS.pop(tid, None)
+    return list(_RUNNING_TASKS.keys())
 
 
 async def idle_vram_watcher_loop(

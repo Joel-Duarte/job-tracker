@@ -177,6 +177,21 @@ class StartMockInterviewInput(BaseModel):
     )
 
 
+class StartSystemDesignInput(BaseModel):
+    challenge_or_topic: str | None = Field(
+        default=None,
+        description="Challenge slug or title keyword (e.g. 'url-shortener', 'notification system', 'rate limiter'). Omit to open the System Design Lab challenge lobby.",
+    )
+    company_or_id: str | None = Field(
+        default=None,
+        description="Optional Company name or numeric Application ID to link the System Design session to.",
+    )
+    mode: str = Field(
+        default="ADAPTIVE",
+        description="Session mode: 'ADAPTIVE' (default interactive loop) or 'SOLO'.",
+    )
+
+
 # 9. Candidate Profile Tool
 class GetCandidateProfileInput(BaseModel):
     section: Literal["all", "skills", "experience", "raw_cv"] = Field(

@@ -210,15 +210,33 @@ async def ensure_db_schema() -> None:
                             "ALTER TABLE candidate_cvs DROP COLUMN IF EXISTS is_active;"
                         )
                     )
+            if "system_design_challenges" in table_names:
+                cols = [
+                    c["name"] for c in inspector.get_columns("system_design_challenges")
+                ]
+                if "is_archived" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE system_design_challenges ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE;"
+                        )
+                    )
+            if "system_design_sessions" in table_names:
+                connection.execute(
+                    text(
+                        "ALTER TABLE system_design_sessions ALTER COLUMN mode SET DEFAULT 'ADAPTIVE';"
+                    )
+                )
 
         await conn.run_sync(_sync_schema_columns)
 
         logger.info("Database schema check completed.")
 
-    # 3. Seed default prompts and system settings if missing
+    # 3. Seed default prompts, system settings, and curated challenges if missing
     async with AsyncSessionLocal() as session:
         from app.core.config_manager import load_settings
         from app.core.prompts import seed_default_prompts
+        from app.services.system_design_seed import seed_system_design_challenges
 
         await seed_default_prompts(session)
         await load_settings(session)
+        await seed_system_design_challenges(session)

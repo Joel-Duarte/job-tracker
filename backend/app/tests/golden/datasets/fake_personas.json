@@ -1,0 +1,64 @@
+{
+  "marcus_ai_backend": {
+    "persona_id": "marcus_ai_backend",
+    "display_name": "Marcus Vance (Fake Senior AI & Backend Engineer)",
+    "years_of_experience": 8.0,
+    "spoken_languages": "English (Fluent), Portuguese (Native)",
+    "skills": [
+      "Python",
+      "FastAPI",
+      "Django",
+      "Go",
+      "TypeScript",
+      "PostgreSQL",
+      "pgvector",
+      "Redis",
+      "Kubernetes",
+      "OpenAI API",
+      "LangChain",
+      "LangGraph",
+      "GraphQL",
+      "GitHub Actions",
+      "PyTorch"
+    ],
+    "cv_text": "Marcus Vance — Senior Backend & AI Platform Engineer (8 years experience).\nSpoken Languages: English (Fluent / C2), Portuguese (Native).\n\nSummary:\nDistributed systems and backend engineer specializing in high-throughput APIs, LLM orchestration, semantic search, and cloud-native deployments on Kubernetes.\n\nExperience:\n- Senior Backend & AI Engineer, Orbital Cloud Ltd (2022-Present):\n  Architected FastAPI microservices, LangGraph agent pipelines, pgvector semantic retrieval, and PostgreSQL + Redis event workers deployed on Kubernetes via GitHub Actions.\n- Software Engineer, Atlas Telemetry Systems (2019-2022):\n  Built Python and Go ingestion APIs, GraphQL query layers, TypeScript operational dashboards, and LLM structured extraction tooling using OpenAI API and PyTorch.\n- Backend Engineer, Northstar Ledgers (2017-2019):\n  Developed Django + PostgreSQL billing ledgers and asynchronous Celery job pipelines.\n\nEducation: B.Sc. in Computer Science."
+  },
+  "elena_frontend_react": {
+    "persona_id": "elena_frontend_react",
+    "display_name": "Elena Novak (Fake Mid-Senior Frontend Engineer)",
+    "years_of_experience": 4.5,
+    "spoken_languages": "English (Fluent), Polish (Native)",
+    "skills": [
+      "TypeScript",
+      "JavaScript",
+      "React",
+      "Next.js",
+      "Vue.js",
+      "HTML5",
+      "CSS3",
+      "Tailwind CSS",
+      "Playwright",
+      "Vitest",
+      "GraphQL",
+      "Figma",
+      "Vite"
+    ],
+    "cv_text": "Elena Novak — Frontend Engineer (4.5 years experience).\nSpoken Languages: English (Fluent), Polish (Native).\n\nSummary:\nProduct-focused frontend engineer experienced in design systems, accessible TypeScript SPAs, server-rendered React apps, and browser E2E testing.\n\nExperience:\n- Frontend Engineer, Luminous Workspace (2023-Present):\n  Led component library architecture in React, TypeScript, Tailwind CSS, and Vite. Built GraphQL client workflows and Playwright E2E regression suites.\n- Web Developer, PixelForge Studio (2021-2023):\n  Implemented responsive customer portals in Vue.js and Next.js with WCAG AA accessibility compliance and Figma design handoff.\n\nEducation: B.Eng. in Software Engineering."
+  },
+  "samir_junior_ml": {
+    "persona_id": "samir_junior_ml",
+    "display_name": "Samir Patel (Fake Early-Career ML Engineer)",
+    "years_of_experience": 2.0,
+    "spoken_languages": "English (Native)",
+    "skills": [
+      "Python",
+      "PyTorch",
+      "scikit-learn",
+      "SQL",
+      "Pandas",
+      "FastAPI",
+      "Docker"
+    ],
+    "cv_text": "Samir Patel — Junior Machine Learning Engineer (2 years experience).\nSpoken Languages: English (Native).\n\nSummary:\nApplied ML engineer focused on classical tabular modeling, PyTorch experimentation, and FastAPI model inference endpoints.\n\nExperience:\n- Junior ML Engineer, Beacon Analytics (2024-Present):\n  Trained scikit-learn classification pipelines, prepared SQL feature tables with Pandas, and containerized small FastAPI prediction services in Docker.\n- ML Engineering Intern, CivicLabs (2023-2024):\n  Prototyped PyTorch text classifiers and evaluated model precision/recall metrics.\n\nEducation: M.Sc. in Data Science."
+  }
+}

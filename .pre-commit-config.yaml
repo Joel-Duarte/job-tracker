@@ -13,3 +13,12 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: local-llm-golden-gate
+        name: Local LLM Golden Eval Gate (on prompt changes)
+        entry: bash -c 'cd backend && PYTHONPATH=. uv run python scripts/run_local_llm_gate.py --staged --allow-offline'
+        language: system
+        pass_filenames: false
+        stages: [manual]

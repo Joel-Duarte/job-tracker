@@ -1,0 +1,20 @@
+[
+  {
+    "id": "drilldown_missing_cache_eviction",
+    "pipeline": "interview_drilldown",
+    "last_question": "How did you scale read-heavy metadata lookups on your API?",
+    "last_answer": "We put Redis in front of Postgres so reads became faster for users.",
+    "missing_gaps": "eviction policy, thundering herd / cache stampede mitigation, TTL invalidation, fallback when Redis fails",
+    "expected_keywords_any": ["evict", "ttl", "stampede", "herd", "invalidat", "fail", "miss", "redis", "outage", "stale"],
+    "human_rationale": "Follow-up drilldown must probe concrete Redis eviction/TTL/stampede/failure gaps listed in missing_gaps."
+  },
+  {
+    "id": "drilldown_missing_ownership_and_metrics",
+    "pipeline": "interview_drilldown",
+    "last_question": "Tell me about migrating your dashboard build pipeline.",
+    "last_answer": "Our team worked on upgrading Vite and React over a few sprints and it went well.",
+    "missing_gaps": "personal individual ownership, quantitative build/load metrics, rollback or regression testing strategy",
+    "expected_keywords_any": ["you ", "your", "owner", "metric", "measure", "latency", "time", "rollback", "test", "playwright", "regression"],
+    "human_rationale": "Vague 'we worked on' response should trigger a pointed drill-down on personal ownership, measured impact, or testing/rollback."
+  }
+]

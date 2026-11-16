@@ -28,9 +28,11 @@ async def audit_generation_grounding(
     generated_text: str,
     context_label: str,
     task_type: str,
+    target_context: str | None = None,
 ) -> HallucinationAuditResult:
     """
     Audits generated text for hallucinations against the candidate's CV.
+    Separates target employer/role/research context from candidate assertions.
     """
     start_time = time.time()
 
@@ -46,14 +48,22 @@ async def audit_generation_grounding(
         model = await get_task_chat_model(db, task_type="LLM_JUDGE")
         chain = chat_prompt | model
 
-        response = await chain.ainvoke(
-            {
-                "candidate_cv": candidate_cv,
-                "task_type": task_type,
-                "context_label": context_label,
-                "generated_text": generated_text,
-            }
-        )
+        all_vars = {
+            "candidate_cv": candidate_cv,
+            "task_type": task_type,
+            "context_label": context_label,
+            "generated_text": generated_text,
+            "target_context": (
+                target_context.strip()
+                if target_context and target_context.strip()
+                else "Not explicitly provided; distinguish references to the target employer/role named in context_label from assertions about the candidate's past work."
+            ),
+        }
+        invoke_vars = {
+            k: v for k, v in all_vars.items() if k in chat_prompt.input_variables
+        }
+
+        response = await chain.ainvoke(invoke_vars)
 
         content = getattr(response, "content", response)
         output_text = content if isinstance(content, str) else str(content)

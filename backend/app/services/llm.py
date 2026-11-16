@@ -22,6 +22,7 @@ from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
     EmailExtractionResult,
+    EmailMatchTiebreakerResult,
     ExtractedJobSpec,
     JobAssessmentResult,
 )
@@ -275,7 +276,84 @@ Email Body:
         res_obj.position = strip_reasoning_tags(res_obj.position)
     if res_obj.company:
         res_obj.company = strip_reasoning_tags(res_obj.company)
+    # Deprecated field: deadline_evidence / meeting_proposal replace raw LLM due_date
+    res_obj.due_date = None
     return res_obj
+
+
+async def resolve_email_match_tiebreaker(
+    db: AsyncSession,
+    *,
+    sender: str | None = None,
+    subject: str | None = None,
+    summary: str | None = None,
+    extracted_company: str | None = None,
+    extracted_position: str | None = None,
+    candidates: list[dict[str, Any]],
+) -> EmailMatchTiebreakerResult:
+    """Gray-zone entity-resolution tiebreaker invoked only when deterministic matching
+    would otherwise route an email to staging. Uses EMAIL_EXTRACTION / EXTRACTION model.
+    """
+    if not candidates:
+        return EmailMatchTiebreakerResult(
+            matched_application_id=None, confidence=0.0, reason="no_candidates"
+        )
+
+    lines = []
+    for c in candidates:
+        last_act = c.get("last_activity_at") or "unknown"
+        status_label = c.get("status") or "UNKNOWN"
+        note = " [no-response archived]" if status_label == "ARCHIVED" else ""
+        lines.append(
+            f"- ID={c['application_id']} | Company={c['company']} | Position={c['position']} "
+            f"| Status={status_label}{note} | LastActivity={last_act}"
+        )
+    candidates_text = "\n".join(lines)
+
+    try:
+        llm = await get_task_chat_model(
+            db, task_type="EMAIL_EXTRACTION", temperature=0.0
+        )
+        structured_llm = llm.with_structured_output(
+            EmailMatchTiebreakerResult, method="json_schema"
+        )
+        template_str = await get_prompt_template(db, "email_match_tiebreaker")
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are an entity-resolution tiebreaker. Match the email to the right candidate application when the company/brand alias and role discipline align (allowing normal recruiter title abbreviations); return null only when the company is unrelated or roles are genuinely indistinguishable.",
+                ),
+                ("human", template_str),
+            ]
+        )
+        chain = prompt | structured_llm
+        result = await chain.ainvoke(
+            {
+                "sender": sender or "Not specified",
+                "subject": subject or "Not specified",
+                "extracted_company": extracted_company or "Not specified",
+                "extracted_position": extracted_position or "Not specified",
+                "summary": summary or "Not specified",
+                "candidates_text": candidates_text,
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+        res_obj = (
+            result
+            if isinstance(result, EmailMatchTiebreakerResult)
+            else EmailMatchTiebreakerResult.model_validate(result)
+        )
+        if res_obj.reason:
+            res_obj.reason = strip_reasoning_tags(res_obj.reason)
+        return res_obj
+    except Exception as err:
+        logger.warning(
+            "Email match tiebreaker failed; falling back to staging: %s", err
+        )
+        return EmailMatchTiebreakerResult(
+            matched_application_id=None, confidence=0.0, reason="tiebreaker_error"
+        )
 
 
 def _sanitize_critical_risks(risks: list[str] | None) -> list[str]:

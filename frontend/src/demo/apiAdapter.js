@@ -2,6 +2,12 @@ import { getDemoAgentReply } from './agentReplies.js'
 import { getDemoQualityStats } from './qualityAudits.js'
 import { getDemoDb, saveDemoDb } from './demoStorage.js'
 import { scoreApplicationMatch, normalizeCompanyText } from '../utils/fuzzyMatch.js'
+import {
+  CLOUD_EQUIVALENTS_BY_TYPE,
+  DEFAULT_CLOUD_PROVIDERS,
+  DEFAULT_DIAGRAM_BLOCKS,
+  DEFAULT_DIAGRAM_CATEGORIES,
+} from '../utils/diagramCatalog.js'
 
 function filterDemoTraces(traces, params) {
   return traces.filter(t =>
@@ -14,6 +20,154 @@ function filterDemoTraces(traces, params) {
 function delay(ms = null) {
   const actualMs = ms !== null ? ms : Math.floor(Math.random() * 500) + 500
   return new Promise((resolve) => setTimeout(resolve, actualMs))
+}
+
+function getDefaultDemoSystemDesignChallenges() {
+  const nowIso = new Date().toISOString()
+  return [
+    {
+      id: 1,
+      slug: 'url-shortener',
+      title: 'Design a URL Shortener',
+      category: 'DISTRIBUTED_SYSTEMS',
+      difficulty: 'EASY',
+      prompt_summary:
+        'Build a service that creates short, shareable aliases for long URLs and redirects users reliably with low latency.',
+      initial_prompt:
+        "We need to design a URL shortening service like bit.ly or TinyURL. Users should be able to generate short links for arbitrary long URLs and be redirected when visiting a short link. Let's start with requirements discovery: what clarifying questions do you have about scale, features, and constraints?",
+      tags: ['hashing', 'caching', 'key-generation', 'redirects', 'read-heavy'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 2,
+      slug: 'spotify-100k',
+      title: 'Design Spotify for 100,000 Users',
+      category: 'MEDIA_STREAMING',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design an audio streaming platform sized intentionally for 100,000 registered users with playlists, search, and offline/online playback.',
+      initial_prompt:
+        'Design a music streaming service similar to Spotify, scoped specifically to support 100,000 total registered users. Before jumping into architecture, what questions would you like to ask to clarify the workload, catalog size, features, and constraints?',
+      tags: ['right-sizing', 'audio-streaming', 'cdn', 'object-storage', 'yagni'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 3,
+      slug: 'realtime-notifications',
+      title: 'Design a Real-Time Notification System',
+      category: 'EVENT_DRIVEN',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a multi-channel notification platform delivering push, email, SMS, and in-app alerts reliably across millions of events.',
+      initial_prompt:
+        'We need a scalable real-time notification system capable of delivering user alerts across in-app real-time feeds, mobile push (APNs/FCM), email, and SMS. Ask clarifying questions to lock down scale, delivery guarantees, and product scope.',
+      tags: ['pub-sub', 'websockets', 'queues', 'idempotency', 'fan-out'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 4,
+      slug: 'ride-sharing',
+      title: 'Design a Ride-Sharing Platform',
+      category: 'GEOSPATIAL',
+      difficulty: 'HARD',
+      prompt_summary:
+        'Design a real-time rider-driver matching, location tracking, and trip dispatch backend similar to Uber or Lyft.',
+      initial_prompt:
+        'Design the core backend of a ride-sharing platform that tracks driver locations continuously, matches nearby drivers with riders, and manages trip state transitions. What questions would you like to ask to define the scope and scale?',
+      tags: ['geospatial', 'geohash', 'h3', 'matching', 'state-machine'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 5,
+      slug: 'distributed-job-queue',
+      title: 'Design a Distributed Job Processing System',
+      category: 'INFRASTRUCTURE',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a reliable multi-tenant background task execution platform supporting delayed jobs, retries, concurrency limits, and worker heartbeats.',
+      initial_prompt:
+        "Design a distributed job queue and task execution platform (similar to Celery, Temporal queues, or AWS SQS + workers). Clients submit background jobs and expect reliable execution. Let's clarify requirements and failure constraints before you design.",
+      tags: ['queues', 'visibility-timeout', 'dlq', 'scheduling', 'idempotency'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 6,
+      slug: 'video-streaming',
+      title: 'Design a Video Streaming Platform',
+      category: 'MEDIA_STREAMING',
+      difficulty: 'HARD',
+      prompt_summary:
+        'Design a scalable video upload, transcoding DAG pipeline, metadata service, and adaptive bitrate playback architecture like YouTube.',
+      initial_prompt:
+        'Design a video sharing and streaming platform where creators upload videos and viewers stream them smoothly worldwide on varied network connections. Ask clarifying questions to narrow down scope, scale, and constraints.',
+      tags: ['hls', 'dash', 'transcoding', 'cdn', 'dag-pipeline'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 7,
+      slug: 'chat-system',
+      title: 'Design a Real-Time Chat System',
+      category: 'REALTIME_MESSAGING',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a 1:1 and group messaging application with online presence, message ordering, read receipts, and multi-device sync.',
+      initial_prompt:
+        'Design a real-time chat system like WhatsApp or Slack supporting 1-on-1 conversations, group chats, online/offline presence indicators, and multi-device message history sync. What clarifying questions do you have?',
+      tags: ['websockets', 'ordering', 'presence', 'fan-out', 'cassandra'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 8,
+      slug: 'rate-limiter',
+      title: 'Design a Distributed API Rate Limiter',
+      category: 'INFRASTRUCTURE',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a low-latency distributed rate limiting layer protecting public APIs from abuse, traffic spikes, and noisy tenants.',
+      initial_prompt:
+        'Design a distributed API rate limiter to protect an enterprise SaaS API gateway from abuse, accidental client loops, and traffic spikes while adding minimal latency. What clarifying questions should we resolve first?',
+      tags: ['token-bucket', 'sliding-window', 'redis-lua', 'api-gateway', 'fail-open'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+  ]
+}
+
+function ensureDemoSystemDesignData(db) {
+  if (!Array.isArray(db.system_design_challenges)) {
+    db.system_design_challenges = getDefaultDemoSystemDesignChallenges()
+  }
+  if (!Array.isArray(db.system_design_sessions)) {
+    db.system_design_sessions = []
+  }
+}
+
+async function readDemoFileAsDataUrl(fileObj) {
+  const fallbackSvg =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320"><rect width="640" height="320" fill="#1e293b"/><rect x="40" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#60a5fa"/><text x="110" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">API Gateway</text><rect x="250" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#34d399"/><text x="320" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">App Service</text><rect x="460" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#fbbf24"/><text x="530" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">Primary DB</text></svg>'
+    )
+  if (!fileObj || typeof FileReader === 'undefined') {
+    return fallbackSvg
+  }
+  try {
+    return await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || fallbackSvg))
+      reader.onerror = () => resolve(fallbackSvg)
+      reader.readAsDataURL(fileObj)
+    })
+  } catch {
+    return fallbackSvg
+  }
 }
 
 export async function handleDemoRequest(config) {
@@ -557,10 +711,44 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  const frontierDeliverableMatch = urlPath.match(
+    /^\/applications\/([^/]+)\/(cover-letter|questions|interview-guide)\/frontier-prompt$/
+  )
+  if (frontierDeliverableMatch && method === 'post') {
+    const [, appId, kind] = frontierDeliverableMatch
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (!app) return notFound()
+    const company = app.company?.name || app.company_name || 'Target Company'
+    const position = app.position || 'Target Role'
+    const cvText = db.candidate_profile?.raw_text || 'Candidate CV Summary'
+    let promptBody = `# Frontier ${kind} Prompt — ${company} (${position})\n\nCandidate CV:\n${cvText.slice(0, 600)}`
+    if (kind === 'questions') {
+      promptBody += `\n\nQuestions JSON:\n${JSON.stringify(data.questions || [], null, 2)}`
+    } else if (kind === 'interview-guide') {
+      promptBody += `\n\nLanguage: ${data.language || 'en'}\nSections: ${(data.selected_sections || []).join(', ')}`
+    } else {
+      promptBody += `\n\nTone: ${data.tone || 'professional'} | Length: ${data.length || 'standard'}`
+    }
+    return ok({
+      markdown_prompt: promptBody,
+      filename: `${kind}-prompt-${appId}.md`,
+      company_name: company,
+      position,
+    })
+  }
+
   const appGuideMatch = urlPath.match(/^\/applications\/([^/]+)\/interview-guide$/)
   if (appGuideMatch) {
     const appId = appGuideMatch[1]
     const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (method === 'patch') {
+      if (!app) return notFound()
+      app.interview_guide_html = data.interview_guide_html || ''
+      app.interview_guide_language = data.language || 'en'
+      app.interview_guide_generated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(app)
+    }
     if (method === 'post') {
       const company = app?.company?.name || app?.company_name || 'Target Company'
       const position = app?.position || 'Software Engineer'
@@ -2046,12 +2234,52 @@ export async function handleDemoRequest(config) {
       db.agent_chats = [chat, ...(db.agent_chats || [])]
     }
 
-    const replyText = getDemoAgentReply(db, lastUserMsg)
+    let replyText = getDemoAgentReply(db, lastUserMsg)
+    const actionsPerformed = []
+    if (/system\s*design/i.test(lastUserMsg)) {
+      const urlShort = /url[\s-]*shortener/i.test(lastUserMsg)
+      const challenges = db.system_design_challenges || []
+      const targetChallenge = urlShort
+        ? challenges.find((c) => c.slug === 'url-shortener')
+        : null
+      if (targetChallenge) {
+        const sid = Date.now() % 100000
+        const newSess = {
+          id: sid,
+          challenge_id: targetChallenge.id,
+          challenge: { ...targetChallenge },
+          status: 'IN_PROGRESS',
+          stage: 'REQUIREMENTS',
+          mode: 'ADAPTIVE',
+          overall_score: null,
+          requirements_transcript: [],
+          requirements_ledger: {},
+          diagram_versions: [],
+          defense_transcript: [],
+          created_at: new Date().toISOString(),
+        }
+        db.system_design_sessions = [newSess, ...(db.system_design_sessions || [])]
+        actionsPerformed.push({
+          action: 'start_system_design',
+          args: { challenge_or_topic: targetChallenge.slug },
+          result: { status: 'started', session_id: sid, challenge_title: targetChallenge.title },
+        })
+        replyText = `I have prepared a live System Design Lab session for **${targetChallenge.title}**. Click the chip below to jump straight in.`
+      } else {
+        actionsPerformed.push({
+          action: 'start_system_design',
+          args: {},
+          result: { status: 'lobby_ready', session_id: null },
+        })
+        replyText = `The **System Design Lab** is ready. Click **Open System Design Lab** below to pick or customize a challenge.`
+      }
+    }
 
     const assistantMsg = {
       id: `msg_${Date.now()}`,
       role: 'assistant',
       content: replyText,
+      actions: actionsPerformed,
     }
 
     chat.messages.push({ id: `msg_${Date.now() - 1}`, role: 'user', content: lastUserMsg })
@@ -2061,7 +2289,7 @@ export async function handleDemoRequest(config) {
     return ok({
       reply: assistantMsg.content,
       chat_id: chatId,
-      actions_performed: [],
+      actions_performed: actionsPerformed,
     })
   }
 
@@ -2457,7 +2685,72 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/prompts' && method === 'get') {
-    return ok([])
+    const demoPrompts = [
+      'jd_extraction',
+      'assessment',
+      'email_extraction',
+      'cover_letter',
+      'application_qa',
+      'cv_anonymization',
+      'role_alignment_dossier',
+      'interview_star_eval',
+      'system_design_interviewer',
+      'system_design_reviewer',
+      'system_design_coach',
+    ].map((name) => ({
+      name,
+      template: `# Demo Prompt Template: ${name}`,
+      updated_at: new Date().toISOString(),
+      has_golden_eval: true,
+      golden_cases_count: name === 'assessment' ? 6 : name === 'system_design_reviewer' ? 4 : 3,
+    }))
+    return ok(demoPrompts)
+  }
+
+  const promptEvalMatch = urlPath.match(/^\/prompts\/([^/]+)\/evaluate$/)
+  if (promptEvalMatch && method === 'post') {
+    const pName = promptEvalMatch[1]
+    const body = data || {}
+    const compareDefault = Boolean(body.compare_default)
+    const sampleResults = [
+      {
+        id: `${pName}_case_1`,
+        pipeline: pName,
+        passed: true,
+        elapsed_secs: 1.4,
+        details: { demo: true },
+        failures: [],
+      },
+      {
+        id: `${pName}_case_2`,
+        pipeline: pName,
+        passed: true,
+        elapsed_secs: 1.8,
+        details: { demo: true },
+        failures: [],
+      },
+    ]
+    const candRun = {
+      pipeline: pName,
+      concurrency: 3,
+      wall_secs: 2.1,
+      passed: 2,
+      total: 2,
+      pass_rate: 100.0,
+      all_passed: true,
+      results: sampleResults,
+    }
+    return ok({
+      prompt_name: pName,
+      pipeline: pName,
+      candidate_source: body.candidate_template ? 'candidate_editor' : 'saved_db_prompt',
+      concurrency: 3,
+      concurrency_source: 'provider:Demo Local LM',
+      candidate_result: candRun,
+      default_result: compareDefault ? { ...candRun } : null,
+      delta_passed: compareDefault ? 0 : null,
+      delta_pass_rate: compareDefault ? 0.0 : null,
+    })
   }
 
   // 11. COMPANIES ENDPOINTS
@@ -2739,6 +3032,2208 @@ export async function handleDemoRequest(config) {
     }
     saveDemoDb(db)
     return ok({ status: 'success', message: 'Company deleted' })
+  }
+
+  // 12. SYSTEM DESIGN LAB ENDPOINTS
+  if (urlPath.startsWith('/system-design')) {
+    ensureDemoSystemDesignData(db)
+
+    if (urlPath === '/system-design/catalog' && method === 'get') {
+      return ok({
+        categories: DEFAULT_DIAGRAM_CATEGORIES,
+        providers: DEFAULT_CLOUD_PROVIDERS,
+        blocks: DEFAULT_DIAGRAM_BLOCKS.map((b) => ({
+          ...b,
+          cloud_equivalents: CLOUD_EQUIVALENTS_BY_TYPE[b.type_id] || {},
+        })),
+      })
+    }
+
+    const demoMatchBlock = (name, whyRequired = '', configChecklist = []) => {
+      const lower = String(name || '').trim().toLowerCase()
+      let found = null
+      if (/queue|task queue|celery|sqs|rabbit/i.test(lower) && !/flink|window|cep/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'message_queue')
+      } else if (/safety|blocklist|phishing|malware|content.?filter/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'content_filter')
+      } else if (/ttl|expir|sweeper|scheduler|cron/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'scheduler')
+      } else if (/replica/i.test(lower)) {
+        found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === 'read_replica')
+      } else {
+        found = DEFAULT_DIAGRAM_BLOCKS.find(
+          (b) =>
+            b.label.toLowerCase() === lower ||
+            b.type_id === lower ||
+            lower.includes(b.type_id.replace('_', ' ')) ||
+            b.label.toLowerCase().includes(lower)
+        )
+      }
+      if (found) {
+        return {
+          name: String(name || found.label),
+          type_id: found.type_id,
+          label: found.label,
+          category: found.category,
+          icon: found.icon,
+          hint_role: found.default_role,
+          why_required:
+            whyRequired ||
+            `Required to satisfy ${found.label} responsibilities in the target architecture.`,
+          config_checklist:
+            Array.isArray(configChecklist) && configChecklist.length
+              ? configChecklist
+              : [
+                  `Define capacity/protocol boundaries for ${found.label}.`,
+                  'Document redundancy or failure behavior in component notes.',
+                ],
+          is_custom: false,
+        }
+      }
+      return {
+        name: String(name || 'Custom Block'),
+        type_id: 'custom',
+        label: String(name || 'Custom Block'),
+        category: 'compute_services',
+        icon: 'box',
+        hint_role: `Place a block representing "${name}" and wire it into your data flow.`,
+        why_required: whyRequired || `Required component "${name}" identified in the session brief.`,
+        config_checklist:
+          Array.isArray(configChecklist) && configChecklist.length
+            ? configChecklist
+            : [`Clarify API and failure behavior for ${name}.`],
+        is_custom: true,
+      }
+    }
+
+    const demoComputePenalty = () => 0
+
+    const demoBlockLabel = (typeId) => {
+      const found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+      return found ? found.label : String(typeId || 'Component')
+    }
+
+    const demoStepObj = (sourceTypeId, targetTypeId, suggestedLabel, deliveryMode = 'sync', rationale = '') => ({
+      source_type_id: sourceTypeId,
+      source_label: demoBlockLabel(sourceTypeId),
+      target_type_id: targetTypeId,
+      target_label: demoBlockLabel(targetTypeId),
+      suggested_label: suggestedLabel,
+      delivery_mode: deliveryMode,
+      rationale: rationale || `Connect ${demoBlockLabel(sourceTypeId)} -> ${demoBlockLabel(targetTypeId)} (${suggestedLabel}).`,
+    })
+
+    const demoBuildUrlShortenerPaths = () => [
+      {
+        id: 'read_path',
+        title: 'Read Path (Low-Latency Redirect)',
+        description: 'Client -> CDN -> Load Balancer -> API Gateway -> App Service -> Redis (miss -> Read Replica)',
+        steps: [
+          demoStepObj('web_client', 'cdn', 'GET /{code}', 'sync'),
+          demoStepObj('cdn', 'load_balancer', 'Edge Miss (HTTPS)', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'Route (HTTPS)', 'sync'),
+          demoStepObj('api_gateway', 'app_service', 'Forward (HTTPS)', 'sync'),
+          demoStepObj('app_service', 'distributed_cache', 'Lookup (Redis GET)', 'sync'),
+          demoStepObj('app_service', 'read_replica', 'Cache Miss (SQL SELECT)', 'sync'),
+        ],
+      },
+      {
+        id: 'write_path',
+        title: 'Write Path (Shorten URL)',
+        description: 'Client -> LB -> API Gateway -> Safety Filter -> App Service -> ID Generator & Primary DB',
+        steps: [
+          demoStepObj('web_client', 'load_balancer', 'POST /shorten', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'HTTPS', 'sync'),
+          demoStepObj('api_gateway', 'content_filter', 'Malicious URL Check', 'sync'),
+          demoStepObj('content_filter', 'app_service', 'Verified Payload', 'sync'),
+          demoStepObj('app_service', 'id_generator', 'Allocate Key', 'sync'),
+          demoStepObj('app_service', 'relational_db', 'INSERT Mapping', 'sync'),
+        ],
+      },
+      {
+        id: 'async_lifecycle',
+        title: 'Async & Lifecycle Path',
+        description: 'App Service -> Task Queue -> Async Worker (analytics) & Scheduler / TTL Sweeper -> DB',
+        steps: [
+          demoStepObj('app_service', 'message_queue', 'Publish Click Event', 'async'),
+          demoStepObj('message_queue', 'async_worker', 'Consume Batch', 'async'),
+          demoStepObj('scheduler', 'relational_db', 'Expire TTL Rows', 'async'),
+        ],
+      },
+    ]
+
+    const demoBuildGenericPaths = () => [
+      {
+        id: 'primary_read_write',
+        title: 'Primary Request Path',
+        description: 'Client -> LB -> API Gateway -> App Service -> Cache / Primary DB',
+        steps: [
+          demoStepObj('web_client', 'load_balancer', 'HTTPS Request', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'Route', 'sync'),
+          demoStepObj('api_gateway', 'app_service', 'Forward', 'sync'),
+          demoStepObj('app_service', 'distributed_cache', 'Cache Lookup', 'sync'),
+          demoStepObj('app_service', 'relational_db', 'Persist / Query', 'sync'),
+        ],
+      },
+      {
+        id: 'async_background',
+        title: 'Async Background Path',
+        description: 'App Service -> Task Queue -> Background Worker -> DB',
+        steps: [
+          demoStepObj('app_service', 'message_queue', 'Enqueue Job', 'async'),
+          demoStepObj('message_queue', 'async_worker', 'Process Async', 'async'),
+          demoStepObj('async_worker', 'relational_db', 'Write Result', 'sync'),
+        ],
+      },
+    ]
+
+    const demoResolveExpectedBlueprint = (rawChallenge, session) => {
+      const slug = String(rawChallenge?.slug || '')
+      let specs =
+        slug === 'url-shortener'
+          ? [
+              'Web / Browser Client',
+              'CDN / Edge Cache',
+              'Load Balancer',
+              'API Gateway',
+              'URL / Payload Safety Filter',
+              'Stateless App Service',
+              'Unique ID / Key Generator',
+              'Distributed Cache (Redis)',
+              'Primary Relational DB',
+              'DB Read Replica',
+              'Task Queue',
+              'Background Worker Pool',
+              'Scheduler / TTL Sweeper',
+            ]
+          : Array.isArray(rawChallenge?.expected_components) && rawChallenge.expected_components.length
+            ? rawChallenge.expected_components
+            : [
+                'Web / Browser Client',
+                'Load Balancer',
+                'API Gateway',
+                'Stateless App Service',
+                'Distributed Cache (Redis)',
+                'Primary Relational DB',
+                'Task Queue',
+                'Background Worker Pool',
+              ]
+
+      const expanded = []
+      for (const item of specs) {
+        const str = String(item || '').trim()
+        if (str.includes(' / ') && /api gateway|load balancer|queue|worker/i.test(str)) {
+          str.split(' / ').forEach((part) => expanded.push(part.trim()))
+        } else {
+          expanded.push(str)
+        }
+      }
+
+      const ledger = session?.requirements_ledger || {}
+      const ledgerText = JSON.stringify(ledger).toLowerCase()
+      const injectIfMentioned = (regex, label) => {
+        if (regex.test(ledgerText) && !expanded.some((e) => e.toLowerCase().includes(label.toLowerCase().slice(0, 8)))) {
+          expanded.push(label)
+        }
+      }
+      injectIfMentioned(/malicious|blocklist|phishing|safe\s*browsing/, 'URL / Payload Safety Filter')
+      injectIfMentioned(/\bttl\b|expir|retention|purge/, 'Scheduler / TTL Sweeper')
+      injectIfMentioned(/read\s*heavy|read\s*replica|replica/, 'DB Read Replica')
+      injectIfMentioned(/rate\s*limit|throttl/, 'Rate Limiter')
+      injectIfMentioned(/dead[\s-]*letter|dlq/, 'Dead-Letter Queue (DLQ)')
+
+      const unique = []
+      const seen = new Set()
+      for (const name of expanded) {
+        const key = name.toLowerCase()
+        if (!seen.has(key)) {
+          seen.add(key)
+          unique.push(name)
+        }
+      }
+
+      const whyByType = {
+        content_filter: 'Enforces NFR/security policy (e.g. malicious URL blocklist & phishing checks) before persist or redirect.',
+        scheduler: 'Handles link expiration / TTL cleanup sweeps and scheduled maintenance without blocking hot paths.',
+        id_generator: 'Generates collision-free short codes; document pre-allocation/Zookeeper HA to avoid SPOF.',
+        read_replica: 'Offloads cache-miss read traffic from Primary DB to hit <30ms p99 redirect latency.',
+        message_queue: 'Decouples non-critical click analytics & audit telemetry off the sync redirect path.',
+        async_worker: 'Consumes queued analytics/webhook events asynchronously.',
+        distributed_cache: 'Caches hot redirects/lookups in RAM; always driven by App Service (cache-aside), never wired straight to DB or CDN.',
+      }
+      const checklistByType = {
+        id_generator: ['Specify multi-instance pre-allocated key ranges or Snowflake workers to avoid SPOF.'],
+        distributed_cache: ['Use cache-aside from App Service -> Redis (never DB -> Redis or CDN -> Redis).', 'Set LRU eviction + TTL matching link lifetime.'],
+        content_filter: ['Check domain/URL reputation asynchronously or via cached bloom filter / SafeBrowsing API on write/redirect.'],
+        scheduler: ['Batch-delete or soft-expire expired TTL records off-peak and emit cache invalidations.'],
+      }
+
+      const expectedItems = unique.map((name) => {
+        const prelim = demoMatchBlock(name)
+        return demoMatchBlock(
+          name,
+          whyByType[prelim.type_id] || '',
+          checklistByType[prelim.type_id] || []
+        )
+      })
+
+      const expectedPaths =
+        slug === 'url-shortener'
+          ? demoBuildUrlShortenerPaths()
+          : demoBuildGenericPaths()
+
+      return { expectedItems, expectedPaths }
+    }
+
+    const DEMO_EQUIVALENT_ALTERNATIVES = {
+      app_service: ['serverless_fn', 'microservice'],
+      serverless_fn: ['app_service', 'microservice'],
+      microservice: ['app_service', 'serverless_fn'],
+      relational_db: ['nosql_kv'],
+      nosql_kv: ['relational_db'],
+      read_replica: ['nosql_kv'],
+      distributed_cache: ['local_cache'],
+      message_queue: ['event_stream', 'pubsub_bus'],
+      event_stream: ['message_queue', 'pubsub_bus'],
+      pubsub_bus: ['event_stream', 'message_queue'],
+      async_worker: ['stream_processor', 'serverless_fn'],
+      stream_processor: ['async_worker'],
+    }
+
+    const demoSynthesizeCapabilities = (expectedItems = []) => {
+      const tids = new Set((expectedItems || []).map((i) => String(i?.type_id || '')))
+      const caps = [
+        {
+          id: 'edge_ingress',
+          title: 'Edge & Ingress Routing',
+          goal: 'Terminate client traffic through edge caching, load balancing, or an API/realtime gateway without exposing storage directly.',
+          accepted_type_groups: [['cdn'], ['load_balancer'], ['api_gateway'], ['realtime_gateway'], ['waf_ddos']],
+        },
+        {
+          id: 'compute_layer',
+          title: 'Stateless Compute & Business Logic',
+          goal: 'Process validation, orchestration, and read/write APIs in horizontally scalable compute.',
+          accepted_type_groups: [['app_service'], ['serverless_fn'], ['microservice'], ['llm_gateway']],
+        },
+        {
+          id: 'low_latency_caching',
+          title: 'Low-Latency Caching / Hot-Key Mitigation',
+          goal: 'Absorb hot read bursts and hit p99 latency targets via edge cache, in-process cache, or Redis.',
+          accepted_type_groups: [['distributed_cache'], ['local_cache'], ['cdn'], ['bloom_filter']],
+        },
+        {
+          id: 'durable_storage',
+          title: 'Durable Authoritative Persistence',
+          goal: 'Persist core mappings/state reliably using SQL (+ replicas/sharding), distributed KV/NoSQL, or durable object storage.',
+          accepted_type_groups: [['relational_db'], ['nosql_kv'], ['object_storage'], ['timeseries_db']],
+        },
+        {
+          id: 'async_decoupling',
+          title: 'Async Decoupling / Analytics / Background Work',
+          goal: 'Keep hot latency paths isolated from analytics, notifications, or cleanup via queues, streams, or workers.',
+          accepted_type_groups: [['message_queue'], ['event_stream'], ['pubsub_bus'], ['async_worker'], ['stream_processor']],
+        },
+      ]
+      if (tids.has('id_generator')) {
+        caps.push({
+          id: 'unique_id_generation',
+          title: 'Collision-Free Unique ID / Key Minting',
+          goal: 'Generate collision-free short codes under concurrent writes without a DB sequence SPOF.',
+          accepted_type_groups: [['id_generator'], ['consensus_store'], ['app_service']],
+        })
+      }
+      if (tids.has('content_filter') || tids.has('scheduler') || tids.has('rate_limiter')) {
+        caps.push({
+          id: 'safety_and_lifecycle',
+          title: 'Safety, Abuse Protection & TTL Lifecycle',
+          goal: 'Enforce blocklist/rate limits and retention cleanup without blocking hot read paths.',
+          accepted_type_groups: [['content_filter'], ['rate_limiter'], ['scheduler'], ['auth_service'], ['waf_ddos']],
+        })
+      }
+      return caps
+    }
+
+    const demoEvaluateTopology = (expectedItems, expectedPaths, currentNodes, currentEdges, currentNotes) => {
+      const nodeById = new Map((currentNodes || []).map((n) => [String(n.id), n]))
+      const placedTypes = new Set((currentNodes || []).map((n) => n.type_id))
+      const missingComponents = []
+      const findings = []
+      const alternativeNotes = []
+
+      for (const item of expectedItems) {
+        const directMatch =
+          (item.type_id !== 'custom' && placedTypes.has(item.type_id)) ||
+          (currentNodes || []).some((n) =>
+            `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(item.name.toLowerCase())
+          )
+        if (directMatch) continue
+        const alts = DEMO_EQUIVALENT_ALTERNATIVES[item.type_id] || []
+        const usedAlt = alts.find((altId) => placedTypes.has(altId))
+        if (usedAlt) {
+          alternativeNotes.push(`${demoBlockLabel(usedAlt)} covering ${item.label}`)
+          continue
+        }
+        missingComponents.push(item.name)
+      }
+
+      if (alternativeNotes.length) {
+        findings.push({
+          severity: 'info',
+          category: 'alternative',
+          title: 'Valid Alternative Choice',
+          detail: `Using ${alternativeNotes.join('; ')}. Justify consistency/latency trade-offs in notes or defence.`,
+          related_type_ids: [],
+        })
+      }
+
+      const incomingCount = new Map()
+      const outgoingCount = new Map()
+      const edgePairs = new Set()
+      for (const e of currentEdges || []) {
+        const src = nodeById.get(String(e.source))
+        const dst = nodeById.get(String(e.target))
+        if (!src || !dst) continue
+        outgoingCount.set(String(src.id), (outgoingCount.get(String(src.id)) || 0) + 1)
+        incomingCount.set(String(dst.id), (incomingCount.get(String(dst.id)) || 0) + 1)
+        edgePairs.add(`${src.type_id}->${dst.type_id}`)
+        if (src.type_id === 'relational_db' && dst.type_id === 'distributed_cache') {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Reversed DB -> Cache arrow',
+            detail: 'Databases do not push directly to Redis in cache-aside. Wire App Service -> Redis (miss -> App Service -> DB).',
+            related_type_ids: ['relational_db', 'distributed_cache'],
+          })
+        }
+        if (src.type_id === 'cdn' && dst.type_id === 'distributed_cache') {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Invalid CDN -> Redis edge',
+            detail: 'Edge CDNs route cache misses to Load Balancer / API Gateway -> App Service, not directly into internal Redis.',
+            related_type_ids: ['cdn', 'distributed_cache'],
+          })
+        }
+        if (
+          (src.type_id === 'stream_processor' || src.type_id === 'message_queue') &&
+          dst.type_id === 'id_generator'
+        ) {
+          findings.push({
+            severity: 'error',
+            category: 'flow',
+            title: 'Queue/Stream wired into ID Generator',
+            detail: 'ID generation belongs on the synchronous write path (App Service -> ID Generator), not downstream of analytics queues.',
+            related_type_ids: [src.type_id, 'id_generator'],
+          })
+        }
+      }
+
+      const caps = demoSynthesizeCapabilities(expectedItems)
+      let metCapabilitiesCount = 0
+      const capabilityChecks = caps.map((cap) => {
+        let matchedNodes = []
+        for (const grp of cap.accepted_type_groups || []) {
+          if (grp.length && grp.every((tid) => placedTypes.has(tid))) {
+            matchedNodes = (currentNodes || []).filter((n) => grp.includes(n.type_id))
+            break
+          }
+        }
+        if (!matchedNodes.length) {
+          return {
+            id: cap.id,
+            title: cap.title,
+            goal: cap.goal,
+            status: 'pending',
+            satisfied_by: '',
+          }
+        }
+        const wired =
+          (currentNodes || []).length === 1 ||
+          matchedNodes.some(
+            (n) => (incomingCount.get(String(n.id)) || 0) > 0 || (outgoingCount.get(String(n.id)) || 0) > 0
+          )
+        const status = wired ? 'met' : 'partial'
+        if (status === 'met') metCapabilitiesCount += 1
+        return {
+          id: cap.id,
+          title: cap.title,
+          goal: cap.goal,
+          status,
+          satisfied_by: [...new Set(matchedNodes.map((n) => n.label || n.type_id))].join(', '),
+        }
+      })
+
+      const idNode = (currentNodes || []).find((n) => n.type_id === 'id_generator')
+      if (idNode && !/replica|range|pre-alloc|ha|cluster|snowflake|multi/i.test(`${idNode.notes || ''} ${currentNotes || ''}`)) {
+        findings.push({
+          severity: 'warning',
+          category: 'spof',
+          title: 'Potential SPOF on Unique ID / Key Generator',
+          detail: 'Add failover / pre-allocated key range / multi-instance notes on the ID Generator node.',
+          related_type_ids: ['id_generator'],
+        })
+      }
+
+      const satisfiedPaths = []
+      const pathMilestones = []
+      let nextConnectionHint = null
+
+      const matchesWithAlt = (typeId) =>
+        placedTypes.has(typeId) ||
+        (DEMO_EQUIVALENT_ALTERNATIVES[typeId] || []).some((alt) => placedTypes.has(alt))
+
+      const edgeExistsWithAlt = (srcType, tgtType) => {
+        const srcs = [srcType, ...(DEMO_EQUIVALENT_ALTERNATIVES[srcType] || [])]
+        const tgts = [tgtType, ...(DEMO_EQUIVALENT_ALTERNATIVES[tgtType] || [])]
+        return srcs.some((s) => tgts.some((t) => edgePairs.has(`${s}->${t}`)))
+      }
+
+      for (const path of expectedPaths || []) {
+        const enrichedSteps = (path.steps || []).map((step) => {
+          const placedBoth =
+            matchesWithAlt(step.source_type_id) && matchesWithAlt(step.target_type_id)
+          const satisfied = edgeExistsWithAlt(step.source_type_id, step.target_type_id)
+          if (!satisfied && !nextConnectionHint && placedBoth) {
+            nextConnectionHint = {
+              path_id: path.id,
+              path_title: path.title,
+              source_type_id: step.source_type_id,
+              source_label: step.source_label,
+              target_type_id: step.target_type_id,
+              target_label: step.target_label,
+              suggested_label: step.suggested_label,
+              delivery_mode: step.delivery_mode,
+              rationale: step.rationale,
+            }
+          }
+          return {
+            ...step,
+            placed_both: placedBoth,
+            satisfied,
+          }
+        })
+        const completed = enrichedSteps.filter((s) => s.satisfied).length
+        const total = enrichedSteps.length
+        const pathSatisfied = total > 0 && completed >= total
+        if (pathSatisfied) satisfiedPaths.push(path.id)
+        pathMilestones.push({
+          id: path.id,
+          title: path.title,
+          description: path.description,
+          completed,
+          total,
+          satisfied: pathSatisfied,
+          steps: enrichedSteps,
+        })
+      }
+
+      const actionableCount = findings.filter((f) => f.severity !== 'info').length
+      const summary = !(currentNodes || []).length
+        ? `0 active warnings · ${capabilityChecks.length} architectural capability goal(s) ready.`
+        : actionableCount
+          ? `${actionableCount} structural item(s) to check · ${metCapabilitiesCount}/${capabilityChecks.length} capabilities addressed.`
+          : `0 structural warnings · ${metCapabilitiesCount}/${capabilityChecks.length} capabilities addressed!`
+
+      return {
+        summary,
+        missing_components: missingComponents,
+        capability_checks: capabilityChecks,
+        met_capabilities_count: metCapabilitiesCount,
+        total_capabilities_count: capabilityChecks.length,
+        findings,
+        satisfied_paths: satisfiedPaths,
+        path_milestones: pathMilestones,
+        next_connection_hint: nextConnectionHint,
+      }
+    }
+
+    const demoBuildCoachActions = (expectedItems, pathMilestones, messageText = '', cloudProvider = 'generic') => {
+      const actions = []
+      const itemByType = new Map(expectedItems.map((i) => [i.type_id, i]))
+      const makeBlockSpec = (typeId, fallbackLabel) => {
+        const match = itemByType.get(typeId) || DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+        const genericLbl = match?.label || fallbackLabel || demoBlockLabel(typeId)
+        const cloudSvc =
+          cloudProvider && cloudProvider !== 'generic'
+            ? CLOUD_EQUIVALENTS_BY_TYPE[typeId]?.[cloudProvider] || ''
+            : ''
+        return {
+          type_id: typeId,
+          label: cloudSvc || genericLbl,
+          generic_label: genericLbl,
+          cloud_provider: cloudSvc ? cloudProvider : 'generic',
+          category: match?.category || 'compute_services',
+          icon: match?.icon || 'box',
+          tech_stack: cloudSvc || match?.tech_stack || '',
+        }
+      }
+
+      const lower = String(messageText || '').toLowerCase()
+      const ordered = [...(pathMilestones || [])].sort((a, b) => {
+        if (lower.includes('write') && a.id.includes('write')) return -1
+        if (lower.includes('read') && a.id.includes('read')) return -1
+        if (lower.includes('async') && a.id.includes('async')) return -1
+        return 0
+      })
+
+      for (const path of ordered) {
+        const missingSteps = (path.steps || []).filter((s) => !s.satisfied)
+        if (!missingSteps.length) continue
+        const blockMap = new Map()
+        const edges = []
+        for (const step of missingSteps) {
+          blockMap.set(step.source_type_id, makeBlockSpec(step.source_type_id, step.source_label))
+          blockMap.set(step.target_type_id, makeBlockSpec(step.target_type_id, step.target_label))
+          edges.push({
+            source_type_id: step.source_type_id,
+            source_label: step.source_label,
+            target_type_id: step.target_type_id,
+            target_label: step.target_label,
+            protocol: step.delivery_mode === 'async' ? 'Async Event' : 'HTTPS',
+            delivery_mode: step.delivery_mode || 'sync',
+            label: step.suggested_label || '',
+          })
+        }
+        actions.push({
+          id: `apply_${path.id}`,
+          title: `Draw ${path.title}`,
+          description: `Places missing blocks and wires ${missingSteps.length} step(s) for ${path.title}.`,
+          blocks: [...blockMap.values()],
+          edges,
+        })
+      }
+
+      if (actions.length >= 2) {
+        const allBlocks = []
+        const allEdges = []
+        const seenB = new Set()
+        const seenE = new Set()
+        for (const act of actions) {
+          for (const b of act.blocks || []) {
+            const k = `${b.type_id}:${b.label}`
+            if (!seenB.has(k)) {
+              seenB.add(k)
+              allBlocks.push(b)
+            }
+          }
+          for (const e of act.edges || []) {
+            const k = `${e.source_type_id}->${e.target_type_id}`
+            if (!seenE.has(k)) {
+              seenE.add(k)
+              allEdges.push(e)
+            }
+          }
+        }
+        actions.unshift({
+          id: 'build_full_reference',
+          title: 'Build Full Reference System',
+          description: `Places ${allBlocks.length} blocks and ${allEdges.length} wires across all reference flows.`,
+          blocks: allBlocks,
+          edges: allEdges,
+        })
+      }
+
+      return actions.slice(0, 4)
+    }
+
+    const demoIsSessionCoached = (session) => {
+      const guidance = session?.diagram_guidance || {}
+      return Boolean(
+        guidance.is_coached ||
+          guidance.revealed_all_bank ||
+          guidance.requirements_revealed ||
+          Number(guidance.hints_used_count || 0) > 0 ||
+          (Array.isArray(guidance.coach_messages) && guidance.coach_messages.length > 0) ||
+          (session?.requirements_transcript || []).some((t) => t?.assisted) ||
+          (session?.defence_transcript || []).some((t) => t?.assisted)
+      )
+    }
+
+    const demoDeriveRating = (score) =>
+      score >= 88
+        ? 'STRONG_HIRE'
+        : score >= 70
+          ? 'INTERVIEW_READY'
+          : score >= 50
+            ? 'DEVELOPING'
+            : 'NEEDS_PRACTICE'
+
+    const demoExtractPaletteExtensions = (session, challengeObj) => {
+      const brief = challengeObj?.interviewer_brief || session?.challenge?.interviewer_brief || {}
+      let raw = []
+      if (session?.variant_id && Array.isArray(brief.variants)) {
+        const matched = brief.variants.find((v) => v?.variant_id === session.variant_id)
+        if (matched && Array.isArray(matched.diagram_palette_extensions)) {
+          raw = matched.diagram_palette_extensions
+        }
+      }
+      if (!raw.length && Array.isArray(brief.diagram_palette_extensions)) {
+        raw = brief.diagram_palette_extensions
+      }
+      return raw
+        .filter((item) => item && typeof item === 'object' && item.type_id && item.label)
+        .map((item) => ({
+          type_id: String(item.type_id).trim(),
+          label: String(item.label).trim(),
+          category: String(item.category || 'compute_services').trim(),
+          icon: String(item.icon || 'box').trim(),
+          default_role: String(item.default_role || item.role || '').trim(),
+          cloud_equivalents:
+            item.cloud_equivalents && typeof item.cloud_equivalents === 'object'
+              ? item.cloud_equivalents
+              : {},
+        }))
+    }
+
+    const demoAttachPaletteExtensions = (session) => {
+      if (!session || typeof session !== 'object') return session
+      const existing = Array.isArray(session.palette_extensions) ? session.palette_extensions : []
+      const existingCaps = Array.isArray(session.capabilities_checklist) ? session.capabilities_checklist : []
+      let caps = existingCaps
+      if (!caps.length) {
+        const { expectedItems } = demoResolveExpectedBlueprint(session.challenge, session)
+        caps = demoSynthesizeCapabilities(expectedItems)
+      }
+      return {
+        ...session,
+        palette_extensions: existing.length
+          ? existing
+          : demoExtractPaletteExtensions(session, session.challenge),
+        capabilities_checklist: caps,
+      }
+    }
+
+    const defaultDemoVariants = [
+      { variant_id: 'standard-scale', title: 'Standard Scale Profile', focus_summary: 'Balanced throughput, SLA, and cost constraints' },
+      { variant_id: 'enterprise-compliance', title: 'Enterprise Compliance Profile', focus_summary: 'Strict privacy, audit trail, and YAGNI data governance' },
+      { variant_id: 'burst-global', title: 'Global Spike & Edge Profile', focus_summary: 'Extreme burst traffic, multi-region locality, and failover' },
+    ]
+    const serializeChallenge = (c) => ({
+      ...c,
+      is_archived: Boolean(c.is_archived),
+      expected_components: c.is_builtin ? [] : Array.isArray(c.expected_components) ? c.expected_components : [],
+      scale_notes: c.is_builtin ? '' : String(c.scale_notes || ''),
+      available_variants: Array.isArray(c.available_variants) && c.available_variants.length
+        ? c.available_variants
+        : c.is_builtin
+          ? defaultDemoVariants
+          : [],
+    })
+
+    if (urlPath === '/system-design/challenges' && method === 'get') {
+      let items = (db.system_design_challenges || []).filter((c) => !c.is_archived)
+      if (params.category) {
+        items = items.filter((c) => c.category === params.category)
+      }
+      if (params.difficulty) {
+        items = items.filter((c) => c.difficulty === params.difficulty)
+      }
+      return ok(items.map(serializeChallenge))
+    }
+
+    if (urlPath === '/system-design/challenges' && method === 'post') {
+      const title = String(data.title || 'Custom Architecture Challenge').trim()
+      const slugBase = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom-challenge'
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const created = {
+        id: nextId,
+        slug: `${slugBase}-${nextId}`,
+        title,
+        category: data.category || 'DISTRIBUTED_SYSTEMS',
+        difficulty: data.difficulty || 'MEDIUM',
+        prompt_summary: data.prompt_summary || 'Custom system design scenario.',
+        initial_prompt: data.initial_prompt || `Design ${title}. Clarify scale and core constraints first.`,
+        tags: Array.isArray(data.tags) && data.tags.length ? data.tags : ['custom'],
+        expected_components: Array.isArray(data.expected_components) ? data.expected_components : [],
+        scale_notes: String(data.scale_notes || '').trim(),
+        is_builtin: false,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(serializeChallenge(created), 201)
+    }
+
+    const findDemoChallengeDuplicate = (candidateTitle, challengesList) => {
+      const stripStop = (t) =>
+        String(t || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(
+            (w) =>
+              w &&
+              ![
+                'design',
+                'build',
+                'create',
+                'architect',
+                'implement',
+                'a',
+                'an',
+                'the',
+                'system',
+                'service',
+                'platform',
+                'architecture',
+                'engine',
+                'pipeline',
+                'for',
+                'of',
+                'and',
+                'with',
+                'to',
+                'in',
+                'on',
+              ].includes(w)
+          )
+      const candWords = stripStop(candidateTitle)
+      if (!candWords.length) return null
+      const candSet = new Set(candWords)
+      const candNorm = candWords.join(' ')
+      for (const ch of challengesList || []) {
+        if (ch.is_archived) continue
+        const exWords = stripStop(ch.title)
+        if (!exWords.length) continue
+        const exNorm = exWords.join(' ')
+        if (candNorm === exNorm) return ch
+        const exSet = new Set(exWords)
+        let inter = 0
+        for (const w of candSet) {
+          if (exSet.has(w)) inter++
+        }
+        const union = candSet.size + exSet.size - inter
+        const jaccard = union > 0 ? inter / union : 0
+        if (jaccard >= 0.72 && inter >= 2) return ch
+        const candSubset = [...candSet].every((w) => exSet.has(w))
+        const exSubset = [...exSet].every((w) => candSet.has(w))
+        if ((candSubset || exSubset) && inter >= 2) return ch
+      }
+      return null
+    }
+
+    if (urlPath === '/system-design/challenges/frontier-prompt' && method === 'post') {
+      const appObj = data.application_id
+        ? (db.applications || []).find((a) => Number(a.id) === Number(data.application_id))
+        : null
+      const topic = String(data.topic || '').trim()
+      const extraContext = String(data.extra_context || '').trim()
+      if (!topic && !appObj && !extraContext) {
+        return {
+          status: 400,
+          data: {
+            detail:
+              'Provide either a Topic / Scenario Focus or link a tracked job application (application_id).',
+          },
+        }
+      }
+      const companyObj = appObj?.company_id
+        ? (db.companies || []).find((c) => Number(c.id) === Number(appObj.company_id))
+        : null
+      const companyName = appObj?.company?.name || appObj?.company_name || companyObj?.name || 'Target Company'
+      const roleTitle = appObj?.position || 'Software Engineer'
+      const signals = []
+      const contextSections = []
+      if (topic) {
+        contextSections.push(`## Requested Topic\n${topic}`)
+      }
+      if (appObj) {
+        contextSections.push(`## Target Role\n${roleTitle} at ${companyName} (status: ${appObj.status || 'APPLIED'})`)
+        if (appObj.notes && String(appObj.notes).trim()) {
+          signals.push('Application Notes')
+          contextSections.push(`## Application Notes (Clues Only)\n${String(appObj.notes).trim()}`)
+        }
+        const desc = appObj.job_posting?.description_markdown || appObj.job_description || ''
+        const skills = appObj.job_posting?.required_skills || appObj.required_skills || []
+        if (desc || (Array.isArray(skills) && skills.length)) {
+          signals.push('Job Posting & Skills')
+          contextSections.push(
+            `## Job Posting & Skills\n${skills.length ? `Skills: ${skills.join(', ')}\n` : ''}${String(desc).slice(0, 1200)}`
+          )
+        }
+        const compPros = Array.isArray(companyObj?.pros)
+          ? companyObj.pros.join(', ')
+          : companyObj?.pros || ''
+        const compNotes = companyObj?.notes || compPros || appObj.company_research || ''
+        if (compNotes) {
+          signals.push('Company Research')
+          contextSections.push(`## Company Research\n${typeof compNotes === 'string' ? compNotes : JSON.stringify(compNotes)}`)
+        }
+        if (appObj.match_analysis_payload) {
+          signals.push('Match Gap Analysis')
+        }
+      }
+      if (extraContext) {
+        signals.push('Extra Focus Clues')
+        contextSections.push(`## Candidate Extra Focus Clues\n${extraContext}`)
+      }
+      if (data.use_web_search) {
+        signals.push('Web Grounding')
+      }
+      const activeChallenges = (db.system_design_challenges || []).filter((c) => !c.is_archived)
+      const dedupLines = activeChallenges.map((c) => `- ${c.title} — ${c.prompt_summary || ''}`.trim())
+      const markdownPrompt = [
+        '# Tailored System Design Challenge Generator Prompt',
+        `Target Difficulty: ${data.difficulty || 'MEDIUM'}`,
+        'Return ONLY a valid JSON object matching the 3-variant System Design challenge schema.',
+        ...contextSections,
+        '## EXISTING CHALLENGES — DO NOT DUPLICATE',
+        ...dedupLines,
+      ].join('\n\n')
+      const slugBase = (topic || `${companyName}-${roleTitle}` || 'challenge')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      return ok({
+        filename: `${slugBase || 'challenge'}-frontier-challenge-prompt.md`,
+        markdown_prompt: markdownPrompt,
+        context_signals: signals,
+        existing_challenge_titles: activeChallenges.map((c) => c.title),
+      })
+    }
+
+    if (urlPath === '/system-design/challenges/import' && method === 'post') {
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      const candidates = [fenced ? fenced[1].trim() : null, raw].filter(Boolean)
+      const firstBrace = raw.indexOf('{')
+      const lastBrace = raw.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        candidates.push(raw.slice(firstBrace, lastBrace + 1))
+      }
+      for (const candidate of candidates) {
+        try {
+          const obj = JSON.parse(candidate)
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            parsed = obj
+            break
+          }
+        } catch {
+          // continue
+        }
+      }
+      if (!parsed || !parsed.title || !parsed.prompt_summary || !parsed.initial_prompt || !parsed.interviewer_brief) {
+        return {
+          status: 400,
+          data: { detail: 'Challenge JSON must include title, prompt_summary, initial_prompt, and interviewer_brief.' },
+        }
+      }
+      if (!data.allow_duplicate) {
+        const dup = findDemoChallengeDuplicate(parsed.title, db.system_design_challenges)
+        if (dup) {
+          return {
+            status: 409,
+            data: {
+              detail: `Challenge '${parsed.title}' closely overlaps existing challenge '${dup.title}'. Pass allow_duplicate=True or adjust your topic to create anyway.`,
+            },
+          }
+        }
+      }
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const slug =
+        String(parsed.title)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || `frontier-custom-${nextId}`
+      const created = {
+        id: nextId,
+        slug: `${slug}-${nextId}`,
+        title: String(parsed.title).trim(),
+        category: String(parsed.category || 'DISTRIBUTED_SYSTEMS').trim().toUpperCase(),
+        difficulty: String(parsed.difficulty || data.difficulty || 'MEDIUM').trim().toUpperCase(),
+        prompt_summary: String(parsed.prompt_summary).trim(),
+        initial_prompt: String(parsed.initial_prompt).trim(),
+        tags: Array.isArray(parsed.tags) && parsed.tags.length ? parsed.tags : ['frontier-imported'],
+        expected_components: [],
+        scale_notes: '',
+        interviewer_brief: parsed.interviewer_brief,
+        is_builtin: false,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(serializeChallenge(created), 201)
+    }
+
+    if (urlPath === '/system-design/challenges/generate' && method === 'post') {
+      const appObj = data.application_id
+        ? (db.applications || []).find((a) => Number(a.id) === Number(data.application_id))
+        : null
+      const topic = String(data.topic || '').trim()
+      const roleCtx = appObj ? `${appObj.company_name || appObj.company?.name || 'Target'} ${appObj.position || 'Engineer'}` : ''
+      const titleBase = topic || (roleCtx ? `${roleCtx} Core Platform` : 'Distributed Event Pipeline')
+      const candidateTitle = titleBase.startsWith('Design') ? titleBase : `Design ${titleBase}`
+      if (!data.allow_duplicate) {
+        const dup = findDemoChallengeDuplicate(candidateTitle, db.system_design_challenges)
+        if (dup) {
+          return {
+            status: 409,
+            data: {
+              detail: `Challenge '${candidateTitle}' closely overlaps existing challenge '${dup.title}'. Pass allow_duplicate=True or adjust your topic to create anyway.`,
+            },
+          }
+        }
+      }
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const created = {
+        id: nextId,
+        slug: `ai-custom-${nextId}`,
+        title: candidateTitle,
+        category: 'DISTRIBUTED_SYSTEMS',
+        difficulty: data.difficulty || 'MEDIUM',
+        prompt_summary: data.use_web_search
+          ? `Web-grounded scenario tailored for ${titleBase}.`
+          : `AI-tailored scenario focusing on ${titleBase}.`,
+        initial_prompt: `Design ${titleBase}. Start by clarifying expected traffic, durability guarantees, and key latency SLAs.`,
+        tags: ['ai-generated', ...(data.use_web_search ? ['web-grounded'] : []), ...(appObj ? [appObj.company_name || appObj.company?.name] : [])].filter(Boolean),
+        expected_components: [],
+        scale_notes: '',
+        is_builtin: false,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(serializeChallenge(created), 201)
+    }
+
+    const auditPromptMatch = urlPath.match(/^\/system-design\/challenges\/(\d+)\/frontier-audit-prompt$/)
+    if (auditPromptMatch && method === 'post') {
+      const cid = Number(auditPromptMatch[1])
+      const ch = (db.system_design_challenges || []).find((c) => Number(c.id) === cid)
+      if (!ch) return errResp(404, 'Challenge not found')
+      const snapshot = {
+        title: ch.title,
+        category: ch.category,
+        difficulty: ch.difficulty,
+        prompt_summary: ch.prompt_summary,
+        initial_prompt: ch.initial_prompt,
+        tags: ch.tags || [],
+        interviewer_brief: ch.interviewer_brief || {},
+      }
+      return ok({
+        filename: `${ch.slug || 'challenge'}-frontier-audit-prompt.md`,
+        markdown_prompt: `# Frontier Challenge Audit & Upgrade — ${ch.title}\n\nVerify all 3 variants, expected_paths, required_capabilities, and canonical type_ids:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\``,
+        context_signals: ['Existing Challenge Brief', 'Schema Audit Checklist'],
+        existing_challenge_titles: [],
+      })
+    }
+
+    const upgradeMatch = urlPath.match(/^\/system-design\/challenges\/(\d+)\/frontier-import$/)
+    if (upgradeMatch && method === 'put') {
+      const cid = Number(upgradeMatch[1])
+      const idx = (db.system_design_challenges || []).findIndex((c) => Number(c.id) === cid)
+      if (idx === -1) return errResp(404, 'Challenge not found')
+      const existing = db.system_design_challenges[idx]
+      if (existing.is_builtin) return errResp(400, 'Built-in challenges cannot be overwritten')
+      const raw = String(data.raw_response || '').trim()
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      let parsed = null
+      try {
+        parsed = JSON.parse(fenced ? fenced[1].trim() : raw)
+      } catch {
+        return errResp(400, 'Invalid JSON payload')
+      }
+      const updated = {
+        ...existing,
+        title: String(parsed.title || existing.title).trim(),
+        category: String(parsed.category || existing.category).trim().toUpperCase(),
+        difficulty: String(parsed.difficulty || existing.difficulty).trim().toUpperCase(),
+        prompt_summary: String(parsed.prompt_summary || existing.prompt_summary).trim(),
+        initial_prompt: String(parsed.initial_prompt || existing.initial_prompt).trim(),
+        tags: Array.isArray(parsed.tags) && parsed.tags.length ? parsed.tags : existing.tags,
+        interviewer_brief: parsed.interviewer_brief || existing.interviewer_brief,
+      }
+      db.system_design_challenges[idx] = updated
+      saveDemoDb(db)
+      return ok(serializeChallenge(updated))
+    }
+
+    if (urlPath === '/system-design/challenges/reset-defaults' && method === 'post') {
+      const defaults = getDefaultDemoSystemDesignChallenges().map((d) => ({ ...d, is_archived: false }))
+      const customChallenges = (db.system_design_challenges || []).filter((c) => !c.is_builtin)
+      db.system_design_challenges = [...defaults, ...customChallenges]
+      saveDemoDb(db)
+      return ok(db.system_design_challenges.filter((c) => !c.is_archived).map(serializeChallenge))
+    }
+
+    const sdChallengeMatch = urlPath.match(/^\/system-design\/challenges\/([^/]+)$/)
+    if (sdChallengeMatch) {
+      const key = sdChallengeMatch[1]
+      const idx = db.system_design_challenges.findIndex(
+        (c) => String(c.id) === String(key) || c.slug === key
+      )
+      if (idx === -1) {
+        return { status: 404, data: { detail: 'System design challenge not found' } }
+      }
+      if (method === 'get') {
+        return ok(serializeChallenge(db.system_design_challenges[idx]))
+      }
+      if (method === 'put') {
+        const ch = db.system_design_challenges[idx]
+        const updated = {
+          ...ch,
+          title: String(data.title || ch.title).trim(),
+          category: String(data.category || ch.category).trim().toUpperCase(),
+          difficulty: String(data.difficulty || ch.difficulty).trim().toUpperCase(),
+          prompt_summary: String(data.prompt_summary || ch.prompt_summary).trim(),
+          initial_prompt: String(data.initial_prompt || ch.initial_prompt).trim(),
+          tags: Array.isArray(data.tags) ? data.tags : ch.tags,
+          ...(!ch.is_builtin
+            ? {
+                expected_components: Array.isArray(data.expected_components)
+                  ? data.expected_components
+                  : ch.expected_components || [],
+                scale_notes:
+                  data.scale_notes !== undefined ? String(data.scale_notes || '').trim() : ch.scale_notes || '',
+              }
+            : {}),
+        }
+        db.system_design_challenges[idx] = updated
+        db.system_design_sessions = (db.system_design_sessions || []).map((s) =>
+          Number(s.challenge_id) === Number(ch.id) ? { ...s, challenge: serializeChallenge(updated) } : s
+        )
+        saveDemoDb(db)
+        return ok(serializeChallenge(updated))
+      }
+      if (method === 'delete') {
+        const ch = db.system_design_challenges[idx]
+        const hasSessions = (db.system_design_sessions || []).some(
+          (s) => Number(s.challenge_id) === Number(ch.id)
+        )
+        if (ch.is_builtin || hasSessions) {
+          db.system_design_challenges[idx] = { ...ch, is_archived: true }
+        } else {
+          db.system_design_challenges.splice(idx, 1)
+        }
+        saveDemoDb(db)
+        return ok(null, 204)
+      }
+    }
+
+    if (urlPath === '/system-design/sessions' && method === 'get') {
+      return ok(db.system_design_sessions.map((s) => demoAttachPaletteExtensions(s)))
+    }
+
+    if (urlPath === '/system-design/sessions' && method === 'post') {
+      const challenge = serializeChallenge(
+        db.system_design_challenges.find((c) => Number(c.id) === Number(data.challenge_id)) ||
+          db.system_design_challenges[0]
+      )
+      const nextId =
+        db.system_design_sessions.reduce((maxId, s) => Math.max(maxId, Number(s.id) || 0), 0) + 1
+      const nowIso = new Date().toISOString()
+      const variants = challenge.available_variants || []
+      const reqSeed = String(data.brief_seed || '').trim().toLowerCase()
+      const reqVariant = String(data.variant_id || '').trim()
+      const resolvedSeed = reqSeed || Math.random().toString(16).slice(2, 10).padEnd(8, '0')
+      let chosen = null
+      let selectionMode = 'random'
+      if (reqVariant && variants.length) {
+        chosen = variants.find((v) => v.variant_id === reqVariant) || variants[0]
+        selectionMode = 'explicit'
+      } else if (variants.length) {
+        let hash = 0
+        const key = `${challenge.slug}:${resolvedSeed}`
+        for (let i = 0; i < key.length; i += 1) {
+          hash = (hash * 31 + key.charCodeAt(i)) >>> 0
+        }
+        chosen = variants[hash % variants.length]
+      }
+      const chosenExt = Array.isArray(chosen?.diagram_palette_extensions)
+        ? chosen.diagram_palette_extensions
+        : Array.isArray(challenge?.interviewer_brief?.diagram_palette_extensions)
+          ? challenge.interviewer_brief.diagram_palette_extensions
+          : []
+      const newSession = demoAttachPaletteExtensions({
+        id: nextId,
+        challenge_id: challenge.id,
+        application_id: data.application_id || null,
+        mode: data.mode || 'ADAPTIVE',
+        brief_seed: resolvedSeed,
+        variant_id: selectionMode === 'explicit' ? chosen?.variant_id || 'default' : null,
+        variant_title: selectionMode === 'explicit' ? chosen?.title || null : null,
+        variant_focus: selectionMode === 'explicit' ? chosen?.focus_summary || null : null,
+        variant_selection_mode: selectionMode,
+        stage: 'REQUIREMENTS',
+        status: 'IN_PROGRESS',
+        requirements_transcript: [
+          {
+            turn_index: 1,
+            role: 'interviewer',
+            content: challenge.initial_prompt,
+            stage: 'REQUIREMENTS',
+            timestamp: nowIso,
+          },
+        ],
+        requirements_ledger: {
+          functional_requirements: [],
+          non_functional_requirements: [],
+          scale_estimates: {},
+          out_of_scope: [],
+          notes: '',
+          is_locked: false,
+        },
+        diagrams_metadata: [],
+        diagram_guidance: {},
+        palette_extensions: chosenExt,
+        architecture_reviews: [],
+        defence_transcript: [],
+        final_evaluation: null,
+        overall_score: null,
+        readiness_rating: null,
+        created_at: nowIso,
+        updated_at: nowIso,
+        completed_at: null,
+        challenge,
+      })
+      db.system_design_sessions = [newSession, ...db.system_design_sessions]
+      saveDemoDb(db)
+      return ok(newSession, 201)
+    }
+
+    const sdSessionIdMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)$/)
+    if (sdSessionIdMatch) {
+      const sid = Number(sdSessionIdMatch[1])
+      const idx = db.system_design_sessions.findIndex((s) => Number(s.id) === sid)
+      if (idx === -1) {
+        return { status: 404, data: { detail: 'System design session not found' } }
+      }
+      if (method === 'get') {
+        return ok(demoAttachPaletteExtensions(db.system_design_sessions[idx]))
+      }
+      if (method === 'delete') {
+        db.system_design_sessions.splice(idx, 1)
+        saveDemoDb(db)
+        return ok(null, 204)
+      }
+    }
+
+    const sdModeMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/mode$/)
+    if (sdModeMatch && method === 'patch') {
+      const sid = Number(sdModeMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      session.mode = data.mode || session.mode
+      if (session.diagram_guidance && typeof session.diagram_guidance === 'object') {
+        const g = { ...session.diagram_guidance }
+        g.penalty_points = demoComputePenalty(
+          g.hints_used_count || 0,
+          Boolean(g.revealed_all_bank),
+          session.mode
+        )
+        session.diagram_guidance = g
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdReqMsgMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/message$/)
+    if (sdReqMsgMatch && method === 'post') {
+      const sid = Number(sdReqMsgMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const transcript = session.requirements_transcript || []
+      const nowIso = new Date().toISOString()
+      const msgText = data.message || ''
+      const assisted = Boolean(data.request_hint || /\b(hint|help|coach|nudge|stuck)\b/i.test(msgText))
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'candidate',
+        content: msgText,
+        stage: session.stage,
+        assisted,
+        timestamp: nowIso,
+      })
+      const replyContent = assisted
+        ? 'Coaching Hint: Focus on bounding peak read vs. write QPS (~10:1 ratio, ~50M MAU), p99 latency SLAs (<50ms), and whether custom aliases or analytics are out of scope.'
+        : 'Assume roughly 10:1 read-to-write traffic (~50M monthly active readers), 99.95% availability, and under 50ms p99 redirect latency. What write QPS or durability constraints are you designing around?'
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'interviewer',
+        content: replyContent,
+        stage: session.stage,
+        assisted,
+        timestamp: nowIso,
+      })
+      const existingLedger = session.requirements_ledger || {}
+      const mergeStrList = (prev, next) => {
+        const seen = new Set()
+        const out = []
+        for (const item of [...(prev || []), ...(next || [])]) {
+          const clean = String(item || '').trim()
+          const key = clean.toLowerCase()
+          if (clean && !seen.has(key)) {
+            seen.add(key)
+            out.push(clean)
+          }
+        }
+        return out
+      }
+      const patchFunctional = []
+      const patchNfr = [
+        '99.95% availability target',
+        'p99 read latency under 50ms',
+      ]
+      const patchScale = {
+        traffic_pattern: '10:1 read-to-write ratio',
+        monthly_active_users: '~50M MAU (demo baseline)',
+      }
+      const patchOutOfScope = []
+      const patchAssumptions = []
+      if (/url|short|redirect|link/i.test(msgText + (session.challenge?.title || ''))) {
+        patchFunctional.push('Core API for creating and resolving resources with high read fan-out')
+      } else {
+        patchFunctional.push(`Core API & workflow for ${session.challenge?.title || 'system design'}`)
+      }
+      if (/scale|qps|dau|mau|traffic|read|write/i.test(msgText)) {
+        patchScale.peak_write_estimate = '~2k–5k writes/sec'
+      }
+      if (/latency|availability|sla|p99|durability/i.test(msgText)) {
+        patchAssumptions.push('Reads can tolerate brief async replication lag unless strong consistency is specified')
+      }
+      if (/scope|billing|analytics|auth/i.test(msgText)) {
+        patchOutOfScope.push('Billing and multi-region active-active conflict resolution')
+      }
+      session.requirements_ledger = {
+        functional_requirements: mergeStrList(existingLedger.functional_requirements, patchFunctional),
+        non_functional_requirements: mergeStrList(existingLedger.non_functional_requirements, patchNfr),
+        scale_estimates: {
+          ...patchScale,
+          ...(existingLedger.scale_estimates || {}),
+        },
+        out_of_scope: mergeStrList(existingLedger.out_of_scope, patchOutOfScope),
+        assumptions: mergeStrList(existingLedger.assumptions, patchAssumptions),
+        unresolved_questions: existingLedger.unresolved_questions || [],
+        notes: existingLedger.notes || '',
+        is_locked: Boolean(existingLedger.is_locked),
+      }
+      session.requirements_transcript = transcript
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdReqExtractMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/extract$/)
+    if (sdReqExtractMatch && method === 'post') {
+      const sid = Number(sdReqExtractMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const existing = session.requirements_ledger || {}
+      const mergeUnique = (a, b) => {
+        const seen = new Set()
+        const out = []
+        for (const v of [...(a || []), ...(b || [])]) {
+          const clean = String(v || '').trim()
+          const key = clean.toLowerCase()
+          if (clean && !seen.has(key)) {
+            seen.add(key)
+            out.push(clean)
+          }
+        }
+        return out
+      }
+      session.requirements_ledger = {
+        functional_requirements: mergeUnique(existing.functional_requirements, [
+          'Core API endpoint to create/ingest primary entities',
+          'Low-latency read/lookup path for active items',
+        ]),
+        non_functional_requirements: mergeUnique(existing.non_functional_requirements, [
+          '99.95% availability target',
+          'p99 read latency under 50ms',
+        ]),
+        scale_estimates: {
+          traffic_pattern: '10:1 read-to-write ratio',
+          monthly_active_users: '~50M MAU (demo baseline)',
+          ...(existing.scale_estimates || {}),
+        },
+        out_of_scope: mergeUnique(existing.out_of_scope, [
+          'Billing and multi-region active-active conflict resolution',
+        ]),
+        assumptions: existing.assumptions || [],
+        unresolved_questions: existing.unresolved_questions || [],
+        notes: existing.notes || `Extracted from ${session.requirements_transcript.length} conversation turns.`,
+        is_locked: Boolean(existing.is_locked),
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdLedgerMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/ledger$/)
+    if (sdLedgerMatch && method === 'put') {
+      const sid = Number(sdLedgerMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      session.requirements_ledger = {
+        functional_requirements: data.functional_requirements || [],
+        non_functional_requirements: data.non_functional_requirements || [],
+        scale_estimates: data.scale_estimates || {},
+        out_of_scope: data.out_of_scope || [],
+        assumptions: data.assumptions || [],
+        unresolved_questions: data.unresolved_questions || [],
+        notes: data.notes || '',
+        is_locked: Boolean(data.is_locked),
+      }
+      if (data.is_locked && session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      } else if (!data.is_locked && session.stage === 'DESIGN' && !(session.diagrams_metadata || []).length) {
+        session.stage = 'REQUIREMENTS'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdUploadMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams$/)
+    if (sdUploadMatch && method === 'post') {
+      const sid = Number(sdUploadMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+      const fileObj = isFormData ? config.data.get('file') : null
+      const notes = isFormData ? String(config.data.get('notes') || '') : String(data.notes || '')
+      const diagrams = session.diagrams_metadata || []
+      const version = diagrams.reduce((m, d) => Math.max(m, Number(d.version) || 0), 0) + 1
+      const dataUrl = await readDemoFileAsDataUrl(fileObj)
+      const mimeType = fileObj?.type || 'image/png'
+      const ext = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png'
+      diagrams.push({
+        version,
+        filename: `v${version}.${ext}`,
+        mime_type: mimeType,
+        size_bytes: fileObj?.size || 2048,
+        notes,
+        uploaded_at: new Date().toISOString(),
+        diagram_kind: 'image',
+        data_url: dataUrl,
+      })
+      session.diagrams_metadata = diagrams
+      if (session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session, 201)
+    }
+
+    const sdCanvasMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/canvas$/)
+    if (sdCanvasMatch && method === 'post') {
+      const sid = Number(sdCanvasMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const nodes = Array.isArray(data.nodes) ? data.nodes : []
+      if (!nodes.length) {
+        return {
+          status: 400,
+          data: { detail: 'Canvas diagram must include at least one architecture component before saving.' },
+        }
+      }
+      const edges = Array.isArray(data.edges) ? data.edges : []
+      const diagrams = session.diagrams_metadata || []
+      const version = diagrams.reduce((m, d) => Math.max(m, Number(d.version) || 0), 0) + 1
+      const flowPayload = {
+        schema_version: 1,
+        nodes,
+        edges,
+        notes: String(data.notes || '').trim(),
+        flow_summary: {
+          node_count: nodes.length,
+          edge_count: edges.length,
+          components: nodes.map((n) => (n.tech_stack ? `${n.label} (${n.tech_stack})` : n.label)),
+          directed_flows: edges.map((e) => {
+            const src = nodes.find((n) => n.id === e.source)?.label || e.source
+            const dst = nodes.find((n) => n.id === e.target)?.label || e.target
+            return `${src} -> ${dst} [${e.protocol || 'HTTPS'}, ${e.delivery_mode || 'sync'}]`
+          }),
+        },
+      }
+      diagrams.push({
+        version,
+        filename: `v${version}.flow.json`,
+        mime_type: 'application/json',
+        size_bytes: JSON.stringify(flowPayload).length,
+        notes: flowPayload.notes,
+        uploaded_at: new Date().toISOString(),
+        diagram_kind: 'canvas',
+        node_count: nodes.length,
+        edge_count: edges.length,
+        components_preview: nodes.slice(0, 8).map((n) => n.label),
+        flow_payload: flowPayload,
+      })
+      session.diagrams_metadata = diagrams
+      if (session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session, 201)
+    }
+
+    const sdFlowMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/(\d+)\/flow$/)
+    if (sdFlowMatch && method === 'get') {
+      const sid = Number(sdFlowMatch[1])
+      const ver = Number(sdFlowMatch[2])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const entry = (session.diagrams_metadata || []).find((d) => Number(d.version) === ver)
+      if (!entry || entry.diagram_kind !== 'canvas' || !entry.flow_payload) {
+        return { status: 404, data: { detail: `Canvas flow v${ver} not found.` } }
+      }
+      return ok(entry.flow_payload)
+    }
+
+    const sdReqRevealMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/reveal$/)
+    if (sdReqRevealMatch && method === 'post') {
+      const sid = Number(sdReqRevealMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const existing = session.requirements_ledger || {}
+      const brief = session.session_brief || rawChallenge || {}
+      const lockAndProceed = Boolean(data.lock_and_proceed)
+      session.requirements_ledger = {
+        functional_requirements:
+          brief.functional_requirements?.length
+            ? [...brief.functional_requirements]
+            : ['Core create/write API', 'Low-latency read / lookup API'],
+        non_functional_requirements:
+          brief.non_functional_requirements?.length
+            ? [...brief.non_functional_requirements]
+            : ['99.95% availability target', 'p99 latency under 50ms'],
+        scale_estimates:
+          brief.scale_estimates && Object.keys(brief.scale_estimates).length
+            ? { ...brief.scale_estimates }
+            : { traffic_pattern: '10:1 read/write ratio', mau: '50M MAU' },
+        out_of_scope: [...(brief.out_of_scope || ['Multi-region billing portal'])],
+        assumptions: [
+          ...(brief.constraints || brief.assumptions || existing.assumptions || []),
+        ],
+        unresolved_questions: [],
+        notes: existing.notes || '',
+        is_locked: lockAndProceed || Boolean(existing.is_locked),
+      }
+      session.diagram_guidance = {
+        ...(session.diagram_guidance || {}),
+        requirements_revealed: true,
+        is_coached: true,
+        penalty_points: 0,
+      }
+      if (lockAndProceed) {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdHintMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/hint$/)
+    if (sdHintMatch && method === 'post') {
+      const sid = Number(sdHintMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const hintMode = data.hint_mode || 'next_component'
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(rawChallenge, session)
+      const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const currentEdges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const currentNotes = String(data.current_notes || '')
+      const guidance = { ...(session.diagram_guidance || {}) }
+      let hintsCount = Number(guidance.hints_used_count || 0)
+      let revealedAll = Boolean(guidance.revealed_all_bank || false)
+      const alreadyRevealed = Array.isArray(guidance.revealed_components)
+        ? [...guidance.revealed_components]
+        : []
+      const revealedSet = new Set(alreadyRevealed.map((r) => String(r.name || '').toLowerCase()))
+
+      const nodeMatches = (item) => {
+        const expLow = item.name.toLowerCase()
+        return currentNodes.some(
+          (n) =>
+            (item.type_id !== 'custom' && n.type_id === item.type_id) ||
+            `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(expLow)
+        )
+      }
+
+      const unrevealed = expectedItems.filter(
+        (item) => !nodeMatches(item) && !revealedSet.has(item.name.toLowerCase())
+      )
+      const newlyRevealed = []
+      let message = ''
+      const topologyFeedback = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        currentNodes,
+        currentEdges,
+        currentNotes
+      )
+      const pathMilestones = topologyFeedback.path_milestones || expectedPaths
+      let nextConnectionHint = null
+
+      if (hintMode === 'next_component') {
+        if (unrevealed.length) {
+          const item = unrevealed[0]
+          alreadyRevealed.push(item)
+          newlyRevealed.push(item)
+          hintsCount += 1
+          message = `Unlocked guided block: ${item.label}.`
+        } else {
+          message = 'All expected components are already revealed or placed.'
+        }
+      } else if (hintMode === 'reveal_all') {
+        revealedAll = true
+        for (const item of expectedItems) {
+          if (!revealedSet.has(item.name.toLowerCase())) {
+            alreadyRevealed.push(item)
+            newlyRevealed.push(item)
+            revealedSet.add(item.name.toLowerCase())
+          }
+        }
+        message = `Unlocked all ${alreadyRevealed.length} recommended components & Path Milestones.`
+      } else if (hintMode === 'check_topology') {
+        nextConnectionHint = topologyFeedback.next_connection_hint || null
+        message = topologyFeedback.summary
+      } else if (hintMode === 'next_connection') {
+        nextConnectionHint = topologyFeedback.next_connection_hint || null
+        if (nextConnectionHint) hintsCount += 1
+        message = nextConnectionHint
+          ? nextConnectionHint.rationale
+          : 'All placed milestone components are already wired!'
+      }
+
+      const penaltyPoints = demoComputePenalty()
+      session.diagram_guidance = {
+        ...guidance,
+        hints_used_count: hintsCount,
+        revealed_all_bank: revealedAll,
+        revealed_components: alreadyRevealed,
+        expected_paths: pathMilestones,
+        coach_messages: Array.isArray(guidance.coach_messages) ? guidance.coach_messages : [],
+        last_topology_feedback: topologyFeedback,
+        is_coached: true,
+        is_practice_run: true,
+        penalty_points: penaltyPoints,
+      }
+      session.updated_at = new Date().toISOString()
+      const referenceActions =
+        revealedAll || hintMode === 'reveal_all' || hintMode === 'next_connection'
+          ? demoBuildCoachActions(
+              expectedItems,
+              pathMilestones,
+              '',
+              data.cloud_provider || 'generic'
+            )
+          : []
+      const demoStudyNotes = revealedAll
+        ? {
+            common_bottlenecks_and_spofs: [
+              'Single primary DB sequence or hot cache key saturation under traffic bursts.',
+              'Synchronous analytics writes inside redirect/critical read paths.',
+            ],
+            over_engineering_traps: [
+              'Adding heavyweight distributed streaming engines when simple async batching suffices.',
+            ],
+            defence_questions: [
+              'How does your architecture survive single-shard hot keys and cache stampedes?',
+            ],
+          }
+        : {}
+      session.study_notes = demoStudyNotes
+      saveDemoDb(db)
+      return ok({
+        newly_revealed: newlyRevealed,
+        revealed_components: alreadyRevealed,
+        expected_paths: pathMilestones,
+        reference_actions: referenceActions,
+        study_notes: demoStudyNotes,
+        topology_feedback: topologyFeedback,
+        next_connection_hint: nextConnectionHint,
+        hints_used_count: hintsCount,
+        revealed_all_bank: revealedAll,
+        penalty_points: penaltyPoints,
+        is_coached: true,
+        is_practice_run: true,
+        remaining_expected_count: Math.max(0, unrevealed.length - newlyRevealed.length),
+        message,
+        session,
+      })
+    }
+
+    const sdCoachChatMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/coach-chat$/)
+    if (sdCoachChatMatch && method === 'post') {
+      const sid = Number(sdCoachChatMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const msgText = String(data.message || '').trim()
+      if (!msgText) return { status: 400, data: { detail: 'Coach message cannot be empty.' } }
+
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(rawChallenge, session)
+      const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const currentEdges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const currentNotes = String(data.current_notes || '')
+      const cloudProvider = String(data.cloud_provider || session.diagram_guidance?.cloud_provider || 'generic').toLowerCase()
+      const topologyFeedback = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        currentNodes,
+        currentEdges,
+        currentNotes
+      )
+      const pathMilestones = topologyFeedback.path_milestones || expectedPaths
+      const suggestedActions = demoBuildCoachActions(expectedItems, pathMilestones, msgText, cloudProvider)
+
+      const missing = topologyFeedback.missing_components || []
+      const parts = []
+      const cloudLabel = DEFAULT_CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.short_label
+      const cloudPrefix = cloudProvider !== 'generic' && cloudLabel ? `[${cloudLabel}] ` : ''
+      if (/write|create|shorten|post/i.test(msgText)) {
+        parts.push(`${cloudPrefix}For the Write Path, route client traffic through the Load Balancer and API Gateway, validate payloads, compute in the App Service, generate an ID, and persist durably (SQL or NoSQL KV).`)
+      } else if (missing.length) {
+        parts.push(`${cloudPrefix}Right now your canvas is missing ${missing.slice(0, 3).join(', ')}. Remember that equivalent components like NoSQL KV or Event Stream are valid alternatives too!`)
+      } else {
+        parts.push(`${cloudPrefix}Your core components are in place! Focus on documenting capacity bounds, cache eviction/TTL, and failover in Canvas Notes.`)
+      }
+      if (suggestedActions.length) {
+        parts.push(`Click "${suggestedActions[0].title}" below if you want me to place and wire that increment onto your canvas.`)
+      }
+      const reply = parts.join(' ')
+
+      const guidance = { ...(session.diagram_guidance || {}) }
+      const history = Array.isArray(guidance.coach_messages) ? [...guidance.coach_messages] : []
+      const nowIso = new Date().toISOString()
+      history.push({ role: 'user', content: msgText, timestamp: nowIso })
+      history.push({ role: 'coach', content: reply, actions: suggestedActions, timestamp: nowIso })
+
+      session.diagram_guidance = {
+        ...guidance,
+        hints_used_count: Number(guidance.hints_used_count || 0) + 1,
+        expected_paths: pathMilestones,
+        coach_messages: history.slice(-24),
+        last_topology_feedback: topologyFeedback,
+        is_coached: true,
+        is_practice_run: true,
+        penalty_points: 0,
+      }
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok({
+        reply,
+        suggested_actions: suggestedActions,
+        topology_feedback: topologyFeedback,
+        expected_paths: pathMilestones,
+        session,
+      })
+    }
+
+    const sdReviewMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/review$/)
+    if (sdReviewMatch && method === 'post') {
+      const sid = Number(sdReviewMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const diagrams = session.diagrams_metadata || []
+      if (!diagrams.length) {
+        return { status: 400, data: { detail: 'No diagram uploaded yet.' } }
+      }
+      const targetVersion = Number(data.diagram_version || diagrams[diagrams.length - 1].version)
+      const targetRev = diagrams.find((d) => Number(d.version) === targetVersion) || diagrams[diagrams.length - 1]
+      const webGrounded = Boolean(data.use_web_search)
+      const isCanvas = targetRev?.diagram_kind === 'canvas' && targetRev?.flow_payload
+      const flowNodes = isCanvas ? targetRev.flow_payload.nodes || [] : []
+      const flowEdges = isCanvas ? targetRev.flow_payload.edges || [] : []
+      const review = {
+        diagram_version: targetVersion,
+        interpreted_components: isCanvas
+          ? flowNodes.map((n) => (n.tech_stack ? `${n.label} (${n.tech_stack})` : n.label))
+          : ['API Gateway', 'Application Service', 'Redis Read Cache', 'Primary SQL Database'],
+        interpreted_data_flows: isCanvas && flowEdges.length
+          ? flowEdges.map((e) => {
+              const s = flowNodes.find((n) => n.id === e.source)?.label || e.source
+              const t = flowNodes.find((n) => n.id === e.target)?.label || e.target
+              return `${s} -> ${t} [${e.protocol || 'HTTPS'}, ${e.delivery_mode || 'sync'}]`
+            })
+          : [
+              'Client -> API Gateway -> App Service',
+              'App Service -> Redis Cache (miss -> Primary DB)',
+            ],
+        visual_clarifications_needed: isCanvas
+          ? []
+          : [
+              'Clarify whether DB read replicas handle analytics queries or share primary connections.',
+            ],
+        strengths: [
+          isCanvas
+            ? `Explicit structured Flow JSON topology (${flowNodes.length} component(s), ${flowEdges.length} directed flow(s)) makes request paths unambiguous.`
+            : 'Clear separation between stateless compute tier and read-through cache.',
+          'Right-sized service boundaries align with discovered scale requirements.',
+          ...(webGrounded
+            ? ['[Web Grounded] Matches production edge-caching & stateless app-tier benchmarks.']
+            : []),
+        ],
+        missing_components: ['Dead-letter / async worker path for non-blocking click/audit telemetry'],
+        bottlenecks_and_spofs: ['Single primary database instance without automated failover standby'],
+        unnecessary_complexity: [],
+        requirement_gaps: ['Explicit cache eviction / TTL invalidation flow is not annotated'],
+        overall_impression: `${webGrounded ? '[Web-Grounded] ' : ''}Solid v${targetVersion} baseline architecture; tighten DB failover and async telemetry paths during defence.`,
+        suggested_defence_topics: [
+          'How does your service behave if Redis evicts hot keys or temporarily goes unreachable during peak traffic?',
+        ],
+      }
+      const filteredReviews = (session.architecture_reviews || []).filter(
+        (r) => Number(r.diagram_version) !== targetVersion
+      )
+      filteredReviews.push(review)
+      filteredReviews.sort((a, b) => Number(a.diagram_version) - Number(b.diagram_version))
+      session.architecture_reviews = filteredReviews
+      session.stage = 'REVIEW'
+      if (!(session.defence_transcript || []).length) {
+        session.defence_transcript = [
+          {
+            turn_index: 1,
+            role: 'interviewer',
+            content: review.suggested_defence_topics[0],
+            stage: 'DEFENCE',
+            timestamp: new Date().toISOString(),
+          },
+        ]
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdDefenceMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/defence\/message$/)
+    if (sdDefenceMatch && method === 'post') {
+      const sid = Number(sdDefenceMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const defence = session.defence_transcript || []
+      const nowIso = new Date().toISOString()
+      const msgText = data.message || ''
+      const assisted = Boolean(data.request_hint || /\b(hint|help|coach|nudge|stuck)\b/i.test(msgText))
+      const webGrounded = Boolean(data.use_web_search)
+      defence.push({
+        turn_index: defence.length + 1,
+        role: 'candidate',
+        content: msgText,
+        stage: 'DEFENCE',
+        assisted,
+        timestamp: nowIso,
+      })
+      const baseReply = assisted
+        ? 'Coaching Hint: Explain your circuit-breaker threshold, stale-while-revalidate fallback, and how you shed non-critical write telemetry under primary DB saturation.'
+        : 'Understood. Suppose your primary DB hits connection saturation during a failover window—what backpressure or circuit-breaker mechanism prevents cascading 5xx failures?'
+      defence.push({
+        turn_index: defence.length + 1,
+        role: 'interviewer',
+        content: webGrounded ? `[Web-Grounded Context] ${baseReply}` : baseReply,
+        stage: 'DEFENCE',
+        assisted,
+        timestamp: nowIso,
+      })
+      session.defence_transcript = defence
+      session.stage = 'DEFENCE'
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdEvalMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/evaluate$/)
+    if (sdEvalMatch && method === 'post') {
+      const sid = Number(sdEvalMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const lockedLabel = session.requirements_ledger?.is_locked ? 'locked' : 'unlocked'
+      const diagramsCount = (session.diagrams_metadata || []).length
+      const defTurns = (session.defence_transcript || []).filter((t) => t.role === 'candidate').length
+      const dims = [
+        ['Requirements Clarity', 4, `Candidate ran ${(session.requirements_transcript || []).length} discovery turns and curated a ${lockedLabel} requirements ledger.`, 'Strong clarifying focus on read/write ratio and SLA bounds.'],
+        ['Scope & Prioritization', 4, 'Explicitly separated MVP endpoints from out-of-scope multi-region replication.', 'Pragmatic phasing aligns with interview time constraints.'],
+        ['Back-of-the-Envelope Estimation', 4, 'Captured MAU baseline and 10:1 read/write assumption inside scale_estimates.', 'Add explicit storage growth calculations over 5 years next time.'],
+        ['API & Interface Design', 4, 'Defined primary write ingestion and low-latency read paths in ledger notes.', 'Mention idempotency keys on mutating POST requests.'],
+        ['Data Model & Storage Choice', 4, 'Diagram v' + Math.max(1, diagramsCount) + ' anchors durable state in a primary relational DB.', 'Sound indexing and schema discipline.'],
+        ['High-Level Architecture', 5, `Submitted ${diagramsCount || 1} diagram revision(s) with clear gateway, service, and storage separation.`, 'Clean component boundaries easy to follow.'],
+        ['Scalability & Partitioning', 4, 'Addressed read scaling through cache offloading before DB lookup.', 'Clarify sharding key choice once write QPS exceeds single primary.'],
+        ['Reliability & Fault Tolerance', 4, 'Identified standby failover risk and discussed cache unavailability fallback.', 'Document active health-check thresholds and retry jitter.'],
+        ['Caching & Latency Optimization', 5, 'Placed Redis read cache directly ahead of storage to meet <50ms p99 SLA.', 'Effective hot-key mitigation mindset.'],
+        ['Right-Sizing & Simplicity (YAGNI)', 5, 'Avoided unnecessary Kafka/microservice sprawl for the initial scale target.', 'Zero speculative complexity.'],
+        ['Trade-off Justification', 4, `Completed ${defTurns} defence response(s) explaining cache vs. DB consistency tradeoffs.`, 'Articulated trade-offs clearly under probing.'],
+        ['Defence Communication Under Pressure', 4, 'Directly answered bottlenecks highlighted in the architecture review.', 'Concise and structured explanations.'],
+      ]
+      const rawScore = 86
+      const penalty = 0
+      const netScore = rawScore
+      const isCoached = demoIsSessionCoached(session)
+      const rating = demoDeriveRating(netScore)
+      const finalEvaluation = {
+        overall_score: netScore,
+        raw_score: rawScore,
+        guidance_penalty: penalty,
+        assistance_mode: isCoached ? 'COACHED' : 'SOLO',
+        xp_earned: isCoached ? 100 : 150,
+        readiness_rating: rating,
+        executive_summary:
+          `Demonstrated strong end-to-end systems thinking across ${diagramsCount || 1} diagram revision(s) and ${defTurns} defence turn(s), keeping the core read/write path clean and appropriately scaled.`,
+        rubric_scores: dims.map(([dimension, score, evidence, critique]) => ({
+          dimension,
+          score,
+          evidence,
+          critique,
+        })),
+        key_strengths: [
+          'Established measurable read/write ratio and p99 latency targets before drawing',
+          'Avoided premature distributed complexity while isolating the hot read path in cache',
+        ],
+        critical_gaps: [
+          'Primary database single-point-of-failure failover automation needs explicit diagram notation',
+        ],
+        recommended_next_steps: [
+          'Revise the architecture diagram showing standby replication and async dead-letter worker queues',
+        ],
+      }
+      const nowIso = new Date().toISOString()
+      session.final_evaluation = finalEvaluation
+      session.overall_score = netScore
+      session.readiness_rating = rating
+      session.stage = 'COMPLETED'
+      session.status = 'COMPLETED'
+      session.completed_at = nowIso
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdFrontierPacketMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/frontier-packet$/)
+    if (sdFrontierPacketMatch && method === 'get') {
+      const sid = Number(sdFrontierPacketMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const challenge = session.challenge || {}
+      const reqTurns = session.requirements_transcript || []
+      const defTurns = session.defence_transcript || []
+      const candidateTurns = [...reqTurns, ...defTurns].filter((t) => t.role === 'candidate')
+      const assistedCount = candidateTurns.filter((t) => t.assisted).length
+      const independentCount = candidateTurns.length - assistedCount
+      const diagrams = session.diagrams_metadata || []
+      const latestVersion = diagrams.length ? Number(diagrams[diagrams.length - 1].version) : null
+      const fmtTurns = (turns) =>
+        turns.length
+          ? turns
+              .map(
+                (t) =>
+                  `- **Turn ${t.turn_index} (${t.role}${t.assisted ? ' [ASSISTED / HINT REQUESTED]' : ''})**: ${t.content}`
+              )
+              .join('\n')
+          : '_No turns recorded._'
+      const rubricDims = [
+        'Requirements Clarity',
+        'Scope & Prioritization',
+        'Back-of-the-Envelope Estimation',
+        'API & Interface Design',
+        'Data Model & Storage Choice',
+        'High-Level Architecture',
+        'Scalability & Partitioning',
+        'Reliability & Fault Tolerance',
+        'Caching & Latency Optimization',
+        'Right-Sizing & Simplicity (YAGNI)',
+        'Trade-off Justification',
+        'Defence Communication Under Pressure',
+      ]
+      const jsonTemplate = JSON.stringify(
+        {
+          overall_score: 0,
+          readiness_rating: 'NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE',
+          executive_summary: '<2-4 sentence assessment>',
+          rubric_scores: rubricDims.map((dimension) => ({
+            dimension,
+            score: 3,
+            evidence: '<concrete observation>',
+            critique: '<specific strength or gap>',
+          })),
+          key_strengths: ['<strength>'],
+          critical_gaps: ['<gap>'],
+          recommended_next_steps: ['<next step>'],
+        },
+        null,
+        2
+      )
+      const markdownPacket = [
+        `# System Design Interview Evaluation Dossier: ${challenge.title || 'Challenge'}`,
+        '',
+        `> Attach your latest uploaded diagram image (if any) alongside this prompt in Claude, ChatGPT, or Gemini.`,
+        `> Coaching telemetry: **${independentCount} independent** candidate turn(s) vs **${assistedCount} assisted/hint-requested** turn(s).`,
+        '',
+        '## 1. Challenge Brief',
+        `- **Title**: ${challenge.title || ''}`,
+        `- **Initial Prompt**: ${challenge.initial_prompt || ''}`,
+        '',
+        '## 2. Requirements Discovery Transcript',
+        fmtTurns(reqTurns),
+        '',
+        '## 3. Requirements Ledger',
+        '```json',
+        JSON.stringify(session.requirements_ledger || {}, null, 2),
+        '```',
+        '',
+        '## 4. Diagram Revisions & Local AI Review Notes',
+        '```json',
+        JSON.stringify(
+          {
+            diagrams_metadata: diagrams.map(({ data_url: _omit, ...rest }) => rest),
+            architecture_reviews: session.architecture_reviews || [],
+          },
+          null,
+          2
+        ),
+        '```',
+        '',
+        '## 5. Architecture Defence Transcript',
+        fmtTurns(defTurns),
+        '',
+        '## 6. Return Valid JSON Scorecard Matching This Schema',
+        '```json',
+        jsonTemplate,
+        '```',
+      ].join('\n')
+      return ok({
+        session_id: sid,
+        challenge_title: challenge.title || 'System Design Challenge',
+        filename: `${challenge.slug || 'system-design'}-session-${sid}-frontier-packet.md`,
+        diagram_version: latestVersion,
+        markdown_packet: markdownPacket,
+      })
+    }
+
+    const sdImportEvalMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/import-evaluation$/)
+    if (sdImportEvalMatch && method === 'post') {
+      const sid = Number(sdImportEvalMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      const candidates = [fenced ? fenced[1].trim() : null, raw].filter(Boolean)
+      const firstBrace = raw.indexOf('{')
+      const lastBrace = raw.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        candidates.push(raw.slice(firstBrace, lastBrace + 1))
+      }
+      for (const candidate of candidates) {
+        try {
+          const obj = JSON.parse(candidate)
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            parsed = obj
+            break
+          }
+        } catch {
+          // try next extraction candidate
+        }
+      }
+      if (!parsed) {
+        return { status: 400, data: { detail: 'Could not extract a valid JSON scorecard object.' } }
+      }
+      const rubricScores = Array.isArray(parsed.rubric_scores)
+        ? parsed.rubric_scores.map((r, idx) => ({
+            dimension: String(r.dimension || `Dimension ${idx + 1}`),
+            score: Math.max(1, Math.min(5, Number(r.score || 3))),
+            evidence:
+              String(r.evidence || '').trim().length >= 5
+                ? String(r.evidence).trim()
+                : `Session ${sid} external frontier review evidence.`,
+            critique: String(r.critique || 'Evaluated by external frontier model.').trim(),
+          }))
+        : []
+      const rawScore = Number(parsed.overall_score ?? 85)
+      const penalty = 0
+      const overallScore = Math.round(Math.max(0, rawScore) * 10) / 10
+      const isCoached = demoIsSessionCoached(session)
+      const rating = demoDeriveRating(overallScore)
+      const normalized = {
+        overall_score: overallScore,
+        raw_score: rawScore,
+        guidance_penalty: penalty,
+        assistance_mode: isCoached ? 'COACHED' : 'SOLO',
+        xp_earned: isCoached ? 100 : 150,
+        readiness_rating: rating,
+        executive_summary: String(
+          parsed.executive_summary || 'External frontier evaluation imported.'
+        ),
+        rubric_scores: rubricScores,
+        key_strengths: Array.isArray(parsed.key_strengths) ? parsed.key_strengths : [],
+        critical_gaps: Array.isArray(parsed.critical_gaps) ? parsed.critical_gaps : [],
+        recommended_next_steps: Array.isArray(parsed.recommended_next_steps)
+          ? parsed.recommended_next_steps
+          : [],
+      }
+      const nowIso = new Date().toISOString()
+      session.final_evaluation = normalized
+      session.overall_score = overallScore
+      session.readiness_rating = rating
+      session.stage = 'COMPLETED'
+      session.status = 'COMPLETED'
+      session.completed_at = nowIso
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdFrontierCoachMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/diagrams\/frontier-coach-prompt$/
+    )
+    if (sdFrontierCoachMatch && method === 'post') {
+      const sid = Number(sdFrontierCoachMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const kind = data.prompt_kind === 'delta' ? 'delta' : 'initial'
+      const nodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const edges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(session.challenge, session)
+      const topoFeedback = demoEvaluateTopology(expectedItems, expectedPaths, nodes, edges, data.current_notes || '')
+      session.diagram_guidance = {
+        ...(session.diagram_guidance || {}),
+        is_coached: true,
+        is_practice_run: true,
+        last_topology_feedback: topoFeedback,
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      const md = [
+        kind === 'delta'
+          ? `# Updated Canvas Snapshot — ${session.challenge?.title || 'System Design'}`
+          : `# External System Design Studio Coach — ${session.challenge?.title || 'System Design'}`,
+        `- Cloud Lens: ${data.cloud_provider || 'generic'}`,
+        `- Placed Components (${nodes.length}): ${nodes.map((n) => n.label || n.type_id).join(', ') || 'None'}`,
+        `- Wires (${edges.length})`,
+        `- Capabilities: ${JSON.stringify(topoFeedback.capability_checks || [])}`,
+      ].join('\n')
+      return ok({
+        session_id: sid,
+        filename: `${session.challenge?.slug || 'system-design'}-studio-coach-${kind}.md`,
+        markdown_prompt: md,
+        is_coached: true,
+        session: demoAttachPaletteExtensions(session),
+      })
+    }
+
+    const sdFrontierReviewPromptMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/review\/frontier-prompt$/
+    )
+    if (sdFrontierReviewPromptMatch && method === 'post') {
+      const sid = Number(sdFrontierReviewPromptMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const diagrams = session.diagrams_metadata || []
+      const latestVersion = diagrams.length ? Number(diagrams[diagrams.length - 1].version || 1) : 1
+      return ok({
+        session_id: sid,
+        diagram_version: Number(data.diagram_version || latestVersion),
+        filename: `${session.challenge?.slug || 'system-design'}-v${latestVersion}-review-prompt.md`,
+        markdown_prompt: `# External Stage 3 Architecture Review — ${session.challenge?.title || 'System Design'}\nReturn a valid Stage 3 Review JSON object.`,
+      })
+    }
+
+    const sdImportReviewMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/review\/import$/)
+    if (sdImportReviewMatch && method === 'post') {
+      const sid = Number(sdImportReviewMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      for (const cand of [fenced ? fenced[1].trim() : null, raw].filter(Boolean)) {
+        try {
+          const obj = JSON.parse(cand)
+          if (obj && typeof obj === 'object') {
+            parsed = obj
+            break
+          }
+        } catch {
+          // continue
+        }
+      }
+      if (!parsed) return { status: 400, data: { detail: 'Could not extract a valid JSON review object.' } }
+      const diagrams = session.diagrams_metadata || []
+      const targetVersion = Number(
+        data.diagram_version || (diagrams.length ? diagrams[diagrams.length - 1].version : 1)
+      )
+      const reviewObj = {
+        diagram_version: targetVersion,
+        interpreted_components: Array.isArray(parsed.interpreted_components) ? parsed.interpreted_components : [],
+        interpreted_data_flows: Array.isArray(parsed.interpreted_data_flows) ? parsed.interpreted_data_flows : [],
+        visual_clarifications_needed: Array.isArray(parsed.visual_clarifications_needed) ? parsed.visual_clarifications_needed : [],
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
+        missing_components: Array.isArray(parsed.missing_components) ? parsed.missing_components : [],
+        bottlenecks_and_spofs: Array.isArray(parsed.bottlenecks_and_spofs) ? parsed.bottlenecks_and_spofs : [],
+        unnecessary_complexity: Array.isArray(parsed.unnecessary_complexity) ? parsed.unnecessary_complexity : [],
+        requirement_gaps: Array.isArray(parsed.requirement_gaps) ? parsed.requirement_gaps : [],
+        overall_impression: String(parsed.overall_impression || 'External Stage 3 review imported.'),
+        suggested_defence_topics: Array.isArray(parsed.suggested_defence_topics) ? parsed.suggested_defence_topics : [],
+      }
+      session.architecture_reviews = [
+        ...(session.architecture_reviews || []).filter((r) => Number(r.diagram_version) !== targetVersion),
+        reviewObj,
+      ]
+      if (session.stage === 'DESIGN') session.stage = 'REVIEW'
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(demoAttachPaletteExtensions(session))
+    }
+
+    const sdFrontierDefencePromptMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/defence\/frontier-prompt$/
+    )
+    if (sdFrontierDefencePromptMatch && method === 'post') {
+      const sid = Number(sdFrontierDefencePromptMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      return ok({
+        session_id: sid,
+        filename: `${session.challenge?.slug || 'system-design'}-session-${sid}-defence-prompt.md`,
+        markdown_prompt: `# External Stage 4 Architecture Defence — ${session.challenge?.title || 'System Design'}\nSpar on trade-offs & failure modes, then paste summary back.`,
+      })
+    }
+
+    const sdImportDefenceMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/defence\/import$/
+    )
+    if (sdImportDefenceMatch && method === 'post') {
+      const sid = Number(sdImportDefenceMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const text = String(data.summary_or_transcript || '').trim()
+      if (text.length < 5) return { status: 400, data: { detail: 'Defence summary too short.' } }
+      const transcript = session.defence_transcript || []
+      const nowIso = new Date().toISOString()
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'candidate',
+        content: text,
+        stage: 'DEFENCE',
+        assisted: false,
+        external_frontier: true,
+        timestamp: nowIso,
+      })
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'interviewer',
+        content: 'External Frontier Defence transcript logged for Stage 5 evidence evaluation.',
+        stage: 'DEFENCE',
+        assisted: false,
+        timestamp: nowIso,
+      })
+      session.defence_transcript = transcript
+      session.stage = 'DEFENCE'
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(demoAttachPaletteExtensions(session))
+    }
   }
 
   return ok({ message: 'Client Demo Mode mock response' })

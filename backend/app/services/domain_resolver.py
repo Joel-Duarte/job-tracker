@@ -343,10 +343,16 @@ def extract_domain_from_url(
         if is_aggregator_hostname(cleaned, company_name=company_name):
             return None
 
-        # Strip standard subdomains like careers., jobs., info., app.
+        # Strip standard career/regional/portal subdomains without breaking multi-part SLDs (e.g. hays.co.uk)
         parts = cleaned.split(".")
         candidate = cleaned
-        if len(parts) > 2:
+        _TWO_PART_SLDS = {"co", "com", "org", "net", "gov", "edu", "ac"}
+        min_parts_for_sub = (
+            4
+            if (len(parts) >= 3 and parts[-2] in _TWO_PART_SLDS and len(parts[-1]) == 2)
+            else 3
+        )
+        if len(parts) >= min_parts_for_sub:
             subdomain = parts[0]
             if subdomain in {
                 "careers",
@@ -358,6 +364,22 @@ def extract_domain_from_url(
                 "work",
                 "join",
                 "app",
+                "uk",
+                "us",
+                "eu",
+                "de",
+                "fr",
+                "es",
+                "en",
+                "pt",
+                "nl",
+                "ca",
+                "au",
+                "talent",
+                "boards",
+                "recruiting",
+                "hr",
+                "people",
             }:
                 candidate = ".".join(parts[1:])
 
@@ -469,6 +491,51 @@ def clean_company_name(raw_name: str | None) -> str:
     # Clean trailing punctuation
     name = name.rstrip(",.-:–— ").strip()
     return name or raw_name.strip()[:512]
+
+
+_INVALID_COMPANY_NAMES = {
+    "unknown",
+    "unknown company",
+    "not specified",
+    "unspecified",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "hybrid",
+    "remote",
+    "on-site",
+    "onsite",
+    "in-office",
+    "flexible",
+    "technical bar",
+    "technical bar raiser",
+    "hiring screener",
+    "senior hiring screener",
+    "careers",
+    "jobs",
+    "team",
+    "engineering",
+    "hiring",
+    "confidential",
+    "undisclosed",
+}
+
+
+def is_invalid_company_name(name: str | None) -> bool:
+    """Returns True if an extracted company string is a placeholder, workplace mode,
+    or prompt-leakage artifact rather than a real employer name.
+    """
+    if not name or not isinstance(name, str):
+        return True
+    cleaned = clean_company_name(name).strip().lower()
+    if not cleaned:
+        return True
+    if cleaned in _INVALID_COMPANY_NAMES:
+        return True
+    if cleaned.startswith("technical bar"):
+        return True
+    return False
 
 
 _EMAIL_IGNORE_DOMAINS = KNOWN_AGGREGATOR_DOMAINS | {

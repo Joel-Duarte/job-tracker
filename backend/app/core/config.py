@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
     SCRAPER_EGRESS_PROXY: str = ""
 
+    # System Design Lab diagram binary storage directory.
+    # Unset defaults to <backend_root>/data/system_design (/app/data/system_design in Docker).
+    SYSTEM_DESIGN_DATA_DIR: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
@@ -69,6 +73,13 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+    def get_system_design_data_dir(self) -> Path:
+        """Resolve configured diagram storage root without silent fallbacks."""
+        raw = (self.SYSTEM_DESIGN_DATA_DIR or "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        return Path(__file__).resolve().parents[2] / "data" / "system_design"
 
 
 def _get_or_generate_secret_key() -> str:

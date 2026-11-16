@@ -72,19 +72,27 @@ async def persist_or_stage_job_assessment(
     updates the existing application's match payload and JobPosting without altering its active pipeline status.
     Otherwise creates a new application in target_status.
     """
-    company_name = (assessment.company or "Unknown Company").strip()
-    if structured_spec and structured_spec.get("company"):
-        spec_comp = str(structured_spec["company"]).strip()
-        if (
-            not company_name
-            or company_name.lower() in {"unknown company", "unknown", "not specified"}
-            or (
-                spec_comp
-                and spec_comp.lower() not in {"unknown", "not specified"}
-                and len(spec_comp) > len(company_name)
-            )
-        ):
-            company_name = spec_comp
+    from app.services.domain_resolver import (
+        clean_company_name,
+        extract_domain_from_url,
+        extract_organization_from_ats_url,
+        is_invalid_company_name,
+        resolve_company_domain_and_about,
+    )
+
+    spec_comp = (
+        str(structured_spec["company"]).strip()
+        if structured_spec and structured_spec.get("company")
+        else ""
+    )
+    assess_comp = (assessment.company or "").strip()
+
+    if spec_comp and not is_invalid_company_name(spec_comp):
+        company_name = spec_comp
+    elif assess_comp and not is_invalid_company_name(assess_comp):
+        company_name = assess_comp
+    else:
+        company_name = ""
 
     position_name = (assessment.position or "Unspecified Position").strip()
     position_norm = position_name.lower()
@@ -245,33 +253,24 @@ async def persist_or_stage_job_assessment(
             }
 
     # 2. Find or Create Company
-    from app.services.domain_resolver import (
-        clean_company_name,
-        extract_organization_from_ats_url,
-        resolve_company_domain_and_about,
-    )
-
     clean_name = clean_company_name(company_name)
-    if not clean_name or clean_name.lower() in {
-        "unknown",
-        "careers",
-        "team",
-        "engineering",
-        "not specified",
-    }:
-        if structured_spec and structured_spec.get("company"):
-            clean_name = clean_company_name(structured_spec["company"])
+    if is_invalid_company_name(clean_name):
+        if not is_invalid_company_name(spec_comp):
+            clean_name = clean_company_name(spec_comp)
 
-    if not clean_name or clean_name.lower() in {
-        "unknown",
-        "careers",
-        "team",
-        "engineering",
-        "not specified",
-    }:
+    if is_invalid_company_name(clean_name):
         ats_slug = extract_organization_from_ats_url(clean_url)
-        if ats_slug:
+        if ats_slug and not is_invalid_company_name(ats_slug):
             clean_name = ats_slug.title()
+        else:
+            direct_dom = extract_domain_from_url(clean_url)
+            if direct_dom:
+                dom_root = direct_dom.split(".")[0]
+                if dom_root and not is_invalid_company_name(dom_root):
+                    clean_name = dom_root.title()
+
+    if is_invalid_company_name(clean_name):
+        clean_name = "Unknown Company"
 
     effective_ai_domain = assessment.company_url or (
         structured_spec.get("company_url") if structured_spec else None
