@@ -16,7 +16,7 @@ from app.models.applications import (
     ApplicationModel,
     CompanyModel,
 )
-from app.schemas.llm import JobAssessmentResult
+from app.schemas.llm import EmailMatchTiebreakerResult, JobAssessmentResult
 from app.services.company_resolver import resolve_or_create_company
 from app.services.domain_resolver import (
     extract_domain_from_url,
@@ -276,3 +276,150 @@ async def test_calendar_invite_advances_applied_to_technical_interview(
     ).scalar_one()
     assert ev.email_event_type == "INTERVIEW_SCHEDULED"
     assert ev.email_status_after_event == "TECHNICAL_INTERVIEW"
+
+
+@pytest.mark.asyncio
+async def test_tiebreaker_commits_alias_and_excludes_rejected_includes_archived(
+    db_session: AsyncSession,
+):
+    c_google = CompanyModel(
+        name="Google", name_normalized="google", domain="google.com"
+    )
+    c_ghost = CompanyModel(
+        name="GhostCorp", name_normalized="ghostcorp", domain="ghost.io"
+    )
+    c_rej = CompanyModel(
+        name="RejectCorp", name_normalized="rejectcorp", domain="rej.io"
+    )
+    db_session.add_all([c_google, c_ghost, c_rej])
+    await db_session.flush()
+
+    app_google = ApplicationModel(
+        company_id=c_google.id,
+        position="Staff Distributed Systems Engineer",
+        position_normalized="staff distributed systems engineer",
+        status="APPLIED",
+    )
+    app_ghost = ApplicationModel(
+        company_id=c_ghost.id,
+        position="Platform Engineer",
+        position_normalized="platform engineer",
+        status="ARCHIVED",
+    )
+    app_rej = ApplicationModel(
+        company_id=c_rej.id,
+        position="Backend Engineer",
+        position_normalized="backend engineer",
+        status="REJECTED",
+    )
+    db_session.add_all([app_google, app_ghost, app_rej])
+    await db_session.commit()
+
+    captured_candidates = []
+
+    async def fake_tiebreaker(db, **kwargs):
+        captured_candidates.extend(kwargs["candidates"])
+        return EmailMatchTiebreakerResult(
+            matched_application_id=app_google.id,
+            confidence=0.92,
+            reason="Alphabet Recruiting is Google's parent recruiting brand.",
+        )
+
+    config = {"configurable": {"db": db_session}}
+    with patch(
+        "app.services.llm.resolve_email_match_tiebreaker",
+        side_effect=fake_tiebreaker,
+    ):
+        res = await fuzzy_match_node(
+            {
+                "conversation_id": "conv-alphabet-1",
+                "sender": "recruiting@alphabet-careers.invalid",
+                "subject": "Next steps for Staff Systems Engineer",
+                "company_name": "Alphabet Recruiting",
+                "position_name": "Staff Systems Engineer",
+                "extracted_data": {
+                    "status": "TECHNICAL_INTERVIEW",
+                    "summary": "Teams screen",
+                },
+            },
+            config,
+        )
+
+    cand_ids = {c["application_id"] for c in captured_candidates}
+    assert app_google.id in cand_ids
+    assert app_ghost.id in cand_ids
+    assert app_rej.id not in cand_ids
+    assert res["route"] == "commit"
+    assert res["application_id"] == app_google.id
+
+
+@pytest.mark.asyncio
+async def test_tiebreaker_resolves_multiple_active_roles_and_falls_back_on_low_confidence(
+    db_session: AsyncSession,
+):
+    comp = CompanyModel(
+        name="Orbital Cloud", name_normalized="orbital cloud", domain="orbital.io"
+    )
+    db_session.add(comp)
+    await db_session.flush()
+
+    app_be = ApplicationModel(
+        company_id=comp.id,
+        position="Senior Backend & AI Engineer",
+        position_normalized="senior backend & ai engineer",
+        status="APPLIED",
+    )
+    app_fe = ApplicationModel(
+        company_id=comp.id,
+        position="Senior Frontend Engineer",
+        position_normalized="senior frontend engineer",
+        status="APPLIED",
+    )
+    db_session.add_all([app_be, app_fe])
+    await db_session.commit()
+
+    config = {"configurable": {"db": db_session}}
+    state = {
+        "conversation_id": "conv-orbital-multi",
+        "sender": "talent@orbital.io",
+        "subject": "Chat with Kubernetes infra team",
+        "company_name": "Orbital Cloud",
+        "position_name": "Software Engineer",
+        "extracted_data": {
+            "status": "PHONE_SCREEN",
+            "summary": "Kubernetes infra chat",
+        },
+    }
+
+    with patch(
+        "app.services.llm.resolve_email_match_tiebreaker",
+        new_callable=AsyncMock,
+        return_value=EmailMatchTiebreakerResult(
+            matched_application_id=app_be.id, confidence=0.90, reason="Infra team match"
+        ),
+    ):
+        ok_res = await fuzzy_match_node(state, config)
+    assert ok_res["route"] == "commit"
+    assert ok_res["application_id"] == app_be.id
+
+    with patch(
+        "app.services.llm.resolve_email_match_tiebreaker",
+        new_callable=AsyncMock,
+        return_value=EmailMatchTiebreakerResult(
+            matched_application_id=app_be.id, confidence=0.60, reason="Uncertain"
+        ),
+    ):
+        low_res = await fuzzy_match_node(state, config)
+    assert low_res["route"] == "staging"
+    assert low_res["match_reason"] == "AMBIGUOUS_MULTIPLE_APPLICATIONS"
+
+    with patch(
+        "app.services.llm.resolve_email_match_tiebreaker",
+        new_callable=AsyncMock,
+        return_value=EmailMatchTiebreakerResult(
+            matched_application_id=999999, confidence=0.99, reason="Hallucinated ID"
+        ),
+    ):
+        bad_id_res = await fuzzy_match_node(state, config)
+    assert bad_id_res["route"] == "staging"
+    assert bad_id_res["match_reason"] == "AMBIGUOUS_MULTIPLE_APPLICATIONS"

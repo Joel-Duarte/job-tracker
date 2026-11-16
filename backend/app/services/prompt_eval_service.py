@@ -31,6 +31,7 @@ from app.services.llm import (
     extract_job_spec,
     generate_application_answers,
     generate_cover_letter,
+    resolve_email_match_tiebreaker,
 )
 from app.services.role_alignment_dossier_service import _extract_json_block
 from app.services.system_design_service import SystemDesignService
@@ -42,6 +43,7 @@ ALL_PIPELINES: tuple[str, ...] = (
     "jd_extraction",
     "assessment",
     "email_extraction",
+    "email_match_tiebreaker",
     "cover_letter",
     "application_qa",
     "cv_anonymization",
@@ -61,6 +63,7 @@ PROMPT_TO_PIPELINE: dict[str, str] = {
     "jd_extraction": "jd_extraction",
     "assessment": "assessment",
     "email_extraction": "email_extraction",
+    "email_match_tiebreaker": "email_match_tiebreaker",
     "cover_letter": "cover_letter",
     "application_qa": "application_qa",
     "cv_anonymization": "cv_anonymization",
@@ -396,6 +399,39 @@ async def evaluate_pipeline_scenario(
         for fld in scenario.get("expect_null_fields") or []:
             if getattr(res, fld, None) not in (None, ""):
                 failures.append(f"Expected null '{fld}', got {getattr(res, fld)!r}")
+
+    elif pipeline == "email_match_tiebreaker":
+        res = await resolve_email_match_tiebreaker(
+            db,
+            sender=scenario.get("sender"),
+            subject=scenario.get("subject"),
+            summary=scenario.get("summary"),
+            extracted_company=scenario.get("extracted_company"),
+            extracted_position=scenario.get("extracted_position"),
+            candidates=scenario["candidates"],
+        )
+        details = {
+            "matched_application_id": res.matched_application_id,
+            "confidence": res.confidence,
+            "reason": res.reason,
+        }
+        exp_id = scenario.get("expected_application_id")
+        if exp_id is None:
+            if (
+                res.matched_application_id is not None
+                and float(res.confidence or 0.0) >= 0.85
+            ):
+                failures.append(
+                    f"Expected no confident match (null or confidence < 0.85), got id={res.matched_application_id} ({res.confidence})"
+                )
+        else:
+            if res.matched_application_id != exp_id:
+                failures.append(
+                    f"Expected matched_application_id={exp_id}, got {res.matched_application_id}"
+                )
+            min_conf = scenario.get("min_confidence")
+            if min_conf is not None and float(res.confidence or 0.0) < float(min_conf):
+                failures.append(f"Confidence {res.confidence} below minimum {min_conf}")
 
     elif pipeline == "cover_letter":
         text = await generate_cover_letter(

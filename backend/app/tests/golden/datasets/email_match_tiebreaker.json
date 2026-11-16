@@ -1,0 +1,114 @@
+[
+  {
+    "id": "tiebreaker_parent_brand_alias",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "Email from parent/recruiting brand ('Alphabet Recruiting') must match the active Google application with high confidence.",
+    "sender": "recruiting@alphabet-careers.invalid",
+    "subject": "Next steps for your Staff Systems Engineer application",
+    "extracted_company": "Alphabet Recruiting",
+    "extracted_position": "Staff Systems Engineer",
+    "summary": "Alphabet Recruiting invites candidate to schedule a technical screen for Staff Systems Engineer.",
+    "candidates": [
+      {
+        "application_id": 101,
+        "company": "Google",
+        "position": "Staff Distributed Systems Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-12"
+      },
+      {
+        "application_id": 102,
+        "company": "Orbital Cloud",
+        "position": "Senior Python Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-10"
+      }
+    ],
+    "expected_application_id": 101,
+    "min_confidence": 0.85
+  },
+  {
+    "id": "tiebreaker_multiple_active_roles",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "Candidate has two active roles at Orbital Cloud; email mentions Kubernetes/backend API team so must pick the Backend & AI role over Frontend.",
+    "sender": "talent@orbital-cloud.invalid",
+    "subject": "Chat with our Backend & Kubernetes Infra Team",
+    "extracted_company": "Orbital Cloud",
+    "extracted_position": "Software Engineer",
+    "summary": "Hiring manager from the Kubernetes and FastAPI platform team wants to schedule a 45-minute technical call.",
+    "candidates": [
+      {
+        "application_id": 201,
+        "company": "Orbital Cloud",
+        "position": "Senior Frontend Engineer (Design Systems)",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-13"
+      },
+      {
+        "application_id": 202,
+        "company": "Orbital Cloud",
+        "position": "Senior Backend & AI Platform Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-14"
+      }
+    ],
+    "expected_application_id": 202,
+    "min_confidence": 0.85
+  },
+  {
+    "id": "tiebreaker_active_over_archived",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "When both an older auto-archived (no-response) application and a recent active application exist for the same company, prefer the active application.",
+    "sender": "careers@novatech.invalid",
+    "subject": "Update on your Senior AI Engineer application at NovaTech",
+    "extracted_company": "NovaTech",
+    "extracted_position": "Senior AI Engineer",
+    "summary": "Recruiter reached out to schedule an intro call for the Senior AI Engineer role.",
+    "candidates": [
+      {
+        "application_id": 301,
+        "company": "NovaTech",
+        "position": "Senior AI Engineer",
+        "status": "ARCHIVED",
+        "last_activity_at": "2026-09-20"
+      },
+      {
+        "application_id": 302,
+        "company": "NovaTech",
+        "position": "Senior AI Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-13"
+      }
+    ],
+    "expected_application_id": 302,
+    "min_confidence": 0.85
+  },
+  {
+    "id": "tiebreaker_unrelated_must_reject",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "Email from an unrelated company ('Stealth Fintech') must NOT be forced onto existing applications; must return null or confidence < 0.85.",
+    "sender": "jobs@stealth-fintech.invalid",
+    "subject": "Application Received - Stealth Fintech",
+    "extracted_company": "Stealth Fintech",
+    "extracted_position": "Backend Engineer",
+    "summary": "Thank you for applying to Stealth Fintech.",
+    "candidates": [
+      {
+        "application_id": 401,
+        "company": "Google",
+        "position": "Staff Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-12"
+      },
+      {
+        "application_id": 402,
+        "company": "Orbital Cloud",
+        "position": "Senior Python Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-10"
+      }
+    ],
+    "expected_application_id": null,
+    "max_confidence": 0.84
+  }
+]

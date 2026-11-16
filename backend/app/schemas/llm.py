@@ -29,6 +29,23 @@ class EmailExtractionResult(BaseModel):
     summary: str = Field(description="Brief summary of the email body")
 
 
+class EmailMatchTiebreakerResult(BaseModel):
+    matched_application_id: int | None = Field(
+        default=None,
+        description="Exact integer ID of the matching candidate application from the provided list, or null if none clearly match.",
+    )
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Match confidence from 0.0 (no match) to 1.0 (certain match).",
+    )
+    reason: str = Field(
+        default="",
+        description="Brief evidence-based rationale citing sender domain, company alias, role title, or team context.",
+    )
+
+
 class ApplicationSummaryResult(BaseModel):
     snapshot: str = Field(description="Full text snapshot of application history")
     current_stage: str = Field(description="Current stage e.g., REJECTED, APPLIED")

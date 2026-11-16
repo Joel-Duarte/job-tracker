@@ -16,6 +16,7 @@ PIPELINE_DATASET_FILES: tuple[str, ...] = (
     "jd_extraction.json",
     "assessment.json",
     "email_extraction.json",
+    "email_match_tiebreaker.json",
     "cover_letter.json",
     "application_qa.json",
     "cv_anonymization.json",

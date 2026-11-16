@@ -368,6 +368,25 @@ DEFAULT_PROMPTS = {
         "- Candidate withdrew -> status: 'WITHDRAWN', event_type: 'WITHDRAWAL_CONFIRMED'\n\n"
         "Email Content:\n<untrusted_email_content>\n{email_content}\n</untrusted_email_content>"
     ),
+    "email_match_tiebreaker": (
+        "You are an entity-resolution tiebreaker for a job application tracker.\n\n"
+        "An incoming recruitment email could not be matched deterministically. Decide whether it clearly belongs to ONE of the candidate applications below, or none of them.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT MATCHING & SAFETY RULES\n"
+        "--------------------------------------------------\n"
+        "- CLOSED-SET SELECTION: `matched_application_id` MUST be one of the integer IDs listed in <candidate_applications>, or `null` if none clearly match.\n"
+        "- PRECISION OVER RECALL: Never guess or force a match between unrelated companies. If uncertain, return `matched_application_id: null` and `confidence < 0.5` so a human can review it in staging.\n"
+        "- BRAND & PARENT ALIASES: Match recognized corporate parent/subsidiary or brand aliases when sender/subject/summary align (e.g., 'Alphabet Recruiting' -> 'Google', 'AWS' -> 'Amazon', 'Square' -> 'Block').\n"
+        "- ACTIVE OVER ARCHIVED PRIORITY: Strongly prefer ACTIVE applications (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) over `ARCHIVED` (auto-archived after 30+ days of no response). Only select an `ARCHIVED` application if no matching active application exists and the email clearly continues that stalled thread.\n"
+        "- MULTIPLE ROLES: When multiple active roles exist at the same company, use role keywords, team names, or seniority clues in the email to pick the right one; if genuinely ambiguous, return `null` with `confidence < 0.5`.\n\n"
+        "Email Signals:\n"
+        "- Sender: {sender}\n"
+        "- Subject: {subject}\n"
+        "- Extracted Company: {extracted_company}\n"
+        "- Extracted Position: {extracted_position}\n"
+        "- Email Summary: {summary}\n\n"
+        "<candidate_applications>\n{candidates_text}\n</candidate_applications>"
+    ),
     "assessment": (
         "You are a skeptical, highly analytical Technical Bar Raiser and Senior Hiring Screener.\n\n"
         "Your task is to perform an objective, strictly grounded audit of a candidate's resume and verified profile against a provided job description, rejecting grade inflation and identifying genuine hiring risks.\n\n"

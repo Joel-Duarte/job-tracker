@@ -121,10 +121,13 @@ When executing backend tests to verify code changes (during TDD or before comple
    uv run pytest
    ```
 
-3. **Tier 3 (Explicit Test Database URL):**
-   If testing against a dedicated local or remote PostgreSQL instance:
+3. **Tier 3 (Explicit Test Database URL — Dedicated Test DB Only):**
+   > [!CAUTION]
+   > **NEVER point `TEST_DATABASE_URL` at a running production or development database** (e.g., `job-tracker-postgresdb` / port `10556` / database `postgres`). `conftest.py` runs `drop_all` / `create_all` and will wipe all data. Always use Tier 1 (Testcontainers) or create a dedicated, isolated test database (e.g., `job_tracker_test`) before setting `TEST_DATABASE_URL`.
+
+   If testing against a dedicated local or remote test PostgreSQL database:
    ```bash
-   TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54320/postgres" uv run pytest
+   TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54320/job_tracker_test" uv run pytest
    ```
 
 4. **Tier 4 (Constrained Sandbox Fallback):**

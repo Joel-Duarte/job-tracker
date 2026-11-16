@@ -492,6 +492,73 @@ async def _extract_email(
     }
 
 
+_TIEBREAKER_CONFIDENCE_THRESHOLD = 0.85
+_TIEBREAKER_ACTIVE_STATUSES = (
+    "APPLIED",
+    "ONLINE_ASSESSMENT",
+    "TECHNICAL_INTERVIEW",
+    "OFFER",
+)
+
+
+async def _try_llm_match_tiebreaker(
+    db: AsyncSession,
+    state: JobTrackerState,
+    extracted: dict[str, Any],
+    candidate_apps: list[ApplicationModel],
+    company_by_id: dict[int, CompanyModel],
+    *,
+    company_name: str,
+    position_name: str,
+) -> dict[str, Any] | None:
+    """Invokes the gray-zone LLM tiebreaker over active + auto-archived applications.
+    Returns a commit route dict only when confidence >= 0.85 and ID is in candidates.
+    """
+    if not candidate_apps:
+        return None
+
+    candidate_map = {a.id: a for a in candidate_apps}
+    candidates_payload = []
+    for app in candidate_apps:
+        comp = company_by_id.get(app.company_id)
+        last_act = app.last_activity_at or app.updated_at or app.created_at
+        candidates_payload.append(
+            {
+                "application_id": app.id,
+                "company": comp.name if comp else "Unknown",
+                "position": app.position,
+                "status": app.status,
+                "last_activity_at": last_act.date().isoformat()
+                if last_act
+                else "unknown",
+            }
+        )
+
+    res = await llm_service.resolve_email_match_tiebreaker(
+        db,
+        sender=state.get("sender"),
+        subject=state.get("subject"),
+        summary=extracted.get("summary") or (state.get("body") or "")[:400],
+        extracted_company=company_name,
+        extracted_position=position_name,
+        candidates=candidates_payload,
+    )
+    matched_id = res.matched_application_id
+    if (
+        matched_id is not None
+        and matched_id in candidate_map
+        and float(res.confidence or 0.0) >= _TIEBREAKER_CONFIDENCE_THRESHOLD
+    ):
+        matched_app = candidate_map[matched_id]
+        return {
+            "application_id": matched_app.id,
+            "company_id": matched_app.company_id,
+            "match_score": float(res.confidence),
+            "route": "commit",
+        }
+    return None
+
+
 async def fuzzy_match_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
@@ -703,6 +770,33 @@ async def fuzzy_match_node(
 
     threshold = STAGING_MATCH_THRESHOLD
     if not best_company or best_company_score < threshold:
+        # Gray-zone tiebreaker: check active + auto-archived (non-rejected) apps for brand/parent aliases
+        cand_stmt = (
+            select(ApplicationModel)
+            .where(
+                ApplicationModel.status.in_((*_TIEBREAKER_ACTIVE_STATUSES, "ARCHIVED"))
+            )
+            .order_by(ApplicationModel.last_activity_at.desc().nullslast())
+            .limit(15)
+        )
+        cand_apps = list((await db.execute(cand_stmt)).scalars().all())
+        # Sort active applications ahead of auto-archived ones
+        cand_apps.sort(
+            key=lambda a: 0 if a.status in _TIEBREAKER_ACTIVE_STATUSES else 1
+        )
+        comp_map = {c.id: c for c in companies}
+        tiebreak = await _try_llm_match_tiebreaker(
+            db,
+            state,
+            extracted,
+            cand_apps,
+            comp_map,
+            company_name=company_name,
+            position_name=position_name,
+        )
+        if tiebreak:
+            return tiebreak
+
         return {
             "match_score": best_company_score,
             "company_id": None,
@@ -773,6 +867,17 @@ async def fuzzy_match_node(
     # Case 2: Multiple Active Applications exist
     if len(active_apps) > 1:
         if not position_norm:
+            tiebreak = await _try_llm_match_tiebreaker(
+                db,
+                state,
+                extracted,
+                active_apps,
+                {best_company.id: best_company},
+                company_name=company_name,
+                position_name=position_name,
+            )
+            if tiebreak:
+                return tiebreak
             return {
                 "match_score": best_company_score,
                 "company_id": best_company.id,
@@ -802,6 +907,17 @@ async def fuzzy_match_node(
                 "route": "commit",
             }
         else:
+            tiebreak = await _try_llm_match_tiebreaker(
+                db,
+                state,
+                extracted,
+                active_apps,
+                {best_company.id: best_company},
+                company_name=company_name,
+                position_name=position_name,
+            )
+            if tiebreak:
+                return tiebreak
             return {
                 "match_score": best_app_score,
                 "company_id": best_company.id,
