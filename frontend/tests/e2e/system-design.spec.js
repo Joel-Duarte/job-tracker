@@ -659,9 +659,24 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('diagram-hint-tray')).toContainText('URL / Payload Safety Filter')
   await page.getByTestId('reveal-bank-btn').click()
   await expect(page.getByTestId('reveal-bank-btn')).toBeEnabled()
+  await expect(page.getByTestId('reference-blueprint-framing')).toContainText('Reference Blueprint')
   await expect(page.getByTestId('path-milestones-section')).toContainText('Read Path')
   await expect(page.getByTestId('diagram-hint-tray')).toContainText('Task Queue')
   await expect(page.getByTestId('diagram-hint-tray')).not.toContainText('Flink')
+
+  // Empty canvas must keep Checks badge at 0 (no 11-item spoiler Missing cards) & show non-spoiling Capability Readiness
+  await expect(page.getByTestId('coach-tab-checks').locator('.sd-tab-badge')).toHaveCount(0)
+  await page.getByTestId('coach-tab-checks').click()
+  await expect(page.getByTestId('capability-readiness-section')).toBeVisible()
+  await expect(page.getByTestId('topology-diagnostics-section')).not.toContainText('not yet on canvas')
+  await page.getByTestId('coach-tab-bank').click()
+
+  // Clicking Build Flow in Bank constructs an Undo-able end-to-end flow on canvas
+  await page.getByTestId('build-path-flow-btn').first().click()
+  await expect(page.getByTestId('canvas-node-web_client')).toBeVisible()
+  await expect(page.getByTestId('studio-undo-btn')).toBeEnabled()
+  await page.getByTestId('studio-undo-btn').click()
+  await expect(page.getByTestId('canvas-node-web_client')).toHaveCount(0)
 
   // Collapse sidebar on mobile (or test desktop collapse/reopen cycle) before canvas interactions
   await page.getByTestId('collapse-studio-sidebar-btn').click()

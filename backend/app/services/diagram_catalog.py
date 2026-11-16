@@ -1477,7 +1477,7 @@ def _split_composite_component_specs(raw_name: str) -> list[str]:
                     for tid in dict.fromkeys(resolved_arrow_types)
                 ]
 
-    if "/" not in outside_parens:
+    if "/" not in outside_parens and "+" not in outside_parens:
         return [cleaned]
 
     if "api gateway" in lower and "load balancer" in lower:
@@ -1487,7 +1487,7 @@ def _split_composite_component_specs(raw_name: str) -> list[str]:
     if "client" in lower and "cdn" in lower:
         return ["Web / Browser Client", "CDN / Edge Cache"]
 
-    parts = [p.strip() for p in outside_parens.split("/") if p.strip()]
+    parts = [p.strip() for p in re.split(r"[/+]", outside_parens) if p.strip()]
     if len(parts) < 2:
         return [cleaned]
 
@@ -1636,6 +1636,18 @@ def _synthesize_expected_paths(
             }
         )
 
+    if has("app_service") and has("local_cache"):
+        read_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "local_cache",
+                "target_label": by_type["local_cache"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "L1 hot-key lookup",
+                "rationale": "Absorb ultra-hot Viral/Celebrity reads in process memory before network hops to Redis.",
+            }
+        )
     if has("app_service") and has("distributed_cache"):
         read_steps.append(
             {
@@ -1646,6 +1658,18 @@ def _synthesize_expected_paths(
                 "delivery_mode": "sync",
                 "suggested_label": "Cache-aside lookup & populate",
                 "rationale": "App Service checks Redis first; on miss it queries DB and populates cache.",
+            }
+        )
+    if has("cdn") and has("object_storage") and not has("app_service"):
+        read_steps.append(
+            {
+                "source_type_id": "cdn",
+                "source_label": by_type["cdn"]["label"],
+                "target_type_id": "object_storage",
+                "target_label": by_type["object_storage"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Origin media / asset pull",
+                "rationale": "CDN fetches uncached immutable media segments or chunks from object storage.",
             }
         )
 
@@ -1670,6 +1694,42 @@ def _synthesize_expected_paths(
                 "rationale": "Serve cache-miss reads without overloading primary write locks.",
             }
         )
+    if has("app_service") and has("geo_index"):
+        read_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "geo_index",
+                "target_label": by_type["geo_index"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Proximity / H3 cell query",
+                "rationale": "Query live spatial buckets for nearby drivers/entities instead of full DB scans.",
+            }
+        )
+    if has("app_service") and has("llm_gateway"):
+        read_steps.append(
+            {
+                "source_type_id": "app_service",
+                "source_label": by_type["app_service"]["label"],
+                "target_type_id": "llm_gateway",
+                "target_label": by_type["llm_gateway"]["label"],
+                "delivery_mode": "sync",
+                "suggested_label": "Model inference & quota check",
+                "rationale": "Route AI calls through LLM Gateway for token accounting, guardrails, and provider failover.",
+            }
+        )
+        if has("vector_db"):
+            read_steps.append(
+                {
+                    "source_type_id": "llm_gateway",
+                    "source_label": by_type["llm_gateway"]["label"],
+                    "target_type_id": "vector_db",
+                    "target_label": by_type["vector_db"]["label"],
+                    "delivery_mode": "sync",
+                    "suggested_label": "RAG vector retrieval",
+                    "rationale": "Fetch semantic context chunks prior to prompt assembly.",
+                }
+            )
 
     if read_steps:
         paths.append(
@@ -1749,12 +1809,16 @@ def _synthesize_expected_paths(
             {"id": "write_path", "title": "Write & Safety Path", "steps": write_steps}
         )
 
-    # 3. Async / Lifecycle Path
+    # 3. Async / Streaming & Lifecycle Path
     async_steps: list[dict[str, Any]] = []
     queue_type = (
-        "message_queue"
-        if has("message_queue")
-        else ("event_stream" if has("event_stream") else None)
+        "event_stream"
+        if has("event_stream") and has("stream_processor")
+        else (
+            "message_queue"
+            if has("message_queue")
+            else ("event_stream" if has("event_stream") else None)
+        )
     )
     if has("app_service") and queue_type:
         async_steps.append(
@@ -1764,18 +1828,46 @@ def _synthesize_expected_paths(
                 "target_type_id": queue_type,
                 "target_label": by_type[queue_type]["label"],
                 "delivery_mode": "async",
-                "suggested_label": "Enqueue async event / click log",
-                "rationale": "Decouple analytics/background work so redirect latency stays under SLA.",
+                "suggested_label": "Publish async event / telemetry",
+                "rationale": "Decouple analytics, transcoding, or background fan-out so hot-path latency stays under SLA.",
             }
         )
+    if queue_type and has("stream_processor"):
+        async_steps.append(
+            {
+                "source_type_id": queue_type,
+                "source_label": by_type[queue_type]["label"],
+                "target_type_id": "stream_processor",
+                "target_label": by_type["stream_processor"]["label"],
+                "delivery_mode": "async",
+                "suggested_label": "Stream windowing & filtering",
+                "rationale": "Compute real-time bot/fraud dedup and sliding window aggregations off-path.",
+            }
+        )
+        if has("olap_warehouse"):
+            async_steps.append(
+                {
+                    "source_type_id": "stream_processor",
+                    "source_label": by_type["stream_processor"]["label"],
+                    "target_type_id": "olap_warehouse",
+                    "target_label": by_type["olap_warehouse"]["label"],
+                    "delivery_mode": "async",
+                    "suggested_label": "Sink aggregated metrics",
+                    "rationale": "Write rolled-up telemetry into OLAP storage for fast analytical queries.",
+                }
+            )
     if queue_type and has("async_worker"):
         sink_target = (
-            ("olap_warehouse", by_type["olap_warehouse"]["label"])
-            if has("olap_warehouse")
+            ("notification_hub", by_type["notification_hub"]["label"])
+            if has("notification_hub")
             else (
-                (primary_db_type, by_type[primary_db_type]["label"])
-                if primary_db_type
-                else None
+                ("olap_warehouse", by_type["olap_warehouse"]["label"])
+                if has("olap_warehouse")
+                else (
+                    (primary_db_type, by_type[primary_db_type]["label"])
+                    if primary_db_type
+                    else None
+                )
             )
         )
         async_steps.append(
@@ -1785,11 +1877,23 @@ def _synthesize_expected_paths(
                 "target_type_id": "async_worker",
                 "target_label": by_type["async_worker"]["label"],
                 "delivery_mode": "async",
-                "suggested_label": "Consume & batch events",
-                "rationale": "Workers aggregate queued events off the hot user path.",
+                "suggested_label": "Consume & process jobs",
+                "rationale": "Workers aggregate or process queued events asynchronously with retries/DLQ.",
             }
         )
-        if sink_target:
+        if has("media_transcoder"):
+            async_steps.append(
+                {
+                    "source_type_id": "async_worker",
+                    "source_label": by_type["async_worker"]["label"],
+                    "target_type_id": "media_transcoder",
+                    "target_label": by_type["media_transcoder"]["label"],
+                    "delivery_mode": "async",
+                    "suggested_label": "Transcode / chunk media",
+                    "rationale": "Execute CPU/GPU-heavy segmentation & ABR encoding asynchronously.",
+                }
+            )
+        elif sink_target:
             async_steps.append(
                 {
                     "source_type_id": "async_worker",
@@ -1798,7 +1902,7 @@ def _synthesize_expected_paths(
                     "target_label": sink_target[1],
                     "delivery_mode": "async",
                     "suggested_label": "Flush aggregated updates",
-                    "rationale": "Persist batched counters asynchronously to storage.",
+                    "rationale": "Persist batched updates or dispatch multi-channel alerts asynchronously.",
                 }
             )
     if has("scheduler") and primary_db_type:
@@ -1810,7 +1914,7 @@ def _synthesize_expected_paths(
                 "target_label": by_type[primary_db_type]["label"],
                 "delivery_mode": "async",
                 "suggested_label": "Sweep expired TTL rows",
-                "rationale": "Periodically delete/archive expired links alongside lazy TTL checks on read.",
+                "rationale": "Periodically delete/archive expired records alongside lazy TTL checks on read.",
             }
         )
 
@@ -1877,36 +1981,32 @@ def resolve_challenge_blueprint(
             seen_labels.add(lbl)
         required_components.append(entry)
 
-    # 1. Start with explicit challenge expected_components (splitting composite multi-layer bundles)
+    # 1. Start with explicit challenge expected_components (splitting composite multi-layer bundles cleanly)
     raw_expected = safe_brief.get("expected_components") or []
     if isinstance(raw_expected, list):
         for raw_item in raw_expected:
             raw_text = str(raw_item or "").strip()
             if not raw_text:
                 continue
-            for atomic_name in _split_composite_component_specs(raw_text):
+            split_names = _split_composite_component_specs(raw_text)
+            for atomic_name in split_names:
+                matched_meta = match_component_to_catalog(
+                    atomic_name, palette_extensions
+                )
+                why_text = (
+                    str(matched_meta.get("hint_role") or "")
+                    if len(split_names) > 1 and matched_meta.get("hint_role")
+                    else f"Core challenge requirement: {raw_text}"
+                )
                 _register(
                     _build_component_entry(
                         atomic_name,
                         palette_extensions,
-                        why_required=f"Core challenge requirement: {raw_text}",
+                        why_required=why_text,
                     )
                 )
 
-    # 2. Ensure core client entry when ingress/gateway is present
-    if any(
-        t in seen_type_ids
-        for t in ("load_balancer", "api_gateway", "cdn", "app_service")
-    ):
-        _register(
-            _build_component_entry(
-                "Web / Browser Client",
-                palette_extensions,
-                why_required="Shows user entry points so end-to-end read and write traffic flows are complete.",
-            )
-        )
-
-    # 3. Dynamically synthesize missing blocks implied by Challenge Constraints + Locked Stage 1 Ledger
+    # 2. Dynamically synthesize missing blocks implied by Challenge Constraints + Locked Stage 1 Ledger
     for rule in _SYNTHESIS_RULES:
         tid = rule["type_id"]
         if tid in seen_type_ids:
@@ -1939,6 +2039,52 @@ def resolve_challenge_blueprint(
                 )
             )
 
+    # 3. Ensure baseline stateless compute & client entry point when backend/ingress components exist
+    if not any(
+        t in seen_type_ids
+        for t in ("app_service", "serverless_fn", "microservice", "llm_gateway")
+    ) and any(
+        t in seen_type_ids
+        for t in (
+            "load_balancer",
+            "api_gateway",
+            "relational_db",
+            "nosql_kv",
+            "distributed_cache",
+            "message_queue",
+            "event_stream",
+            "geo_index",
+        )
+    ):
+        app_meta = BLOCKS_BY_TYPE_ID["app_service"]
+        _register(
+            _build_component_entry(
+                app_meta["label"],
+                palette_extensions,
+                why_required="Handles request validation, cache-aside orchestration, and read/write business logic cleanly.",
+            )
+        )
+
+    if not any(
+        t in seen_type_ids for t in ("web_client", "mobile_client", "webhook_actor")
+    ) and any(
+        t in seen_type_ids
+        for t in (
+            "load_balancer",
+            "api_gateway",
+            "cdn",
+            "app_service",
+            "realtime_gateway",
+        )
+    ):
+        _register(
+            _build_component_entry(
+                "Web / Browser Client",
+                palette_extensions,
+                why_required="Shows user entry points so end-to-end read and write traffic flows are complete.",
+            )
+        )
+
     # 4. Expected paths: prefer curated brief expected_paths when valid, else deterministic synthesis
     raw_paths = safe_brief.get("expected_paths")
     expected_paths: list[dict[str, Any]] = []
@@ -1946,11 +2092,33 @@ def resolve_challenge_blueprint(
         for path_group in raw_paths:
             if not isinstance(path_group, dict):
                 continue
-            steps = [
-                step
-                for step in (path_group.get("steps") or [])
-                if isinstance(step, dict)
-            ]
+            steps: list[dict[str, Any]] = []
+            for step in path_group.get("steps") or []:
+                if not isinstance(step, dict):
+                    continue
+                src_tid = str(step.get("source_type_id") or "")
+                dst_tid = str(step.get("target_type_id") or "")
+                src_lbl = str(
+                    step.get("source_label")
+                    or (BLOCKS_BY_TYPE_ID.get(src_tid) or {}).get("label")
+                    or src_tid
+                )
+                dst_lbl = str(
+                    step.get("target_label")
+                    or (BLOCKS_BY_TYPE_ID.get(dst_tid) or {}).get("label")
+                    or dst_tid
+                )
+                steps.append(
+                    {
+                        "source_type_id": src_tid,
+                        "source_label": src_lbl,
+                        "target_type_id": dst_tid,
+                        "target_label": dst_lbl,
+                        "delivery_mode": str(step.get("delivery_mode") or "sync"),
+                        "suggested_label": str(step.get("suggested_label") or ""),
+                        "rationale": str(step.get("rationale") or ""),
+                    }
+                )
             if steps:
                 expected_paths.append(
                     {
@@ -1967,11 +2135,245 @@ def resolve_challenge_blueprint(
                 path_item.get("steps") or []
             )
 
+    required_capabilities = synthesize_required_capabilities(
+        safe_brief, safe_ledger, required_components
+    )
+
     return {
         "required_components": required_components,
         "expected_paths": expected_paths,
+        "required_capabilities": required_capabilities,
         "out_of_scope_text": out_of_scope_text,
     }
+
+
+def synthesize_required_capabilities(
+    brief: dict[str, Any] | None,
+    locked_ledger: dict[str, Any] | None,
+    required_components: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return high-level, non-spoiling architectural capabilities satisfiable by multiple valid stacks."""
+    safe_brief = brief if isinstance(brief, dict) else {}
+    safe_ledger = locked_ledger if isinstance(locked_ledger, dict) else {}
+
+    explicit = safe_brief.get("required_capabilities")
+    if isinstance(explicit, list) and explicit:
+        cleaned_explicit: list[dict[str, Any]] = []
+        for idx, item in enumerate(explicit):
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+            groups = (
+                item.get("accepted_type_groups") or item.get("accepted_types") or []
+            )
+            norm_groups: list[list[str]] = []
+            for grp in groups:
+                if isinstance(grp, list):
+                    norm_groups.append([str(t) for t in grp if t])
+                elif isinstance(grp, str) and grp:
+                    norm_groups.append([grp])
+            cleaned_explicit.append(
+                {
+                    "id": str(item.get("id") or f"cap-{idx + 1}"),
+                    "title": str(item.get("title") or "").strip(),
+                    "goal": str(
+                        item.get("goal")
+                        or item.get("description")
+                        or item.get("title")
+                        or ""
+                    ).strip(),
+                    "accepted_type_groups": norm_groups,
+                    "defence_tradeoff": str(item.get("defence_tradeoff") or "").strip(),
+                }
+            )
+        if cleaned_explicit:
+            return cleaned_explicit
+
+    req_tids = {str(c.get("type_id") or "") for c in required_components}
+    corpus = " ".join(
+        [
+            _flatten_text_values(safe_brief.get("functional_requirements")),
+            _flatten_text_values(safe_brief.get("non_functional_requirements")),
+            _flatten_text_values(safe_brief.get("constraints")),
+            _flatten_text_values(safe_ledger.get("functional_requirements")),
+            _flatten_text_values(safe_ledger.get("non_functional_requirements")),
+            _flatten_text_values(safe_ledger.get("constraints")),
+        ]
+    ).lower()
+
+    capabilities: list[dict[str, Any]] = []
+
+    if req_tids & {
+        "cdn",
+        "load_balancer",
+        "api_gateway",
+        "waf_ddos",
+        "realtime_gateway",
+    }:
+        capabilities.append(
+            {
+                "id": "edge_ingress",
+                "title": "Edge & Ingress Routing",
+                "goal": "Terminate client traffic through edge caching, load balancing, or an API/realtime gateway without exposing storage directly.",
+                "accepted_type_groups": [
+                    ["cdn"],
+                    ["load_balancer"],
+                    ["api_gateway"],
+                    ["realtime_gateway"],
+                    ["waf_ddos"],
+                ],
+                "defence_tradeoff": "If omitting CDN/WAF on public high-QPS traffic, defend tail latency and DDoS absorption.",
+            }
+        )
+
+    if req_tids & {"app_service", "serverless_fn", "microservice", "llm_gateway"}:
+        capabilities.append(
+            {
+                "id": "compute_layer",
+                "title": "Stateless Compute & Business Logic",
+                "goal": "Process validation, orchestration, and read/write APIs in horizontally scalable compute (app tier, serverless, microservices, or model gateway).",
+                "accepted_type_groups": [
+                    ["app_service"],
+                    ["serverless_fn"],
+                    ["microservice"],
+                    ["llm_gateway"],
+                ],
+                "defence_tradeoff": "Be ready to defend cold-start/connection-pool bounds (Serverless) or deployment/boundary isolation (Monolith vs Microservices).",
+            }
+        )
+
+    if req_tids & {
+        "distributed_cache",
+        "local_cache",
+        "bloom_filter",
+        "feature_store",
+    } or any(
+        tok in corpus
+        for tok in (
+            "< 30ms",
+            "<30ms",
+            "< 50ms",
+            "hot-key",
+            "hot key",
+            "read-heavy",
+            "100:1",
+            "cache",
+        )
+    ):
+        capabilities.append(
+            {
+                "id": "low_latency_caching",
+                "title": "Low-Latency Caching / Hot-Key Mitigation",
+                "goal": "Absorb hot read bursts and stay within p99 latency targets via edge caching, in-process L1 cache, distributed memory cache, or pre-filter indexes.",
+                "accepted_type_groups": [
+                    ["distributed_cache"],
+                    ["local_cache"],
+                    ["cdn"],
+                    ["bloom_filter"],
+                    ["feature_store"],
+                ],
+                "defence_tradeoff": "Explain cache invalidation/TTL staleness, thundering-herd protection, and hot-key skew on single shards.",
+            }
+        )
+
+    if req_tids & {
+        "relational_db",
+        "nosql_kv",
+        "object_storage",
+        "timeseries_db",
+        "consensus_store",
+    }:
+        capabilities.append(
+            {
+                "id": "durable_storage",
+                "title": "Durable Authoritative Persistence",
+                "goal": "Persist core entities or blobs reliably using relational SQL (+ replicas/partitioning), distributed KV/NoSQL, or durable object/time-series storage.",
+                "accepted_type_groups": [
+                    ["relational_db"],
+                    ["nosql_kv"],
+                    ["object_storage"],
+                    ["timeseries_db"],
+                    ["consensus_store"],
+                ],
+                "defence_tradeoff": "Justify primary key/sharding choice, replication lag tolerance, and failover strategy for your write vs read ratio.",
+            }
+        )
+
+    if req_tids & {
+        "message_queue",
+        "event_stream",
+        "pubsub_bus",
+        "async_worker",
+        "stream_processor",
+        "olap_warehouse",
+    }:
+        capabilities.append(
+            {
+                "id": "async_decoupling",
+                "title": "Async Decoupling / Analytics / Background Work",
+                "goal": "Keep user-facing latency isolated from heavy analytics, notifications, or transcoding using a queue, event stream, pub/sub bus, or background workers.",
+                "accepted_type_groups": [
+                    ["message_queue"],
+                    ["event_stream"],
+                    ["pubsub_bus"],
+                    ["async_worker"],
+                    ["stream_processor"],
+                ],
+                "defence_tradeoff": "Clarify delivery guarantees (at-least-once + idempotency), backpressure, and DLQ replay when consumers lag.",
+            }
+        )
+
+    if req_tids & {"id_generator"}:
+        capabilities.append(
+            {
+                "id": "unique_id_generation",
+                "title": "Collision-Free Unique ID / Key Minting",
+                "goal": "Generate collision-free non-predictable short codes safely under concurrent writes without a database sequence SPOF.",
+                "accepted_type_groups": [
+                    ["id_generator"],
+                    ["consensus_store"],
+                    ["app_service"],
+                ],
+                "defence_tradeoff": "Explain whether you use dedicated Key Generation ranges/standby, Snowflake/ULID in-app, or consensus leases.",
+            }
+        )
+
+    if req_tids & {
+        "content_filter",
+        "rate_limiter",
+        "auth_service",
+        "waf_ddos",
+        "scheduler",
+    } or any(
+        tok in corpus
+        for tok in (
+            "ttl",
+            "expir",
+            "malicious",
+            "phishing",
+            "rate limit",
+            "abuse",
+            "rbac",
+            "sso",
+        )
+    ):
+        capabilities.append(
+            {
+                "id": "safety_and_lifecycle",
+                "title": "Safety, Access Control & Data Lifecycle",
+                "goal": "Enforce abuse protection, authorization/blocklisting, and retention/TTL cleanup policies without blocking hot read paths.",
+                "accepted_type_groups": [
+                    ["content_filter"],
+                    ["rate_limiter"],
+                    ["auth_service"],
+                    ["scheduler"],
+                    ["waf_ddos"],
+                    ["api_gateway"],
+                ],
+                "defence_tradeoff": "Specify lazy vs scheduled TTL cleanup, auth/blocklist lookup latency overhead, and abuse rate thresholds.",
+            }
+        )
+
+    return capabilities
 
 
 def _edges_match_step(
@@ -1996,11 +2398,18 @@ def _edges_match_step(
 
 
 _EQUIVALENT_COMPONENT_ALTERNATIVES: dict[str, set[str]] = {
+    "app_service": {"serverless_fn", "microservice"},
+    "serverless_fn": {"app_service", "microservice"},
+    "microservice": {"app_service", "serverless_fn"},
     "relational_db": {"nosql_kv"},
     "nosql_kv": {"relational_db"},
     "read_replica": {"nosql_kv"},
+    "distributed_cache": {"local_cache"},
     "message_queue": {"event_stream", "pubsub_bus"},
     "event_stream": {"message_queue", "pubsub_bus"},
+    "pubsub_bus": {"event_stream", "message_queue"},
+    "async_worker": {"stream_processor", "serverless_fn"},
+    "stream_processor": {"async_worker"},
 }
 
 
@@ -2024,19 +2433,32 @@ def evaluate_canvas_topology(
     resolved_blueprint: dict[str, Any],
     brief: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run deterministic pre-flight coaching checks on nodes, edges, SPOFs, and valid alternatives."""
+    """Run deterministic pre-flight coaching checks on capabilities, valid alternatives, anti-patterns, and SPOFs."""
     nodes = [n for n in (flow_payload.get("nodes") or []) if isinstance(n, dict)]
     edges = [e for e in (flow_payload.get("edges") or []) if isinstance(e, dict)]
     canvas_notes = str(flow_payload.get("notes") or "").lower()
     required_components = list(resolved_blueprint.get("required_components") or [])
     expected_paths = list(resolved_blueprint.get("expected_paths") or [])
     out_of_scope_text = str(resolved_blueprint.get("out_of_scope_text") or "").lower()
+    required_capabilities = list(
+        resolved_blueprint.get("required_capabilities")
+        or synthesize_required_capabilities(brief, None, required_components)
+    )
 
     node_by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
     placed_type_ids = {str(n.get("type_id") or "") for n in nodes}
 
-    # 1. Required capability coverage (tolerating functionally equivalent alternatives)
-    missing_required: list[dict[str, Any]] = []
+    # Build adjacency before capability wiring checks
+    incoming: dict[str, int] = {nid: 0 for nid in node_by_id}
+    outgoing: dict[str, int] = {nid: 0 for nid in node_by_id}
+    for edge in edges:
+        src_id = str(edge.get("source") or "")
+        dst_id = str(edge.get("target") or "")
+        if src_id in node_by_id and dst_id in node_by_id:
+            outgoing[src_id] += 1
+            incoming[dst_id] += 1
+
+    # 1. Non-spoiling Capability Coverage + Valid Architectural Alternatives
     placed_required_count = 0
     alternative_notes: list[str] = []
     for req in required_components:
@@ -2054,15 +2476,74 @@ def evaluate_canvas_topology(
             placed_required_count += 1
             alt_block = BLOCKS_BY_TYPE_ID.get(matched_alt)
             alt_label = alt_block["label"] if alt_block else matched_alt
-            alternative_notes.append(
-                f"Using {alt_label} cleanly covers {req['label']} responsibilities."
+            msg = f"Using {alt_label} cleanly covers {req['label']} responsibilities."
+            if msg not in alternative_notes:
+                alternative_notes.append(msg)
+
+    capability_checks: list[dict[str, Any]] = []
+    defence_probes: list[str] = []
+    met_capabilities = 0
+    for cap in required_capabilities:
+        groups = cap.get("accepted_type_groups") or []
+        matched_nodes: list[dict[str, Any]] = []
+        matched_group: list[str] = []
+        for grp in groups:
+            if grp and all(tid in placed_type_ids for tid in grp):
+                matched_group = grp
+                matched_nodes = [n for n in nodes if str(n.get("type_id") or "") in grp]
+                break
+
+        if not matched_nodes:
+            capability_checks.append(
+                {
+                    "id": cap["id"],
+                    "title": cap["title"],
+                    "goal": cap["goal"],
+                    "status": "pending",
+                    "satisfied_by": "",
+                    "defence_tradeoff": cap.get("defence_tradeoff") or "",
+                }
             )
-        else:
-            missing_required.append(req)
+            continue
+
+        all_wired = len(nodes) == 1 or any(
+            incoming[str(n["id"])] > 0 or outgoing[str(n["id"])] > 0
+            for n in matched_nodes
+            if n.get("id")
+        )
+        placed_labels = ", ".join(
+            dict.fromkeys(
+                str(n.get("label") or n.get("type_id") or "") for n in matched_nodes
+            )
+        )
+        status = "met" if all_wired else "partial"
+        if status == "met":
+            met_capabilities += 1
+        capability_checks.append(
+            {
+                "id": cap["id"],
+                "title": cap["title"],
+                "goal": cap["goal"],
+                "status": status,
+                "satisfied_by": placed_labels,
+                "defence_tradeoff": cap.get("defence_tradeoff") or "",
+            }
+        )
+        if matched_group and cap.get("defence_tradeoff"):
+            defence_probes.append(
+                f"{cap['title']} ({placed_labels}): {cap['defence_tradeoff']}"
+            )
 
     total_required = len(required_components)
+    total_caps = len(capability_checks)
     coverage_pct = (
-        round((placed_required_count / total_required) * 100) if total_required else 100
+        round((met_capabilities / total_caps) * 100)
+        if total_caps
+        else (
+            round((placed_required_count / total_required) * 100)
+            if total_required
+            else 100
+        )
     )
 
     findings: list[dict[str, Any]] = []
@@ -2074,20 +2555,8 @@ def evaluate_canvas_topology(
                 "detail": alt_msg,
             }
         )
-    for req in missing_required:
-        findings.append(
-            {
-                "severity": "missing",
-                "title": f"Missing: {req['label']}",
-                "detail": req.get("why_required") or req.get("hint_role") or "",
-                "component_type_id": req["type_id"],
-            }
-        )
 
     # 2. Structural & directional anti-pattern checks on drawn edges
-    incoming: dict[str, int] = {nid: 0 for nid in node_by_id}
-    outgoing: dict[str, int] = {nid: 0 for nid in node_by_id}
-    unlabeled_edge_count = 0
     seen_reversed_checks: set[str] = set()
 
     for edge in edges:
@@ -2095,10 +2564,6 @@ def evaluate_canvas_topology(
         dst_id = str(edge.get("target") or "")
         if src_id not in node_by_id or dst_id not in node_by_id:
             continue
-        outgoing[src_id] += 1
-        incoming[dst_id] += 1
-        if not str(edge.get("label") or "").strip():
-            unlabeled_edge_count += 1
 
         src_type = str(node_by_id[src_id].get("type_id") or "")
         dst_type = str(node_by_id[dst_id].get("type_id") or "")
@@ -2139,6 +2604,28 @@ def evaluate_canvas_topology(
                     }
                 )
 
+        if src_type in (
+            "web_client",
+            "mobile_client",
+            "webhook_actor",
+        ) and dst_type in (
+            "relational_db",
+            "nosql_kv",
+            "distributed_cache",
+        ):
+            if "client_to_internal" not in seen_reversed_checks:
+                seen_reversed_checks.add("client_to_internal")
+                findings.append(
+                    {
+                        "severity": "flow_direction",
+                        "title": "Direct Client Connection to Internal Data Store",
+                        "detail": (
+                            f"{node_by_id[src_id].get('label')} connects straight to {node_by_id[dst_id].get('label')}. "
+                            "Terminate client traffic at API Gateway / Load Balancer / App Service for auth, validation, and connection pooling."
+                        ),
+                    }
+                )
+
         if (
             src_type
             in ("message_queue", "event_stream", "stream_processor", "async_worker")
@@ -2171,14 +2658,6 @@ def evaluate_canvas_topology(
                     "detail": "Connect every placed block into a Read, Write, or Async flow so Reviewer sees how it participates.",
                 }
             )
-    if unlabeled_edge_count > 0:
-        findings.append(
-            {
-                "severity": "wiring",
-                "title": f"{unlabeled_edge_count} Unlabeled Wire(s)",
-                "detail": "Click each wire to describe its action (e.g. 'Check cache / miss fallback', 'Persist short code + TTL').",
-            }
-        )
 
     # 3. SPOF & Resilience Notes checks on placed stateful blocks
     for node in nodes:
@@ -2271,13 +2750,32 @@ def evaluate_canvas_topology(
             }
         )
 
+    warning_count = sum(1 for f in findings if f.get("severity") != "info")
+    if not nodes:
+        summary = (
+            f"0 active warnings · {total_caps} architectural capability goal(s) ready "
+            "(design any defendable stack or open Bank for 1 full reference blueprint)."
+        )
+    elif warning_count == 0:
+        summary = f"0 structural warnings · {met_capabilities}/{total_caps} capabilities addressed."
+    else:
+        summary = (
+            f"{warning_count} structural check(s) to address · "
+            f"{met_capabilities}/{total_caps} capabilities addressed."
+        )
+
     return {
         "placed_required_count": placed_required_count,
         "total_required_count": total_required,
         "coverage_pct": coverage_pct,
+        "met_capabilities_count": met_capabilities,
+        "total_capabilities_count": total_caps,
+        "capability_checks": capability_checks,
+        "defence_probes": defence_probes[:6],
         "path_milestones": path_milestones,
         "findings": findings,
         "next_connection_hint": next_connection_hint,
+        "summary": summary,
     }
 
 
@@ -2377,6 +2875,37 @@ def build_coach_canvas_actions(
                     "edges": needed_edges,
                 }
             )
+
+    all_blocks: list[dict[str, Any]] = []
+    all_edges: list[dict[str, Any]] = []
+    seen_full_blocks: set[str] = set()
+    seen_full_edges: set[tuple[str, str]] = set()
+    for act in path_actions:
+        for blk in act.get("blocks") or []:
+            bkey = f"{blk.get('type_id')}:{blk.get('label')}"
+            if bkey not in seen_full_blocks:
+                seen_full_blocks.add(bkey)
+                all_blocks.append(blk)
+        for edg in act.get("edges") or []:
+            ekey = (
+                str(edg.get("source_type_id") or ""),
+                str(edg.get("target_type_id") or ""),
+            )
+            if ekey not in seen_full_edges:
+                seen_full_edges.add(ekey)
+                all_edges.append(edg)
+
+    if len(path_actions) >= 2 and (all_blocks or all_edges):
+        path_actions.insert(
+            0,
+            {
+                "id": "build_full_reference",
+                "title": "Build Full Reference System",
+                "description": f"Places {len(all_blocks)} reference blocks & {len(all_edges)} end-to-end wires across all flows (one valid blueprint).",
+                "blocks": all_blocks,
+                "edges": all_edges,
+            },
+        )
 
     missing_specs = [
         spec

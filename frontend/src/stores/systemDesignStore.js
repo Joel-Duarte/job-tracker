@@ -35,6 +35,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const challengeFrontierPrompt = ref(null)
   const lastTopologyFeedback = ref(null)
   const expectedPaths = ref([])
+  const referenceActions = ref([])
   const nextConnectionHint = ref(null)
   const coachMessages = ref([])
   const suggestedCoachActions = ref([])
@@ -44,6 +45,12 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const activeDiagrams = computed(() => activeSession.value?.diagrams_metadata || [])
   const activeReviews = computed(() => activeSession.value?.architecture_reviews || [])
   const activeFinalEvaluation = computed(() => activeSession.value?.final_evaluation || null)
+  const capabilitiesChecklist = computed(
+    () =>
+      activeSession.value?.capabilities_checklist ||
+      lastTopologyFeedback.value?.capability_checks ||
+      []
+  )
   const isActiveSessionCoached = computed(() => {
     const s = activeSession.value
     if (!s) return false
@@ -141,6 +148,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       frontierPacket.value = null
       lastTopologyFeedback.value = null
       expectedPaths.value = []
+      referenceActions.value = []
       nextConnectionHint.value = null
       coachMessages.value = []
       suggestedCoachActions.value = []
@@ -629,6 +637,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       if (Array.isArray(res.data?.expected_paths)) {
         expectedPaths.value = res.data.expected_paths
       }
+      if (Array.isArray(res.data?.reference_actions)) {
+        referenceActions.value = res.data.reference_actions
+      }
       if (res.data?.topology_feedback) {
         lastTopologyFeedback.value = res.data.topology_feedback
       }
@@ -669,6 +680,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       })
       if (Array.isArray(res.data?.expected_paths)) {
         expectedPaths.value = res.data.expected_paths
+      }
+      if (Array.isArray(res.data?.reference_actions)) {
+        referenceActions.value = res.data.reference_actions
       }
       if (res.data?.topology_feedback) {
         lastTopologyFeedback.value = res.data.topology_feedback
@@ -840,6 +854,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     challengeFrontierPrompt,
     lastTopologyFeedback,
     expectedPaths,
+    referenceActions,
+    capabilitiesChecklist,
     nextConnectionHint,
     coachMessages,
     suggestedCoachActions,

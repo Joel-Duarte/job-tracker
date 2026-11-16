@@ -237,12 +237,23 @@ class RevealedComponentHint(BaseModel):
     is_custom: bool = False
 
 
+class CoachCanvasAction(BaseModel):
+    """Executable non-destructive canvas placement/wiring suggestion from the Studio Coach."""
+
+    id: str
+    title: str
+    description: str = ""
+    blocks: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class DiagramHintResponse(BaseModel):
     """Response after unlocking component or topology guidance on a session."""
 
     newly_revealed: list[RevealedComponentHint] = Field(default_factory=list)
     revealed_components: list[dict[str, Any]] = Field(default_factory=list)
     expected_paths: list[dict[str, Any]] = Field(default_factory=list)
+    reference_actions: list[CoachCanvasAction] = Field(default_factory=list)
     topology_feedback: dict[str, Any] | None = None
     next_connection_hint: dict[str, Any] | None = None
     is_practice_run: bool = False
@@ -259,16 +270,6 @@ class RequirementsRevealRequest(BaseModel):
     """Optional request payload for Stage 1 Reveal Requirements shortcut."""
 
     lock_and_proceed: bool = False
-
-
-class CoachCanvasAction(BaseModel):
-    """Executable non-destructive canvas placement/wiring suggestion from the Studio Coach."""
-
-    id: str
-    title: str
-    description: str = ""
-    blocks: list[dict[str, Any]] = Field(default_factory=list)
-    edges: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DiagramCoachChatRequest(BaseModel):
@@ -541,6 +542,7 @@ class SystemDesignSessionRead(BaseModel):
     diagrams_metadata: list[dict[str, Any]] = Field(default_factory=list)
     diagram_guidance: dict[str, Any] = Field(default_factory=dict)
     palette_extensions: list[dict[str, Any]] = Field(default_factory=list)
+    capabilities_checklist: list[dict[str, Any]] = Field(default_factory=list)
     architecture_reviews: list[dict[str, Any]] = Field(default_factory=list)
     defence_transcript: list[dict[str, Any]] = Field(default_factory=list)
     final_evaluation: dict[str, Any] | None = None
@@ -647,6 +649,22 @@ class SystemDesignSessionRead(BaseModel):
             }
         )
         data["palette_extensions"] = safe_exts
+        from app.services.diagram_catalog import resolve_challenge_blueprint
+
+        blueprint_for_caps = resolve_challenge_blueprint(
+            session_brief, data.get("requirements_ledger") or {}
+        )
+        data["capabilities_checklist"] = [
+            {
+                "id": str(c.get("id") or ""),
+                "title": str(c.get("title") or ""),
+                "goal": str(c.get("goal") or ""),
+                "accepted_type_groups": list(c.get("accepted_type_groups") or []),
+                "defence_tradeoff": str(c.get("defence_tradeoff") or ""),
+            }
+            for c in (blueprint_for_caps.get("required_capabilities") or [])
+            if isinstance(c, dict)
+        ]
         data.pop("session_brief", None)
         if reveal_variant:
             data["variant_title"] = session_brief.get("variant_title") or data.get(

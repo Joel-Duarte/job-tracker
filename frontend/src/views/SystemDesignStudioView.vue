@@ -29,7 +29,12 @@ import {
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiagramCanvasBuilder from '../components/system-design/DiagramCanvasBuilder.vue'
-import { evaluateDrawnWireFeedback } from '../utils/diagramCatalog'
+import {
+  DEFAULT_CLOUD_PROVIDERS,
+  DEFAULT_DIAGRAM_BLOCKS,
+  evaluateDrawnWireFeedback,
+  resolveBlockCloudDisplay,
+} from '../utils/diagramCatalog'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
 
@@ -113,6 +118,9 @@ const normalizedExpectedPaths = computed(() => {
         )
         return {
           key: `${id}-${step.source_type_id || src}-${step.target_type_id || tgt}-${sIdx}`,
+          source_type_id: step.source_type_id || '',
+          target_type_id: step.target_type_id || '',
+          delivery_mode: step.delivery_mode || 'sync',
           label: `${src} → ${tgt}`,
           sublabel: step.suggested_label || '',
           satisfied: Boolean(step.satisfied) || liveWired,
@@ -176,6 +184,65 @@ const verifiedConnections = computed(() =>
 
 const liveWireWarnings = computed(() =>
   liveWireChecks.value.filter((item) => item.status === 'warning')
+)
+
+const liveCapabilityChecks = computed(() => {
+  const sourceCaps =
+    store.capabilitiesChecklist?.length
+      ? store.capabilitiesChecklist
+      : store.lastTopologyFeedback?.capability_checks || []
+  const placedNodes = flowSnapshot.value?.nodes || []
+  const edges = flowSnapshot.value?.edges || []
+  const placedTypeIds = new Set(
+    placedNodes.map((n) => String(n?.type_id || n?.data?.type_id || '')).filter(Boolean)
+  )
+  const wiredNodeIds = new Set()
+  for (const e of edges) {
+    wiredNodeIds.add(String(e.source))
+    wiredNodeIds.add(String(e.target))
+  }
+  const backendMap = new Map(
+    (store.lastTopologyFeedback?.capability_checks || []).map((c) => [c.id, c])
+  )
+
+  return sourceCaps.map((cap, idx) => {
+    const groups = cap.accepted_type_groups || cap.accepted_types || []
+    let matchedNodes = []
+    for (const grp of groups) {
+      const grpArr = Array.isArray(grp) ? grp : [grp]
+      if (grpArr.length && grpArr.every((tid) => placedTypeIds.has(tid))) {
+        matchedNodes = placedNodes.filter((n) =>
+          grpArr.includes(String(n?.type_id || n?.data?.type_id || ''))
+        )
+        break
+      }
+    }
+    const backendItem = backendMap.get(cap.id)
+    let status = 'pending'
+    let satisfiedBy = ''
+    if (matchedNodes.length) {
+      const allWired =
+        placedNodes.length === 1 || matchedNodes.some((n) => wiredNodeIds.has(String(n.id)))
+      status = allWired ? 'met' : 'partial'
+      satisfiedBy = Array.from(
+        new Set(matchedNodes.map((n) => n?.label || n?.data?.label || n?.type_id))
+      ).join(', ')
+    } else if (backendItem?.status && backendItem.status !== 'pending') {
+      status = backendItem.status
+      satisfiedBy = backendItem.satisfied_by || ''
+    }
+    return {
+      id: cap.id || `cap-${idx}`,
+      title: cap.title,
+      goal: cap.goal,
+      status,
+      satisfied_by: satisfiedBy,
+    }
+  })
+})
+
+const metCapabilitiesCount = computed(
+  () => liveCapabilityChecks.value.filter((c) => c.status === 'met').length
 )
 
 function handleWireFeedback(verdict) {
@@ -305,6 +372,86 @@ function handleApplyCoachAction(action) {
     uiStore.showToast(`Applied "${actionName}" to canvas (Undo available).`, 'success')
   } else {
     uiStore.showToast(`"${actionName}" components and wires are already on your canvas.`, 'info')
+  }
+}
+
+function buildActionFromPaths(actionTitle, pathItems) {
+  const cloudProv = flowSnapshot.value?.cloud_provider || 'generic'
+  const catalogBlocks = store.diagramCatalog?.blocks || DEFAULT_DIAGRAM_BLOCKS
+  const providers = store.diagramCatalog?.providers || DEFAULT_CLOUD_PROVIDERS
+  const blocks = []
+  const edges = []
+  const seenBlocks = new Set()
+  const seenEdges = new Set()
+
+  for (const pathObj of pathItems || []) {
+    for (const step of pathObj?.steps || []) {
+      const srcTid = step.source_type_id
+      const dstTid = step.target_type_id
+      for (const tid of [srcTid, dstTid]) {
+        if (!tid || seenBlocks.has(tid)) continue
+        seenBlocks.add(tid)
+        const base =
+          catalogBlocks.find((b) => b.type_id === tid) ||
+          DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === tid) || {
+            type_id: tid,
+            label: tid,
+            category: 'compute_services',
+            icon: 'box',
+          }
+        const resolved = resolveBlockCloudDisplay(base, cloudProv, catalogBlocks, providers)
+        blocks.push({
+          ...base,
+          label: resolved.displayTitle,
+          generic_label: resolved.genericLabel,
+          cloud_provider: resolved.cloudProvider,
+          tech_stack: resolved.cloudService || base.tech_stack || '',
+        })
+      }
+      if (srcTid && dstTid) {
+        const edgeKey = `${srcTid}->${dstTid}`
+        if (!seenEdges.has(edgeKey)) {
+          seenEdges.add(edgeKey)
+          edges.push({
+            source_type_id: srcTid,
+            target_type_id: dstTid,
+            label: step.sublabel || step.suggested_label || '',
+            delivery_mode: step.delivery_mode || 'sync',
+          })
+        }
+      }
+    }
+  }
+  return { id: actionTitle, title: actionTitle, blocks, edges }
+}
+
+async function handleBuildPathFlow(pathObj) {
+  if (!pathObj) return
+  const matchingBackend = (store.referenceActions || []).find(
+    (act) => act.id === `apply_${pathObj.id}`
+  )
+  const rawPath =
+    (store.expectedPaths || []).find((p) => (p.id || p.name) === pathObj.id) || pathObj
+  const action =
+    matchingBackend || buildActionFromPaths(pathObj.title || 'Reference Flow', [rawPath])
+  handleApplyCoachAction(action)
+}
+
+async function handleBuildFullReference() {
+  if (store.loadingDiagramHint) return
+  try {
+    if (!store.expectedPaths.length) {
+      await handleRequestHint('reveal_all')
+    }
+    const matchingFull = (store.referenceActions || []).find(
+      (act) => act.id === 'build_full_reference'
+    )
+    const action =
+      matchingFull ||
+      buildActionFromPaths('Full Reference Blueprint', store.expectedPaths || [])
+    handleApplyCoachAction(action)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Unable to build reference blueprint', 'error')
   }
 }
 
@@ -842,6 +989,9 @@ onUnmounted(() => {
 
         <!-- TAB 3: Guided Bank + Path Milestones -->
         <div v-else-if="activeSidebarTab === 'bank'" class="sd-coach-tab-body sd-scrollable-tab" data-testid="coach-bank-panel">
+          <p class="sd-reference-framing" data-testid="reference-blueprint-framing">
+            <strong>Reference Blueprint</strong> — 1 valid end-to-end architecture (alternatives that meet Capabilities are welcomed).
+          </p>
           <div class="sd-coach-toolbar">
             <button
               type="button"
@@ -863,6 +1013,16 @@ onUnmounted(() => {
             >
               <Layers :size="13" />
               <span>Reveal All Required</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="build-full-reference-btn"
+              :disabled="store.loadingDiagramHint"
+              @click="handleBuildFullReference"
+            >
+              <Wand2 :size="13" />
+              <span>Build Full Reference</span>
             </button>
           </div>
 
@@ -908,10 +1068,22 @@ onUnmounted(() => {
               >
                 <div class="sd-path-card-head">
                   <strong>{{ path.title }}</strong>
-                  <span class="sd-path-progress">
-                    {{ path.completed }}/{{ path.total }}
-                    <CheckCircle2 v-if="path.satisfied" :size="13" class="sd-path-ok" />
-                  </span>
+                  <div class="sd-path-head-actions">
+                    <span class="sd-path-progress">
+                      {{ path.completed }}/{{ path.total }}
+                      <CheckCircle2 v-if="path.satisfied" :size="13" class="sd-path-ok" />
+                    </span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-xs sd-build-flow-btn"
+                      data-testid="build-path-flow-btn"
+                      title="Place & wire this reference flow on canvas (Undo available)"
+                      @click="handleBuildPathFlow(path)"
+                    >
+                      <Wand2 :size="11" />
+                      <span>Build Flow</span>
+                    </button>
+                  </div>
                 </div>
                 <p v-if="path.description" class="sd-path-desc">{{ path.description }}</p>
                 <div class="sd-path-steps">
@@ -985,6 +1157,37 @@ onUnmounted(() => {
               >
                 <span class="sd-verified-wire-title">⚠ {{ item.title }}</span>
                 <span class="sd-verified-wire-detail">{{ item.detail }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            v-if="liveCapabilityChecks.length"
+            class="sd-coach-section"
+            data-testid="capability-readiness-section"
+          >
+            <div class="sd-coach-section-head">
+              <strong>
+                Capability Readiness ({{ metCapabilitiesCount }}/{{ liveCapabilityChecks.length }})
+              </strong>
+            </div>
+            <div class="sd-cap-list">
+              <div
+                v-for="cap in liveCapabilityChecks"
+                :key="cap.id"
+                class="sd-cap-item"
+                :class="`cap-${cap.status}`"
+              >
+                <div class="sd-cap-head">
+                  <span class="sd-cap-status-icon">
+                    {{ cap.status === 'met' ? '✓' : cap.status === 'partial' ? '◐' : '○' }}
+                  </span>
+                  <strong>{{ cap.title }}</strong>
+                </div>
+                <p class="sd-cap-goal">{{ cap.goal }}</p>
+                <div v-if="cap.satisfied_by" class="sd-cap-satisfied">
+                  Covered by: <code>{{ cap.satisfied_by }}</code>
+                </div>
               </div>
             </div>
           </section>
@@ -1862,11 +2065,103 @@ onUnmounted(() => {
 
 .sd-verified-wire-title {
   font-weight: 600;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-main, #f8fafc);
 }
 
 .sd-verified-wire-detail {
   color: var(--text-secondary, #94a3b8);
   font-size: 0.74rem;
+}
+
+.sd-reference-framing {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 10%, var(--bg-elevated, #0f172a));
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 28%, var(--border-subtle, #334155));
+  font-size: 0.74rem;
+  line-height: 1.38;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-path-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-build-flow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+}
+
+.sd-cap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sd-cap-item {
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.sd-cap-item.cap-met {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.sd-cap-item.cap-partial {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.sd-cap-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-main, #f8fafc);
+  margin-bottom: 2px;
+}
+
+.sd-cap-status-icon {
+  font-weight: 700;
+}
+
+.sd-cap-item.cap-met .sd-cap-status-icon {
+  color: #16a34a;
+}
+
+.sd-cap-item.cap-partial .sd-cap-status-icon {
+  color: #d97706;
+}
+
+.sd-cap-goal {
+  margin: 0;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.73rem;
+}
+
+.sd-cap-satisfied {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-finding-card.sev-info {
+  border-color: rgba(59, 130, 246, 0.42);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.sd-finding-card.sev-info .sd-finding-badge {
+  background: rgba(59, 130, 246, 0.18);
+  color: #2563eb;
 }
 </style>

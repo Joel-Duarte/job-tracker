@@ -3147,10 +3147,71 @@ export async function handleDemoRequest(config) {
     }
 
     const DEMO_EQUIVALENT_ALTERNATIVES = {
+      app_service: ['serverless_fn', 'microservice'],
+      serverless_fn: ['app_service', 'microservice'],
+      microservice: ['app_service', 'serverless_fn'],
       relational_db: ['nosql_kv'],
-      read_replica: ['nosql_kv', 'relational_db'],
+      nosql_kv: ['relational_db'],
+      read_replica: ['nosql_kv'],
+      distributed_cache: ['local_cache'],
       message_queue: ['event_stream', 'pubsub_bus'],
-      async_worker: ['stream_processor'],
+      event_stream: ['message_queue', 'pubsub_bus'],
+      pubsub_bus: ['event_stream', 'message_queue'],
+      async_worker: ['stream_processor', 'serverless_fn'],
+      stream_processor: ['async_worker'],
+    }
+
+    const demoSynthesizeCapabilities = (expectedItems = []) => {
+      const tids = new Set((expectedItems || []).map((i) => String(i?.type_id || '')))
+      const caps = [
+        {
+          id: 'edge_ingress',
+          title: 'Edge & Ingress Routing',
+          goal: 'Terminate client traffic through edge caching, load balancing, or an API/realtime gateway without exposing storage directly.',
+          accepted_type_groups: [['cdn'], ['load_balancer'], ['api_gateway'], ['realtime_gateway'], ['waf_ddos']],
+        },
+        {
+          id: 'compute_layer',
+          title: 'Stateless Compute & Business Logic',
+          goal: 'Process validation, orchestration, and read/write APIs in horizontally scalable compute.',
+          accepted_type_groups: [['app_service'], ['serverless_fn'], ['microservice'], ['llm_gateway']],
+        },
+        {
+          id: 'low_latency_caching',
+          title: 'Low-Latency Caching / Hot-Key Mitigation',
+          goal: 'Absorb hot read bursts and hit p99 latency targets via edge cache, in-process cache, or Redis.',
+          accepted_type_groups: [['distributed_cache'], ['local_cache'], ['cdn'], ['bloom_filter']],
+        },
+        {
+          id: 'durable_storage',
+          title: 'Durable Authoritative Persistence',
+          goal: 'Persist core mappings/state reliably using SQL (+ replicas/sharding), distributed KV/NoSQL, or durable object storage.',
+          accepted_type_groups: [['relational_db'], ['nosql_kv'], ['object_storage'], ['timeseries_db']],
+        },
+        {
+          id: 'async_decoupling',
+          title: 'Async Decoupling / Analytics / Background Work',
+          goal: 'Keep hot latency paths isolated from analytics, notifications, or cleanup via queues, streams, or workers.',
+          accepted_type_groups: [['message_queue'], ['event_stream'], ['pubsub_bus'], ['async_worker'], ['stream_processor']],
+        },
+      ]
+      if (tids.has('id_generator')) {
+        caps.push({
+          id: 'unique_id_generation',
+          title: 'Collision-Free Unique ID / Key Minting',
+          goal: 'Generate collision-free short codes under concurrent writes without a DB sequence SPOF.',
+          accepted_type_groups: [['id_generator'], ['consensus_store'], ['app_service']],
+        })
+      }
+      if (tids.has('content_filter') || tids.has('scheduler') || tids.has('rate_limiter')) {
+        caps.push({
+          id: 'safety_and_lifecycle',
+          title: 'Safety, Abuse Protection & TTL Lifecycle',
+          goal: 'Enforce blocklist/rate limits and retention cleanup without blocking hot read paths.',
+          accepted_type_groups: [['content_filter'], ['rate_limiter'], ['scheduler'], ['auth_service'], ['waf_ddos']],
+        })
+      }
+      return caps
     }
 
     const demoEvaluateTopology = (expectedItems, expectedPaths, currentNodes, currentEdges, currentNotes) => {
@@ -3186,21 +3247,15 @@ export async function handleDemoRequest(config) {
         })
       }
 
-      if (missingComponents.length) {
-        findings.push({
-          severity: 'warning',
-          category: 'missing',
-          title: `${missingComponents.length} expected component(s) not yet on canvas`,
-          detail: `Consider placing: ${missingComponents.slice(0, 6).join(', ')}${missingComponents.length > 6 ? '...' : ''} (or document an equivalent alternative).`,
-          related_type_ids: [],
-        })
-      }
-
+      const incomingCount = new Map()
+      const outgoingCount = new Map()
       const edgePairs = new Set()
       for (const e of currentEdges || []) {
         const src = nodeById.get(String(e.source))
         const dst = nodeById.get(String(e.target))
         if (!src || !dst) continue
+        outgoingCount.set(String(src.id), (outgoingCount.get(String(src.id)) || 0) + 1)
+        incomingCount.set(String(dst.id), (incomingCount.get(String(dst.id)) || 0) + 1)
         edgePairs.add(`${src.type_id}->${dst.type_id}`)
         if (src.type_id === 'relational_db' && dst.type_id === 'distributed_cache') {
           findings.push({
@@ -3233,6 +3288,41 @@ export async function handleDemoRequest(config) {
           })
         }
       }
+
+      const caps = demoSynthesizeCapabilities(expectedItems)
+      let metCapabilitiesCount = 0
+      const capabilityChecks = caps.map((cap) => {
+        let matchedNodes = []
+        for (const grp of cap.accepted_type_groups || []) {
+          if (grp.length && grp.every((tid) => placedTypes.has(tid))) {
+            matchedNodes = (currentNodes || []).filter((n) => grp.includes(n.type_id))
+            break
+          }
+        }
+        if (!matchedNodes.length) {
+          return {
+            id: cap.id,
+            title: cap.title,
+            goal: cap.goal,
+            status: 'pending',
+            satisfied_by: '',
+          }
+        }
+        const wired =
+          (currentNodes || []).length === 1 ||
+          matchedNodes.some(
+            (n) => (incomingCount.get(String(n.id)) || 0) > 0 || (outgoingCount.get(String(n.id)) || 0) > 0
+          )
+        const status = wired ? 'met' : 'partial'
+        if (status === 'met') metCapabilitiesCount += 1
+        return {
+          id: cap.id,
+          title: cap.title,
+          goal: cap.goal,
+          status,
+          satisfied_by: [...new Set(matchedNodes.map((n) => n.label || n.type_id))].join(', '),
+        }
+      })
 
       const idNode = (currentNodes || []).find((n) => n.type_id === 'id_generator')
       if (idNode && !/replica|range|pre-alloc|ha|cluster|snowflake|multi/i.test(`${idNode.notes || ''} ${currentNotes || ''}`)) {
@@ -3299,13 +3389,18 @@ export async function handleDemoRequest(config) {
       }
 
       const actionableCount = findings.filter((f) => f.severity !== 'info').length
-      const summary = actionableCount
-        ? `Found ${actionableCount} topology item(s) to check across ${(currentNodes || []).length} block(s).`
-        : 'Core request flows and blocks look sound!'
+      const summary = !(currentNodes || []).length
+        ? `0 active warnings · ${capabilityChecks.length} architectural capability goal(s) ready.`
+        : actionableCount
+          ? `${actionableCount} structural item(s) to check · ${metCapabilitiesCount}/${capabilityChecks.length} capabilities addressed.`
+          : `0 structural warnings · ${metCapabilitiesCount}/${capabilityChecks.length} capabilities addressed!`
 
       return {
         summary,
         missing_components: missingComponents,
+        capability_checks: capabilityChecks,
+        met_capabilities_count: metCapabilitiesCount,
+        total_capabilities_count: capabilityChecks.length,
         findings,
         satisfied_paths: satisfiedPaths,
         path_milestones: pathMilestones,
@@ -3361,16 +3456,45 @@ export async function handleDemoRequest(config) {
           })
         }
         actions.push({
-          id: `apply-${path.id}`,
+          id: `apply_${path.id}`,
           title: `Draw ${path.title}`,
           description: `Places missing blocks and wires ${missingSteps.length} step(s) for ${path.title}.`,
           blocks: [...blockMap.values()],
           edges,
         })
-        if (actions.length >= 2) break
       }
 
-      return actions
+      if (actions.length >= 2) {
+        const allBlocks = []
+        const allEdges = []
+        const seenB = new Set()
+        const seenE = new Set()
+        for (const act of actions) {
+          for (const b of act.blocks || []) {
+            const k = `${b.type_id}:${b.label}`
+            if (!seenB.has(k)) {
+              seenB.add(k)
+              allBlocks.push(b)
+            }
+          }
+          for (const e of act.edges || []) {
+            const k = `${e.source_type_id}->${e.target_type_id}`
+            if (!seenE.has(k)) {
+              seenE.add(k)
+              allEdges.push(e)
+            }
+          }
+        }
+        actions.unshift({
+          id: 'build_full_reference',
+          title: 'Build Full Reference System',
+          description: `Places ${allBlocks.length} blocks and ${allEdges.length} wires across all reference flows.`,
+          blocks: allBlocks,
+          edges: allEdges,
+        })
+      }
+
+      return actions.slice(0, 4)
     }
 
     const demoIsSessionCoached = (session) => {
@@ -3425,11 +3549,18 @@ export async function handleDemoRequest(config) {
     const demoAttachPaletteExtensions = (session) => {
       if (!session || typeof session !== 'object') return session
       const existing = Array.isArray(session.palette_extensions) ? session.palette_extensions : []
+      const existingCaps = Array.isArray(session.capabilities_checklist) ? session.capabilities_checklist : []
+      let caps = existingCaps
+      if (!caps.length) {
+        const { expectedItems } = demoResolveExpectedBlueprint(session.challenge, session)
+        caps = demoSynthesizeCapabilities(expectedItems)
+      }
       return {
         ...session,
         palette_extensions: existing.length
           ? existing
           : demoExtractPaletteExtensions(session, session.challenge),
+        capabilities_checklist: caps,
       }
     }
 
@@ -4299,11 +4430,21 @@ export async function handleDemoRequest(config) {
         penalty_points: penaltyPoints,
       }
       session.updated_at = new Date().toISOString()
+      const referenceActions =
+        revealedAll || hintMode === 'reveal_all' || hintMode === 'next_connection'
+          ? demoBuildCoachActions(
+              expectedItems,
+              pathMilestones,
+              '',
+              data.cloud_provider || 'generic'
+            )
+          : []
       saveDemoDb(db)
       return ok({
         newly_revealed: newlyRevealed,
         revealed_components: alreadyRevealed,
         expected_paths: pathMilestones,
+        reference_actions: referenceActions,
         topology_feedback: topologyFeedback,
         next_connection_hint: nextConnectionHint,
         hints_used_count: hintsCount,

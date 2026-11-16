@@ -145,11 +145,14 @@ LOCKED REQUIREMENTS LEDGER:
 LATEST ARCHITECTURE REVIEW FINDINGS:
 {latest_review_json}
 
+CANDIDATE ARCHITECTURE CAPABILITY COVERAGE & TRADE-OFF PROBES:
+{capability_summary_json}
+
 HIDDEN INTERVIEWER BRIEF (GROUND TRUTH — DO NOT DUMP RAW JSON):
 {hidden_brief_json}
 
 DEFENCE INTERVIEWER RULES:
-1. Probe trade-offs, failure modes, data consistency guarantees, single points of failure, and scaling bottlenecks from the candidate's submitted diagram and architecture review.
+1. Respect multiple valid architectural solutions when they satisfy the requirements and trade-offs. Probe the candidate's ACTUAL chosen stack, alternative patterns, data consistency guarantees, single points of failure, and scaling bottlenecks.
 2. Ask ONE focused probing question per turn so the candidate can justify their engineering reasoning clearly.
 3. Acknowledge valid trade-off defences concisely when earned, and challenge hand-waved answers cleanly.
 4. Keep responses concise (2-5 sentences)."""
@@ -253,6 +256,7 @@ CRITICAL RULES:
    - Prefer canonical component labels in `expected_components` when standard blocks fit: `Web / Browser Client`, `Mobile Client`, `External System / Webhook`, `Static Web / SPA Host`, `DNS / GeoDNS`, `CDN / Edge Cache`, `WAF / DDoS Shield`, `Load Balancer`, `API Gateway`, `Rate Limiter`, `Service Mesh / Circuit Breaker`, `Auth / IAM Service`, `WebSocket / Push Gateway`, `URL / Payload Safety Filter`, `Stateless App Service`, `Background Worker Pool`, `Scheduler / TTL Sweeper`, `Unique ID / Key Generator`, `ML / Ranking Service`, `LLM / AI Model Gateway`, `Media / Document Processor`, `Distributed Cache (Redis)`, `Local / L1 In-Process Cache`, `Feature / State Store`, `Bloom Filter / Dedup Index`, `Primary Relational DB`, `DB Read Replica`, `NoSQL / Wide-Column / KV DB`, `Object / Blob Storage`, `Time-Series DB`, `Vector Index / DB`, `Geospatial / Proximity Index`, `Coordination / Lease Store`, `Task Queue`, `Event Log / Kafka Stream`, `Pub/Sub Fan-out Bus`, `Stream Processor (Flink)`, `Dead-Letter Queue (DLQ)`, `Push / Email / SMS Gateway`, `Full-Text / Geo Search`, `Analytics / OLAP Store`, `Outbox / CDC Pipeline`, `Metrics, Logs & Tracing`.
    - ONLY add `diagram_palette_extensions` when the problem domain genuinely needs a specialized domain block not covered above (e.g., `DRM License Server`, `Stripe Idempotency Ledger`, `Telemetry Anomaly Scorer`).
    - Whenever you introduce a custom extension in `diagram_palette_extensions`, set a kebab-case `type_id`, clean `label`, valid `category` (`clients_edge | traffic_api | compute_services | caching_memory | databases_storage | messaging_streaming | search_analytics_ops`), valid `icon` (`box | server | database | bolt | git-commit-horizontal | network | brain | globe | search | shield | layers | compass | radio | clock`), concise `default_role`, AND include that exact `label` in the variant's `expected_components`.
+   - Include clean multi-hop `expected_paths` (at least 2 flows such as Read Path and Write/Async Path using canonical `source_type_id` / `target_type_id`) AND non-spoiling `required_capabilities` (where `accepted_type_groups` lists multiple valid architectural options, e.g. `[["relational_db"], ["nosql_kv"]]`) on each variant so learners see full end-to-end systems while keeping freedom to choose defendable alternatives.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
@@ -288,6 +292,27 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
           "key_constraints": ["<constraint 1>", "<constraint 2>"]
         }},
         "expected_components": ["Web / Browser Client", "Load Balancer", "API Gateway", "Stateless App Service", "Primary Relational DB"],
+        "expected_paths": [
+          {{
+            "id": "read_path",
+            "title": "Read / Core Request Path",
+            "steps": [
+              {{"source_type_id": "web_client", "target_type_id": "load_balancer", "delivery_mode": "sync", "suggested_label": "HTTPS request", "rationale": "Route user traffic through edge load balancing."}},
+              {{"source_type_id": "load_balancer", "target_type_id": "api_gateway", "delivery_mode": "sync", "suggested_label": "Validate & route", "rationale": "Terminate auth and routing at API Gateway."}},
+              {{"source_type_id": "api_gateway", "target_type_id": "app_service", "delivery_mode": "sync", "suggested_label": "Execute business logic", "rationale": "Run request handlers in stateless compute."}},
+              {{"source_type_id": "app_service", "target_type_id": "relational_db", "delivery_mode": "sync", "suggested_label": "Query / persist state", "rationale": "Persist authoritative application data."}}
+            ]
+          }}
+        ],
+        "required_capabilities": [
+          {{
+            "id": "compute_and_storage",
+            "title": "Stateless API & Durable Persistence",
+            "goal": "Serve core read/write workflows cleanly via horizontally scalable compute and durable storage.",
+            "accepted_type_groups": [["app_service", "relational_db"], ["app_service", "nosql_kv"], ["serverless_fn", "nosql_kv"]],
+            "defence_tradeoff": "Defend schema/indexing choices and failure recovery."
+          }}
+        ],
         "diagram_palette_extensions": [
           {{"type_id": "<optional-custom-slug>", "label": "<Optional Specialized Domain Block>", "category": "compute_services", "icon": "box", "default_role": "<1-sentence role>"}}
         ],
@@ -496,6 +521,7 @@ _VARIANT_BRIEF_COPY_KEYS = (
     "hidden_context",
     "expected_components",
     "expected_paths",
+    "required_capabilities",
     "diagram_palette_extensions",
     "common_bottlenecks_and_spofs",
     "over_engineering_traps",
@@ -2758,11 +2784,18 @@ class SystemDesignService:
                 flow_snapshot, blueprint, brief
             )
             returned_paths = topology_feedback.get("path_milestones") or expected_paths
-            finding_count = len(topology_feedback.get("findings") or [])
-            if finding_count == 0:
-                message = "Topology check passed! All core paths and resilience notes look solid."
+            warning_count = sum(
+                1
+                for f in (topology_feedback.get("findings") or [])
+                if f.get("severity") != "info"
+            )
+            if warning_count == 0:
+                message = (
+                    topology_feedback.get("summary")
+                    or "Topology check passed! 0 structural warnings found."
+                )
             else:
-                message = f"Topology check found {finding_count} item(s) to review before Analyze."
+                message = f"Topology check found {warning_count} item(s) to review before Analyze."
         elif payload.hint_mode == "next_connection":
             topology_feedback = evaluate_canvas_topology(
                 flow_snapshot, blueprint, brief
@@ -2812,10 +2845,23 @@ class SystemDesignService:
         remaining_count = sum(
             1 for spec in unplaced_specs if not _is_already_revealed(spec)
         )
+        reference_actions = (
+            build_coach_canvas_actions(
+                blueprint,
+                flow_snapshot,
+                cloud_provider=req_cloud,
+            )
+            if (
+                revealed_all_bank
+                or payload.hint_mode in ("reveal_all", "next_connection")
+            )
+            else []
+        )
         return DiagramHintResponse(
             newly_revealed=newly_revealed,
             revealed_components=already_revealed,
             expected_paths=updated_guidance["expected_paths"],
+            reference_actions=reference_actions,
             topology_feedback=topology_feedback,
             next_connection_hint=next_connection_hint,
             is_coached=True,
@@ -3189,6 +3235,7 @@ class SystemDesignService:
         canvas_note = ""
         if diagram_kind == "canvas":
             cloud_label = "Generic (Cloud-Agnostic)"
+            canvas_eval_note = ""
             try:
                 flow_data = json.loads(file_path.read_text(encoding="utf-8"))
                 c_id = normalize_cloud_provider(flow_data.get("cloud_provider"))
@@ -3196,15 +3243,37 @@ class SystemDesignService:
                     (p["label"] for p in CLOUD_PROVIDERS if p["id"] == c_id),
                     cloud_label,
                 )
+                topo_eval = evaluate_canvas_topology(
+                    flow_data, resolved_blueprint, session_brief
+                )
+                canvas_eval_payload = {
+                    "capability_checks": topo_eval.get("capability_checks") or [],
+                    "accepted_alternatives": [
+                        f
+                        for f in (topo_eval.get("findings") or [])
+                        if f.get("severity") == "info"
+                    ],
+                    "structural_warnings": [
+                        f
+                        for f in (topo_eval.get("findings") or [])
+                        if f.get("severity") != "info"
+                    ],
+                    "defence_probes": topo_eval.get("defence_probes") or [],
+                }
+                canvas_eval_note = (
+                    "\n\nCAPABILITY COVERAGE, ACCEPTED ALTERNATIVES & TRADE-OFF PROBES:\n"
+                    + json.dumps(canvas_eval_payload, indent=2)
+                )
             except Exception:
                 pass
             canvas_note = (
                 f"\n\nCANVAS FLOW JSON INPUT (CLOUD LENS: {cloud_label}):\n"
                 "The candidate built this architecture in the interactive Canvas Builder and supplied exact "
-                "component nodes, cloud/tech stacks, directed connections (protocol + sync/async), and topology diagnostics. "
+                "component nodes, cloud/tech stacks, directed connections (protocol + sync/async), and capability evaluations. "
                 "When a specific cloud lens is chosen, evaluate whether the chosen managed services fit the scale & requirements cleanly. "
+                "Honor valid equivalent architectures where `capability_checks` are `met` or `accepted_alternatives` exist—never report equivalent valid stacks as missing components; instead evaluate real capability gaps, SPOFs, and trade-offs. "
                 "Because structure and connections are unambiguous, leave `visual_clarifications_needed` empty unless "
-                "a node's notes/purpose itself is unclear."
+                "a node's notes/purpose itself is unclear." + canvas_eval_note
             )
         web_section = ""
         if use_web_search:
@@ -3516,6 +3585,31 @@ class SystemDesignService:
             if session.architecture_reviews
             else {}
         )
+        session_brief = SystemDesignService._get_session_brief(session)
+        last_topo = (session.diagram_guidance or {}).get("last_topology_feedback")
+        if not isinstance(last_topo, dict):
+            diagrams = list(session.diagrams_metadata or [])
+            if diagrams and str(diagrams[-1].get("diagram_kind") or "") == "canvas":
+                try:
+                    fp, _, _ = await SystemDesignService.get_diagram_file(
+                        db, session_id, int(diagrams[-1]["version"])
+                    )
+                    flow_json = json.loads(fp.read_text(encoding="utf-8"))
+                    bp = resolve_challenge_blueprint(
+                        session_brief, session.requirements_ledger or {}
+                    )
+                    last_topo = evaluate_canvas_topology(flow_json, bp, session_brief)
+                except Exception:
+                    last_topo = {}
+        capability_summary = {
+            "capability_checks": (last_topo or {}).get("capability_checks") or [],
+            "defence_probes": (last_topo or {}).get("defence_probes") or [],
+            "accepted_alternatives": [
+                f
+                for f in ((last_topo or {}).get("findings") or [])
+                if isinstance(f, dict) and f.get("severity") == "info"
+            ],
+        }
         sys_prompt = DEFENCE_SYSTEM_PROMPT.format(
             challenge_title=challenge.title,
             mode_instruction=mode_instruction,
@@ -3523,9 +3617,8 @@ class SystemDesignService:
                 session.requirements_ledger or {}, indent=2
             ),
             latest_review_json=json.dumps(latest_review, indent=2),
-            hidden_brief_json=json.dumps(
-                SystemDesignService._get_session_brief(session), indent=2
-            ),
+            capability_summary_json=json.dumps(capability_summary, indent=2),
+            hidden_brief_json=json.dumps(session_brief, indent=2),
         )
 
         if use_web_search:

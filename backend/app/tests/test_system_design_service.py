@@ -2634,3 +2634,220 @@ async def test_client_actors_new_blocks_palette_extensions_and_three_tier_prompt
             assert "interviewer_brief" not in sess_data
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_full_system_paths_zero_warning_checks_and_defendable_variance(
+    db_session: AsyncSession,
+):
+    """Verify viral-adtech-tracker complete paths, clean rationales, zero-alert empty Checks, Build actions, and Stage 3/4 variance awareness."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.services.system_design_service import SystemDesignService
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            assert ch_res.status_code == 200
+            ch_id = ch_res.json()["id"]
+
+            start_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": ch_id,
+                    "mode": "ADAPTIVE",
+                    "variant_id": "viral-adtech-tracker",
+                },
+            )
+            assert start_res.status_code == 201
+            session_data = start_res.json()
+            sid = session_data["id"]
+
+            # Non-spoiling capabilities_checklist exposed immediately on session without spoilers
+            assert len(session_data["capabilities_checklist"]) >= 4
+            assert "interviewer_brief" not in session_data
+            assert not session_data["diagram_guidance"].get("revealed_components")
+
+            # Lock ledger via reveal shortcut
+            rev_res = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/requirements/reveal",
+                json={"lock_and_proceed": True},
+            )
+            assert rev_res.status_code == 200
+
+            # Reveal all on an EMPTY canvas -> 0 structural/missing warnings, complete multi-hop paths, clean rationales
+            hint_res = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/hint",
+                json={
+                    "hint_mode": "reveal_all",
+                    "current_nodes": [],
+                    "current_edges": [],
+                },
+            )
+            assert hint_res.status_code == 200
+            hint_data = hint_res.json()
+            revealed_by_id = {
+                item["type_id"]: item for item in hint_data["revealed_components"]
+            }
+            for must_have in (
+                "web_client",
+                "app_service",
+                "id_generator",
+                "local_cache",
+                "distributed_cache",
+                "nosql_kv",
+                "event_stream",
+                "stream_processor",
+                "olap_warehouse",
+            ):
+                assert must_have in revealed_by_id
+            assert (
+                "Edge CDN Workers"
+                not in revealed_by_id["distributed_cache"]["why_required"]
+            )
+
+            # Complete multi-hop paths (Read >= 6 hops, Write >= 3 hops, Analytics >= 3 hops) + reference_actions
+            paths = hint_data["expected_paths"]
+            assert len(paths) >= 3
+            assert all(len(p["steps"]) >= 3 for p in paths)
+            assert any(
+                a["id"] == "build_full_reference"
+                for a in hint_data["reference_actions"]
+            )
+
+            # Empty canvas must produce ZERO non-info warnings (no Checks 11 Missing spam)
+            topo_empty = hint_data["topology_feedback"]
+            assert [
+                f for f in topo_empty["findings"] if f.get("severity") != "info"
+            ] == []
+            assert all(
+                c["status"] == "pending" for c in topo_empty["capability_checks"]
+            )
+
+            # Defendable alternative architecture: Serverless + Local Cache + Relational DB + Event Stream + Worker
+            alt_nodes = [
+                {"id": "c", "type_id": "web_client", "label": "Web / Browser Client"},
+                {"id": "cdn", "type_id": "cdn", "label": "CDN / Edge Cache"},
+                {"id": "gw", "type_id": "api_gateway", "label": "API Gateway"},
+                {
+                    "id": "fn",
+                    "type_id": "serverless_fn",
+                    "label": "Serverless Edge Compute",
+                },
+                {"id": "l1", "type_id": "local_cache", "label": "L1 Hot-Key Cache"},
+                {
+                    "id": "db",
+                    "type_id": "relational_db",
+                    "label": "Primary Relational DB",
+                    "notes": "Sharded by short_code with Multi-AZ replica",
+                },
+                {
+                    "id": "es",
+                    "type_id": "event_stream",
+                    "label": "Event Log / Kafka Stream",
+                },
+                {
+                    "id": "wk",
+                    "type_id": "async_worker",
+                    "label": "Background Worker Pool",
+                },
+            ]
+            alt_edges = [
+                {"id": "e1", "source": "c", "target": "cdn", "label": "GET /code"},
+                {"id": "e2", "source": "cdn", "target": "gw", "label": "Miss"},
+                {"id": "e3", "source": "gw", "target": "fn", "label": "Invoke"},
+                {"id": "e4", "source": "fn", "target": "l1", "label": "L1 lookup"},
+                {"id": "e5", "source": "fn", "target": "db", "label": "Query"},
+                {"id": "e6", "source": "fn", "target": "es", "label": "Click event"},
+                {"id": "e7", "source": "es", "target": "wk", "label": "Aggregate"},
+            ]
+            alt_check = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/hint",
+                json={
+                    "hint_mode": "check_topology",
+                    "current_nodes": alt_nodes,
+                    "current_edges": alt_edges,
+                },
+            )
+            assert alt_check.status_code == 200
+            alt_topo = alt_check.json()["topology_feedback"]
+            assert [
+                f for f in alt_topo["findings"] if f.get("severity") != "info"
+            ] == []
+            assert any(
+                f["severity"] == "info" and "Alternative" in f["title"]
+                for f in alt_topo["findings"]
+            )
+            assert all(c["status"] == "met" for c in alt_topo["capability_checks"])
+            assert len(alt_topo["defence_probes"]) >= 1
+
+            # Save canvas & confirm Stage 3 Review + Stage 4 Defence receive capability checks & defence probes
+            save_res = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/canvas",
+                json={"nodes": alt_nodes, "edges": alt_edges},
+            )
+            assert save_res.status_code == 201
+            ctx = await SystemDesignService.prepare_diagram_review_context(
+                db_session, sid
+            )
+            assert "CAPABILITY COVERAGE, ACCEPTED ALTERNATIVES" in ctx["sys_prompt"]
+            assert "Valid Alternative Choice" in ctx["sys_prompt"]
+
+            sess_obj = await SystemDesignService._get_session_for_update(
+                db_session, sid
+            )
+            sess_obj.stage = "DEFENCE"
+            sess_obj.architecture_reviews = [
+                {
+                    "diagram_version": 1,
+                    "summary": "Valid serverless + sharded SQL variation.",
+                    "strengths": ["Handles hot-key L1 mitigation"],
+                    "bottlenecks_and_spofs": [],
+                    "missing_components": [],
+                    "requirement_gaps": [],
+                    "unnecessary_complexity": [],
+                    "interpreted_components": ["Serverless Edge Compute"],
+                    "interpreted_data_flows": [],
+                    "visual_clarifications_needed": [],
+                    "created_at": "2026-11-16T00:00:00Z",
+                }
+            ]
+            from sqlalchemy.orm.attributes import flag_modified
+
+            flag_modified(sess_obj, "architecture_reviews")
+            await db_session.commit()
+
+            captured_messages = []
+
+            async def _fake_invoke(model, messages, tracer, db, task_type=None):
+                captured_messages.append(messages)
+                m = MagicMock()
+                m.content = (
+                    "How do your serverless functions prevent DB connection exhaustion?"
+                )
+                return m
+
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new_callable=AsyncMock,
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    side_effect=_fake_invoke,
+                ),
+            ):
+                def_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{sid}/defence/message",
+                    json={"message": "Ready to defend my serverless trade-offs."},
+                )
+            assert def_res.status_code == 200
+            assert (
+                "CANDIDATE ARCHITECTURE CAPABILITY COVERAGE"
+                in captured_messages[0][0].content
+            )
+    finally:
+        app.dependency_overrides.clear()
