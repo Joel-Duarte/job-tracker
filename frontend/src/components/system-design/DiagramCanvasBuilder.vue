@@ -909,6 +909,7 @@ defineExpose({
 <style scoped>
 .sd-studio-canvas-shell {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   gap: 10px;

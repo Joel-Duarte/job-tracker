@@ -626,9 +626,22 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('guidance-penalty-badge')).toHaveCount(0)
   await expect(page.getByTestId('studio-assistance-pill')).toContainText('Solo')
 
-  // Open Unified 3-Tab Coach Drawer -> Chat tab works cleanly with Apply to Canvas + Undo
-  await page.getByTestId('toggle-coach-drawer-btn').click()
+  // Desktop opens with 4-Tab Docked Sidebar on Reqs tab (and zero redundant topbar toggle button); mobile opens collapsed
+  if (testInfo.project.name.includes('mobile')) {
+    await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
+    await expect(page.getByTestId('toggle-coach-drawer-btn')).toBeVisible()
+    await page.getByTestId('toggle-coach-drawer-btn').click()
+  } else {
+    await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
+  }
   await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+  await expect(page.getByTestId('studio-requirements-reference')).toBeVisible()
+  await page
+    .getByTestId('canvas-notes-input')
+    .fill('Edge gateway routes hot lookups to Redis Cluster and async key invalidation.')
+
+  // Switch to Coach tab -> Apply to Canvas + Undo
+  await page.getByTestId('coach-tab-chat').click()
   await page.getByTestId('coach-starter-write-path').click()
   await expect(page.getByTestId('coach-chat-thread')).toContainText('Write Path')
   await page.getByTestId('coach-apply-action-btn').first().click()
@@ -637,7 +650,7 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('studio-undo-btn').click()
   await expect(page.getByTestId('studio-undo-btn')).toHaveCount(0)
 
-  // Bank & Paths tab: Next Hint & Reveal All Required (clicking twice does NOT crash!)
+  // Switch to Bank tab: Next Hint & Reveal All Required (clicking twice does NOT crash!)
   await page.getByTestId('coach-tab-bank').click()
   await page.getByTestId('hint-next-component-btn').click()
   await expect(page.getByTestId('diagram-hint-tray')).toBeVisible()
@@ -650,9 +663,15 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('diagram-hint-tray')).toContainText('Task Queue')
   await expect(page.getByTestId('diagram-hint-tray')).not.toContainText('Flink')
 
-  // Close Coach slide-over drawer before interacting with Guided Bank / canvas
-  await page.getByTestId('toggle-coach-drawer-btn').click()
+  // Collapse sidebar on mobile (or test desktop collapse/reopen cycle) before canvas interactions
+  await page.getByTestId('collapse-studio-sidebar-btn').click()
   await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
+  await expect(page.getByTestId('toggle-coach-drawer-btn')).toBeVisible()
+  if (!testInfo.project.name.includes('mobile')) {
+    await page.getByTestId('toggle-coach-drawer-btn').click()
+    await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+    await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
+  }
 
   // Inspect ? explanation popover inside Guided Bank
   await page.getByTestId('hint-info-btn').first().click()
@@ -709,18 +728,17 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('edge-label-input')).toHaveValue('Invalidates key cache')
   await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
 
-  // Open More -> Requirements, Notes & JSON drawer to inspect locked requirements & structured flow
+  // Open More -> View Flow JSON modal to verify structured flow JSON
   await page.getByTestId('studio-more-btn').click()
-  await page.getByTestId('toggle-studio-notes-btn').click()
-  await expect(page.getByTestId('studio-notes-drawer')).toBeVisible()
-  await expect(page.getByTestId('studio-requirements-reference')).toBeVisible()
-  await page
-    .getByTestId('canvas-notes-input')
-    .fill('Edge gateway routes hot lookups to Redis Cluster and async key invalidation.')
-  await expect(page.getByTestId('flow-json-preview')).toContainText('3 blocks, 1 flows')
+  await page.getByTestId('open-flow-json-modal-btn').click()
+  await expect(page.getByTestId('studio-flow-json-modal')).toBeVisible()
+  await expect(page.getByTestId('flow-json-preview')).toContainText('"nodes"')
+  await page.getByTestId('studio-flow-json-modal').getByRole('button', { name: 'Close' }).click()
 
-  // Open Coach -> Checks tab & run Check Topology
-  await page.getByTestId('toggle-coach-drawer-btn').click()
+  // Open sidebar (on mobile) -> Checks tab & run Check Topology
+  if (testInfo.project.name.includes('mobile')) {
+    await page.getByTestId('toggle-coach-drawer-btn').click()
+  }
   await page.getByTestId('coach-tab-checks').click()
   await page.getByTestId('check-topology-btn').click()
   await expect(page.getByTestId('topology-diagnostics-section')).toBeVisible()

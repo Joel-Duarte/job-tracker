@@ -12,9 +12,12 @@ import {
   Globe,
   Layers,
   Lightbulb,
+  ListChecks,
   Loader2,
   MessageSquare,
   MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
   Save,
   Send,
   Sparkles,
@@ -40,10 +43,10 @@ const loadedFlow = ref(null)
 const activeRevisionVersion = ref(null)
 const flowSnapshot = ref({ nodes: [], edges: [], notes: '' })
 
-const showNotesDrawer = ref(false)
-const showCoachDrawer = ref(false)
-const activeCoachTab = ref('chat')
+const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 960 : true)
+const activeSidebarTab = ref('reqs')
 const showMoreMenu = ref(false)
+const showFlowJsonModal = ref(false)
 const showImageUploadModal = ref(false)
 const useWebSearchReview = ref(false)
 const stagedDiagramFile = ref(null)
@@ -169,16 +172,9 @@ function toggleFixChecklistItem(id) {
   }
 }
 
-function toggleNotesDrawer() {
-  showNotesDrawer.value = !showNotesDrawer.value
-  if (showNotesDrawer.value) showCoachDrawer.value = false
+function openFlowJsonModalFromMore() {
   showMoreMenu.value = false
-}
-
-function toggleCoachDrawer() {
-  showCoachDrawer.value = !showCoachDrawer.value
-  if (showCoachDrawer.value) showNotesDrawer.value = false
-  showMoreMenu.value = false
+  showFlowJsonModal.value = true
 }
 
 function openImageModalFromMore() {
@@ -195,10 +191,12 @@ function handleUndoCanvas() {
 
 async function handleRequestHint(hintMode) {
   if (store.loadingDiagramHint) return
-  if (hintMode === 'reveal_all' || hintMode === 'next_connection') {
-    activeCoachTab.value = 'bank'
+  if (hintMode === 'reveal_all' || hintMode === 'next_connection' || hintMode === 'next_component') {
+    activeSidebarTab.value = 'bank'
+    sidebarOpen.value = true
   } else if (hintMode === 'check_topology') {
-    activeCoachTab.value = 'checks'
+    activeSidebarTab.value = 'checks'
+    sidebarOpen.value = true
   }
   try {
     const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
@@ -348,9 +346,8 @@ watch(
       await handleSelectRevision(targetCanvas.version)
     }
     if (String(route.query?.fixReview || '') === '1' && store.reviewFixChecklist?.length) {
-      activeCoachTab.value = 'checks'
-      showCoachDrawer.value = true
-      showNotesDrawer.value = false
+      activeSidebarTab.value = 'checks'
+      sidebarOpen.value = true
     }
   },
   { immediate: true }
@@ -439,14 +436,15 @@ onUnmounted(() => {
         </button>
 
         <button
+          v-if="!sidebarOpen"
           type="button"
           class="btn btn-secondary btn-sm"
-          :class="{ 'is-coach-open': showCoachDrawer }"
           data-testid="toggle-coach-drawer-btn"
-          @click="toggleCoachDrawer"
+          title="Expand Studio Assistant & Requirements panel"
+          @click="sidebarOpen = true"
         >
-          <Compass :size="14" />
-          <span>Coach</span>
+          <PanelRightOpen :size="14" />
+          <span>Studio Panel</span>
           <span v-if="coachBadgeCount > 0" class="sd-coach-count-pill">
             {{ coachBadgeCount }}
           </span>
@@ -467,11 +465,11 @@ onUnmounted(() => {
             <button
               type="button"
               class="sd-more-item"
-              data-testid="toggle-studio-notes-btn"
-              @click="toggleNotesDrawer"
+              data-testid="open-flow-json-modal-btn"
+              @click="openFlowJsonModalFromMore"
             >
-              <FileText :size="14" />
-              <span>Requirements, Notes &amp; JSON</span>
+              <Code2 :size="14" />
+              <span>View Flow JSON</span>
             </button>
             <button
               type="button"
@@ -522,19 +520,26 @@ onUnmounted(() => {
         @flow-change="flowSnapshot = $event"
       />
 
-      <!-- Unified 3-Tab Coach Drawer (Chat | Bank & Paths | Checks & Fixes) -->
+      <!-- Docked 4-Tab Studio Assistant Sidebar (Reqs | Coach | Bank | Checks) -->
       <aside
-        v-if="showCoachDrawer"
-        class="sd-studio-drawer sd-coach-drawer"
+        v-if="sidebarOpen"
+        class="sd-studio-sidebar"
         data-testid="learning-coach-drawer"
       >
         <div class="sd-drawer-head">
           <h3>
             <Compass :size="15" />
-            <span>Studio Coach</span>
+            <span>Studio Assistant</span>
           </h3>
-          <button type="button" class="sd-icon-close" @click="showCoachDrawer = false">
-            <X :size="15" />
+          <button
+            type="button"
+            class="sd-icon-close"
+            data-testid="collapse-studio-sidebar-btn"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            @click="sidebarOpen = false"
+          >
+            <PanelRightClose :size="16" />
           </button>
         </div>
 
@@ -543,40 +548,124 @@ onUnmounted(() => {
             type="button"
             role="tab"
             class="sd-coach-tab"
-            :class="{ active: activeCoachTab === 'chat' }"
+            :class="{ active: activeSidebarTab === 'reqs' }"
+            data-testid="studio-tab-reqs"
+            @click="activeSidebarTab = 'reqs'"
+          >
+            <FileText :size="13" />
+            <span>Reqs</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="sd-coach-tab"
+            :class="{ active: activeSidebarTab === 'coach' }"
             data-testid="coach-tab-chat"
-            @click="activeCoachTab = 'chat'"
+            @click="activeSidebarTab = 'coach'"
           >
             <MessageSquare :size="13" />
-            <span>Chat</span>
+            <span>Coach</span>
           </button>
           <button
             type="button"
             role="tab"
             class="sd-coach-tab"
-            :class="{ active: activeCoachTab === 'bank' }"
+            :class="{ active: activeSidebarTab === 'bank' }"
             data-testid="coach-tab-bank"
-            @click="activeCoachTab = 'bank'"
+            @click="activeSidebarTab = 'bank'"
           >
             <Layers :size="13" />
-            <span>Bank &amp; Paths</span>
+            <span>Bank</span>
           </button>
           <button
             type="button"
             role="tab"
             class="sd-coach-tab"
-            :class="{ active: activeCoachTab === 'checks' }"
+            :class="{ active: activeSidebarTab === 'checks' }"
             data-testid="coach-tab-checks"
-            @click="activeCoachTab = 'checks'"
+            @click="activeSidebarTab = 'checks'"
           >
-            <ClipboardList :size="13" />
+            <ListChecks :size="13" />
             <span>Checks</span>
             <span v-if="coachBadgeCount > 0" class="sd-tab-badge">{{ coachBadgeCount }}</span>
           </button>
         </div>
 
-        <!-- TAB 1: Interactive Coach Chat + Apply to Canvas -->
-        <div v-if="activeCoachTab === 'chat'" class="sd-coach-tab-body" data-testid="coach-chat-panel">
+        <!-- TAB 1: Session Requirements, Notes & Review Settings -->
+        <div v-if="activeSidebarTab === 'reqs'" class="sd-coach-tab-body sd-reqs-tab-body" data-testid="studio-reqs-panel">
+          <section
+            v-if="
+              sessionLedger.functional_requirements?.length ||
+              sessionLedger.non_functional_requirements?.length ||
+              Object.keys(sessionLedger.scale_estimates || {}).length ||
+              sessionLedger.out_of_scope?.length ||
+              sessionLedger.assumptions?.length
+            "
+            class="sd-notes-ledger-box"
+            data-testid="studio-requirements-reference"
+          >
+            <strong>Session Requirements</strong>
+            <div v-if="sessionLedger.functional_requirements?.length" class="sd-ledger-ref-group">
+              <span class="sd-ledger-ref-label">Functional</span>
+              <ul>
+                <li v-for="fr in sessionLedger.functional_requirements" :key="fr">{{ fr }}</li>
+              </ul>
+            </div>
+            <div v-if="sessionLedger.non_functional_requirements?.length" class="sd-ledger-ref-group">
+              <span class="sd-ledger-ref-label">Non-Functional</span>
+              <ul>
+                <li v-for="nfr in sessionLedger.non_functional_requirements" :key="nfr">{{ nfr }}</li>
+              </ul>
+            </div>
+            <div v-if="Object.keys(sessionLedger.scale_estimates || {}).length" class="sd-ledger-ref-group">
+              <span class="sd-ledger-ref-label">Scale Estimates</span>
+              <div class="sd-ledger-scale-grid">
+                <div v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-chip">
+                  <strong>{{ key }}:</strong> {{ val }}
+                </div>
+              </div>
+            </div>
+            <div v-if="sessionLedger.assumptions?.length" class="sd-ledger-ref-group">
+              <span class="sd-ledger-ref-label">Assumptions &amp; Constraints</span>
+              <ul>
+                <li v-for="assump in sessionLedger.assumptions" :key="assump">{{ assump }}</li>
+              </ul>
+            </div>
+            <div v-if="sessionLedger.out_of_scope?.length" class="sd-ledger-ref-group">
+              <span class="sd-ledger-ref-label">Out of Scope</span>
+              <ul>
+                <li v-for="oos in sessionLedger.out_of_scope" :key="oos">{{ oos }}</li>
+              </ul>
+            </div>
+          </section>
+          <p v-else class="sd-muted sd-coach-empty" data-testid="studio-requirements-empty">
+            No structured requirements recorded yet. Go back to Stage 1 to clarify or click Reveal Requirements, or start designing directly.
+          </p>
+
+          <label class="sd-field-label">
+            <span>Architecture Summary Notes</span>
+            <textarea
+              v-model="canvasNotes"
+              class="form-textarea"
+              rows="4"
+              data-testid="canvas-notes-input"
+              placeholder="Summarize read/write paths, sharding keys, TTL, or trade-offs..."
+            />
+          </label>
+
+          <label class="sd-drawer-checkbox">
+            <input
+              v-model="useWebSearchReview"
+              type="checkbox"
+              data-testid="review-web-search-checkbox"
+            />
+            <Globe :size="14" />
+            <span>Ground AI critique with Web Search</span>
+          </label>
+        </div>
+
+        <!-- TAB 2: Interactive Coach Chat + Apply to Canvas -->
+        <div v-else-if="activeSidebarTab === 'coach'" class="sd-coach-tab-body" data-testid="coach-chat-panel">
           <div class="sd-coach-starter-chips">
             <button
               type="button"
@@ -679,8 +768,8 @@ onUnmounted(() => {
           </form>
         </div>
 
-        <!-- TAB 2: Guided Bank + Path Milestones -->
-        <div v-else-if="activeCoachTab === 'bank'" class="sd-coach-tab-body" data-testid="coach-bank-panel">
+        <!-- TAB 3: Guided Bank + Path Milestones -->
+        <div v-else-if="activeSidebarTab === 'bank'" class="sd-coach-tab-body sd-scrollable-tab" data-testid="coach-bank-panel">
           <div class="sd-coach-toolbar">
             <button
               type="button"
@@ -772,8 +861,8 @@ onUnmounted(() => {
           </section>
         </div>
 
-        <!-- TAB 3: Topology Diagnostics & Stage 3 Critique Fix Checklist -->
-        <div v-else class="sd-coach-tab-body" data-testid="coach-checks-panel">
+        <!-- TAB 4: Topology Diagnostics & Stage 3 Critique Fix Checklist -->
+        <div v-else class="sd-coach-tab-body sd-scrollable-tab" data-testid="coach-checks-panel">
           <div class="sd-coach-toolbar">
             <button
               type="button"
@@ -855,83 +944,36 @@ onUnmounted(() => {
           </p>
         </div>
       </aside>
+    </div>
 
-      <!-- Slide-Over Requirements, Notes & Flow JSON Drawer (inside More menu) -->
-      <aside
-        v-if="showNotesDrawer"
-        class="sd-studio-drawer"
-        data-testid="studio-notes-drawer"
-      >
+    <!-- Clean Flow JSON Inspection Modal (inside More menu) -->
+    <div
+      v-if="showFlowJsonModal"
+      class="sd-studio-modal-backdrop"
+      data-testid="studio-flow-json-modal"
+      @click.self="showFlowJsonModal = false"
+    >
+      <div class="sd-studio-modal sd-json-modal">
         <div class="sd-drawer-head">
-          <h3>Requirements, Notes &amp; JSON</h3>
-          <button type="button" class="sd-icon-close" @click="showNotesDrawer = false">
-            <X :size="15" />
+          <h3>
+            <Code2 :size="16" />
+            <span>Canvas Flow JSON ({{ flowSnapshot.nodes?.length || 0 }} blocks, {{ flowSnapshot.edges?.length || 0 }} flows)</span>
+          </h3>
+          <button type="button" class="sd-icon-close" @click="showFlowJsonModal = false">
+            <X :size="16" />
           </button>
         </div>
 
-        <section
-          v-if="
-            sessionLedger.functional_requirements?.length ||
-            sessionLedger.non_functional_requirements?.length ||
-            Object.keys(sessionLedger.scale_estimates || {}).length
-          "
-          class="sd-notes-ledger-box"
-          data-testid="studio-requirements-reference"
-        >
-          <strong>Session Requirements</strong>
-          <div v-if="sessionLedger.functional_requirements?.length" class="sd-ledger-ref-group">
-            <span class="sd-ledger-ref-label">Functional</span>
-            <ul>
-              <li v-for="fr in sessionLedger.functional_requirements" :key="fr">{{ fr }}</li>
-            </ul>
-          </div>
-          <div v-if="sessionLedger.non_functional_requirements?.length" class="sd-ledger-ref-group">
-            <span class="sd-ledger-ref-label">Non-Functional</span>
-            <ul>
-              <li v-for="nfr in sessionLedger.non_functional_requirements" :key="nfr">{{ nfr }}</li>
-            </ul>
-          </div>
-          <div v-if="Object.keys(sessionLedger.scale_estimates || {}).length" class="sd-ledger-ref-group">
-            <span class="sd-ledger-ref-label">Scale Estimates</span>
-            <div class="sd-ledger-scale-grid">
-              <div v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-chip">
-                <strong>{{ key }}:</strong> {{ val }}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <label class="sd-field-label">
-          <span>Architecture Summary Notes</span>
-          <textarea
-            v-model="canvasNotes"
-            class="form-textarea"
-            rows="4"
-            data-testid="canvas-notes-input"
-            placeholder="Summarize read/write paths, sharding keys, TTL, or trade-offs..."
-          />
-        </label>
-
-        <label class="sd-drawer-checkbox">
-          <input
-            v-model="useWebSearchReview"
-            type="checkbox"
-            data-testid="review-web-search-checkbox"
-          />
-          <Globe :size="14" />
-          <span>Ground AI critique with Web Search</span>
-        </label>
-
         <div class="sd-flow-preview-wrap" data-testid="flow-json-preview">
-          <div class="sd-flow-preview-head">
-            <Code2 :size="14" />
-            <span>
-              {{ flowSnapshot.nodes?.length || 0 }} blocks, {{ flowSnapshot.edges?.length || 0 }} flows
-            </span>
-          </div>
           <pre class="sd-flow-json-pre">{{ JSON.stringify(flowSnapshot, null, 2) }}</pre>
         </div>
-      </aside>
+
+        <div class="sd-modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showFlowJsonModal = false">
+            Close
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Clean External Image Upload Modal (Excalidraw / PNG / JPEG / WebP) -->
@@ -1127,23 +1169,39 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.sd-studio-drawer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 35;
-  width: 340px;
+.sd-studio-sidebar {
+  width: 355px;
   max-width: 92vw;
   border-left: 1px solid var(--border-subtle, #334155);
   background: var(--bg-surface, #1e293b);
-  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.42);
-  padding: 14px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
+  gap: 10px;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+  .sd-studio-sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.sd-reqs-tab-body,
+.sd-scrollable-tab {
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.sd-json-modal {
+  width: 620px;
+  max-height: 82vh;
 }
 
 .sd-drawer-head {
@@ -1211,15 +1269,10 @@ onUnmounted(() => {
   line-height: 1.35;
 }
 
-.sd-coach-drawer {
-  width: 390px;
-  max-width: 92vw;
-}
-
 .sd-coach-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
   padding: 3px;
   border-radius: 9px;
   background: var(--bg-elevated, #0f172a);
