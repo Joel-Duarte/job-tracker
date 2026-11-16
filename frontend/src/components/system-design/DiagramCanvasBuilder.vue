@@ -34,6 +34,7 @@ import {
   getProviderShortLabel,
   resolveBlockCloudDisplay,
   resolveDiagramIcon,
+  evaluateDrawnWireFeedback,
   serializeFlowEdges,
   serializeFlowNodes,
 } from '../../utils/diagramCatalog'
@@ -44,9 +45,10 @@ const props = defineProps({
   catalog: { type: Object, default: null },
   loadedFlow: { type: Object, default: null },
   notes: { type: String, default: '' },
+  expectedPaths: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['update:notes', 'flow-change'])
+const emit = defineEmits(['update:notes', 'flow-change', 'wire-feedback'])
 
 const { fitView, screenToFlowCoordinate } = useVueFlow({ id: 'sd-canvas-builder' })
 
@@ -82,6 +84,9 @@ const catalogBlocks = computed(() =>
 const providers = computed(() =>
   props.catalog?.providers?.length ? props.catalog.providers : DEFAULT_CLOUD_PROVIDERS
 )
+const scenarioBlocks = computed(() =>
+  Array.isArray(props.session?.palette_extensions) ? props.session.palette_extensions : []
+)
 const activeCloudShortLabel = computed(() => getProviderShortLabel(cloudProvider.value, providers.value))
 
 function blockCloudMeta(item) {
@@ -96,6 +101,18 @@ const selectedNodeEquivalents = computed(() => {
 const activeHintEquivalents = computed(() => {
   if (!activeHintDetail.value?.type_id) return []
   return getBlockEquivalents(activeHintDetail.value.type_id, catalogBlocks.value)
+})
+
+const filteredScenarioBlocks = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  return scenarioBlocks.value.filter((block) => {
+    if (selectedCategory.value !== 'all' && block.category !== selectedCategory.value) {
+      return false
+    }
+    if (!q) return true
+    const haystack = `${block.label || ''} ${block.default_role || ''}`.toLowerCase()
+    return haystack.includes(q)
+  })
 })
 
 const filteredBlocks = computed(() => {
@@ -320,6 +337,12 @@ function handleVueFlowConnect(params) {
     },
   }
   edges.value = [...edges.value, newEdge]
+  const srcNode = nodes.value.find((n) => n.id === params.source)
+  const dstNode = nodes.value.find((n) => n.id === params.target)
+  const wireVerdict = evaluateDrawnWireFeedback(srcNode, dstNode, props.expectedPaths)
+  if (wireVerdict) {
+    emit('wire-feedback', wireVerdict)
+  }
   selectedNodeId.value = null
   selectedEdgeId.value = id
   popoverAnchor.value = { x: 24, y: 24 }
@@ -611,6 +634,20 @@ defineExpose({
         </button>
         <div class="sd-rail-scroll">
           <button
+            v-for="block in filteredScenarioBlocks"
+            :key="`rail-ext-${block.type_id}-${block.label}`"
+            type="button"
+            class="sd-rail-btn sd-rail-scenario-btn"
+            draggable="true"
+            :data-testid="`palette-rail-block-${block.type_id}`"
+            :style="{ color: CATEGORY_ACCENTS[block.category]?.color || '#3b82f6' }"
+            :title="`[Scenario] ${block.label} — ${block.default_role}`"
+            @dragstart="handleDragStart($event, block)"
+            @click="addBlockToCanvas(block)"
+          >
+            <component :is="resolveDiagramIcon(block.icon)" :size="16" />
+          </button>
+          <button
             v-for="block in filteredBlocks"
             :key="`rail-${block.type_id}`"
             type="button"
@@ -727,6 +764,36 @@ defineExpose({
         </div>
 
         <div class="sd-palette-list">
+          <div
+            v-if="filteredScenarioBlocks.length"
+            class="sd-scenario-palette-group"
+            data-testid="scenario-palette-blocks"
+          >
+            <span class="sd-scenario-group-label">Scenario Blocks</span>
+            <button
+              v-for="ext in filteredScenarioBlocks"
+              :key="`ext-${ext.type_id}-${ext.label}`"
+              type="button"
+              class="sd-palette-item is-scenario"
+              draggable="true"
+              :data-testid="`palette-block-${ext.type_id}`"
+              :title="`${ext.default_role} (Scenario extension block — click or drag)`"
+              @dragstart="handleDragStart($event, ext)"
+              @click="addBlockToCanvas(ext)"
+            >
+              <span
+                class="sd-palette-item-icon"
+                :style="{ color: CATEGORY_ACCENTS[ext.category]?.color || '#3b82f6' }"
+              >
+                <component :is="resolveDiagramIcon(ext.icon)" :size="15" />
+              </span>
+              <span class="sd-palette-item-text">
+                <span class="sd-palette-item-name">{{ ext.label }}</span>
+                <span class="sd-palette-item-role">Domain extension</span>
+              </span>
+              <Plus :size="13" class="sd-palette-plus" />
+            </button>
+          </div>
           <button
             v-for="block in filteredBlocks"
             :key="block.type_id"
@@ -1150,6 +1217,31 @@ defineExpose({
 
 .sd-rail-custom-btn {
   color: var(--text-main, #f8fafc);
+}
+
+.sd-rail-scenario-btn {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 55%, var(--border-subtle, #334155));
+}
+
+.sd-scenario-palette-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-bottom: 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border-subtle, #334155) 75%, transparent);
+}
+
+.sd-scenario-group-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent, #2563eb);
+}
+
+.sd-palette-item.is-scenario {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border-subtle, #334155));
 }
 
 .sd-cloud-lens-box {

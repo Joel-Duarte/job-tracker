@@ -29,6 +29,7 @@ import {
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiagramCanvasBuilder from '../components/system-design/DiagramCanvasBuilder.vue'
+import { evaluateDrawnWireFeedback } from '../utils/diagramCatalog'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
 
@@ -65,6 +66,21 @@ const sessionLedger = computed(() => session.value?.requirements_ledger || {})
 const placedNodeTypeSet = computed(
   () => new Set((flowSnapshot.value?.nodes || []).map((n) => n.type_id))
 )
+const drawnEdgePairs = computed(() => {
+  const nodesById = new Map((flowSnapshot.value?.nodes || []).map((n) => [String(n.id), n]))
+  const pairs = new Set()
+  for (const edge of flowSnapshot.value?.edges || []) {
+    const srcNode = nodesById.get(String(edge.source))
+    const tgtNode = nodesById.get(String(edge.target))
+    const srcType = String(srcNode?.type_id || srcNode?.data?.type_id || '').trim()
+    const tgtType = String(tgtNode?.type_id || tgtNode?.data?.type_id || '').trim()
+    if (srcType && tgtType) {
+      pairs.add(`${srcType}->${tgtType}`)
+    }
+  }
+  return pairs
+})
+
 const normalizedExpectedPaths = computed(() => {
   const satisfiedIds = new Set(store.lastTopologyFeedback?.satisfied_paths || [])
   return (store.expectedPaths || []).map((path, pIdx) => {
@@ -84,12 +100,23 @@ const normalizedExpectedPaths = computed(() => {
       if (step && typeof step === 'object') {
         const src = step.source_label || step.source_type_id || 'Source'
         const tgt = step.target_label || step.target_type_id || 'Target'
+        const liveWired = Boolean(
+          step.source_type_id &&
+            step.target_type_id &&
+            drawnEdgePairs.value.has(`${step.source_type_id}->${step.target_type_id}`)
+        )
+        const livePlacedBoth = Boolean(
+          step.source_type_id &&
+            step.target_type_id &&
+            placedNodeTypeSet.value.has(step.source_type_id) &&
+            placedNodeTypeSet.value.has(step.target_type_id)
+        )
         return {
           key: `${id}-${step.source_type_id || src}-${step.target_type_id || tgt}-${sIdx}`,
           label: `${src} → ${tgt}`,
           sublabel: step.suggested_label || '',
-          satisfied: Boolean(step.satisfied),
-          placedBoth: Boolean(step.placed_both),
+          satisfied: Boolean(step.satisfied) || liveWired,
+          placedBoth: Boolean(step.placed_both) || livePlacedBoth,
         }
       }
       return {
@@ -100,14 +127,13 @@ const normalizedExpectedPaths = computed(() => {
         placedBoth: false,
       }
     })
+    const liveCompleted = steps.filter((s) => s.satisfied).length
     const completed =
-      typeof path?.completed === 'number'
-        ? path.completed
-        : steps.filter((s) => s.satisfied).length
+      typeof path?.completed === 'number' ? Math.max(path.completed, liveCompleted) : liveCompleted
     const total = typeof path?.total === 'number' ? path.total : steps.length
     const satisfied =
       typeof path?.satisfied === 'boolean'
-        ? path.satisfied
+        ? path.satisfied || (total > 0 && completed >= total)
         : satisfiedIds.has(id) || satisfiedIds.has(title) || (total > 0 && completed >= total)
     return {
       id,
@@ -120,6 +146,47 @@ const normalizedExpectedPaths = computed(() => {
     }
   })
 })
+
+const liveWireChecks = computed(() => {
+  const nodesById = new Map((flowSnapshot.value?.nodes || []).map((n) => [String(n.id), n]))
+  const items = []
+  const seen = new Set()
+  for (const edge of flowSnapshot.value?.edges || []) {
+    const srcNode = nodesById.get(String(edge.source))
+    const tgtNode = nodesById.get(String(edge.target))
+    if (!srcNode || !tgtNode) continue
+    const verdict = evaluateDrawnWireFeedback(srcNode, tgtNode, store.expectedPaths || [])
+    if (!verdict) continue
+    const srcKey = String(srcNode?.type_id || srcNode?.data?.type_id || srcNode?.label || srcNode.id)
+    const tgtKey = String(tgtNode?.type_id || tgtNode?.data?.type_id || tgtNode?.label || tgtNode.id)
+    const dedupKey = `${verdict.status}:${srcKey}->${tgtKey}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    items.push({
+      key: edge.id || dedupKey,
+      ...verdict,
+    })
+  }
+  return items
+})
+
+const verifiedConnections = computed(() =>
+  liveWireChecks.value.filter((item) => item.status === 'correct')
+)
+
+const liveWireWarnings = computed(() =>
+  liveWireChecks.value.filter((item) => item.status === 'warning')
+)
+
+function handleWireFeedback(verdict) {
+  if (!verdict) return
+  if (verdict.status === 'correct') {
+    uiStore.showToast(`${verdict.title} — ${verdict.detail}`, 'success')
+  } else if (verdict.status === 'warning') {
+    uiStore.showToast(`${verdict.title} — ${verdict.detail}`, 'warning')
+  }
+}
+
 const coachBadgeCount = computed(() => {
   const findingsCount = (store.lastTopologyFeedback?.findings || []).filter(
     (f) => f.severity !== 'info'
@@ -127,7 +194,7 @@ const coachBadgeCount = computed(() => {
   const pendingFixes = (store.reviewFixChecklist || []).filter(
     (item) => !checkedFixIds.value[item.id]
   ).length
-  return findingsCount + pendingFixes
+  return findingsCount + pendingFixes + liveWireWarnings.value.length
 })
 const revisions = computed(() => session.value?.diagrams_metadata || [])
 const canvasRevisions = computed(() =>
@@ -520,7 +587,9 @@ onUnmounted(() => {
         :session="session"
         :catalog="store.diagramCatalog"
         :loaded-flow="loadedFlow"
+        :expected-paths="store.expectedPaths"
         @flow-change="flowSnapshot = $event"
+        @wire-feedback="handleWireFeedback"
       />
 
       <!-- Docked 4-Tab Studio Assistant Sidebar (Reqs | Coach | Bank | Checks) -->
@@ -879,6 +948,46 @@ onUnmounted(() => {
               <span>Run Topology Check</span>
             </button>
           </div>
+
+          <section
+            v-if="verifiedConnections.length"
+            class="sd-coach-section"
+            data-testid="verified-connections-checklist"
+          >
+            <div class="sd-coach-section-head">
+              <strong>Verified Connections ({{ verifiedConnections.length }})</strong>
+            </div>
+            <div class="sd-verified-wire-list">
+              <div
+                v-for="item in verifiedConnections"
+                :key="item.key"
+                class="sd-verified-wire-item"
+              >
+                <span class="sd-verified-wire-title">✓ {{ item.title }}</span>
+                <span class="sd-verified-wire-detail">{{ item.detail }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            v-if="liveWireWarnings.length"
+            class="sd-coach-section"
+            data-testid="live-wire-warnings"
+          >
+            <div class="sd-coach-section-head">
+              <strong>Wire Warnings ({{ liveWireWarnings.length }})</strong>
+            </div>
+            <div class="sd-verified-wire-list">
+              <div
+                v-for="item in liveWireWarnings"
+                :key="item.key"
+                class="sd-verified-wire-item warn"
+              >
+                <span class="sd-verified-wire-title">⚠ {{ item.title }}</span>
+                <span class="sd-verified-wire-detail">{{ item.detail }}</span>
+              </div>
+            </div>
+          </section>
 
           <section
             v-if="store.reviewFixChecklist.length"
@@ -1726,5 +1835,38 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.sd-verified-wire-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sd-verified-wire-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.sd-verified-wire-item.warn {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.sd-verified-wire-title {
+  font-weight: 600;
+  color: var(--text-primary, #f8fafc);
+}
+
+.sd-verified-wire-detail {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.74rem;
 }
 </style>

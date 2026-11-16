@@ -61,7 +61,37 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
         "default_role": "Filters malicious payloads, bot bursts, and L7/L4 volumetric attacks.",
         "keywords": ["waf", "ddos", "firewall", "bot protection", "shield"],
     },
-    # 2. Traffic & API (5)
+    {
+        "type_id": "webhook_actor",
+        "label": "External System / Webhook",
+        "category": "clients_edge",
+        "icon": "globe",
+        "default_role": "External partner service, B2B caller, IoT fleet, or webhook emitter initiating inbound events.",
+        "keywords": [
+            "webhook",
+            "external system",
+            "partner api",
+            "third party",
+            "b2b",
+            "iot device",
+        ],
+    },
+    {
+        "type_id": "static_hosting",
+        "label": "Static Web / SPA Host",
+        "category": "clients_edge",
+        "icon": "layers",
+        "default_role": "Serves compiled SPA bundles and static web assets at the edge or origin bucket.",
+        "keywords": [
+            "static site",
+            "spa",
+            "s3 hosting",
+            "static web apps",
+            "cloudflare pages",
+            "frontend bundle",
+        ],
+    },
+    # 2. Traffic & API (7)
     {
         "type_id": "load_balancer",
         "label": "Load Balancer",
@@ -129,7 +159,22 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
             "abuse",
         ],
     },
-    # 3. Compute & Services (6)
+    {
+        "type_id": "circuit_breaker",
+        "label": "Service Mesh / Circuit Breaker",
+        "category": "traffic_api",
+        "icon": "shield-alert",
+        "default_role": "Enforces mTLS, adaptive circuit breaking, retries, and overload shedding between services.",
+        "keywords": [
+            "circuit breaker",
+            "service mesh",
+            "istio",
+            "envoy",
+            "bulkhead",
+            "shedding",
+        ],
+    },
+    # 3. Compute & Services (7)
     {
         "type_id": "app_service",
         "label": "Stateless App Service",
@@ -206,6 +251,22 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
             "llm",
             "fraud",
             "rag",
+        ],
+    },
+    {
+        "type_id": "llm_gateway",
+        "label": "LLM / AI Model Gateway",
+        "category": "compute_services",
+        "icon": "brain",
+        "default_role": "Routes prompts across LLM providers, manages token quotas/caching, and applies AI guardrails.",
+        "keywords": [
+            "llm gateway",
+            "ai gateway",
+            "bedrock",
+            "azure openai",
+            "vertex ai",
+            "token quota",
+            "prompt proxy",
         ],
     },
     {
@@ -338,6 +399,23 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
         ],
     },
     {
+        "type_id": "geo_index",
+        "label": "Geospatial / Proximity Index",
+        "category": "databases_storage",
+        "icon": "compass",
+        "default_role": "Stores spatial coordinates, H3 cells, or geohashes for low-latency nearby radius queries.",
+        "keywords": [
+            "geospatial",
+            "geo",
+            "h3",
+            "quadtree",
+            "geohash",
+            "postgis",
+            "proximity",
+            "location index",
+        ],
+    },
+    {
         "type_id": "consensus_store",
         "label": "Coordination / Lease Store",
         "category": "databases_storage",
@@ -417,6 +495,23 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
         "default_role": "Isolates poison messages exceeding retry bounds for replay and triage.",
         "keywords": ["dlq", "dead letter", "dead-letter", "poison"],
     },
+    {
+        "type_id": "notification_hub",
+        "label": "Push / Email / SMS Gateway",
+        "category": "messaging_streaming",
+        "icon": "radio",
+        "default_role": "Delivers multi-channel alerts via APNs, FCM, SMTP/SES, or SMS carriers with delivery receipts.",
+        "keywords": [
+            "notification",
+            "apns",
+            "fcm",
+            "push notification",
+            "email",
+            "ses",
+            "sms",
+            "twilio",
+        ],
+    },
     # 7. Search, Analytics & Ops (4)
     {
         "type_id": "search_engine",
@@ -487,19 +582,12 @@ CLOUD_PROVIDERS: list[dict[str, str]] = [
 VALID_CLOUD_PROVIDER_IDS: set[str] = {p["id"] for p in CLOUD_PROVIDERS}
 
 CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
-    "web_client": {
-        "aws": "CloudFront + S3 SPA / Amplify",
+    "static_hosting": {
+        "aws": "Amazon S3 + CloudFront SPA",
         "azure": "Azure Static Web Apps",
         "gcp": "Firebase Hosting / Cloud Storage SPA",
         "cloudflare": "Cloudflare Pages",
-        "oci": "OCI Object Storage + Web App",
-    },
-    "mobile_client": {
-        "aws": "AWS Amplify / Mobile SDK",
-        "azure": "Azure Mobile Apps / App Center",
-        "gcp": "Firebase Mobile SDK",
-        "cloudflare": "Mobile App + Cloudflare Edge",
-        "oci": "Mobile Client + OCI Edge",
+        "oci": "OCI Object Storage Static Web",
     },
     "dns": {
         "aws": "Amazon Route 53",
@@ -542,6 +630,13 @@ CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
         "gcp": "Cloud Armor Rate Limiting",
         "cloudflare": "Cloudflare Rate Limiting",
         "oci": "OCI API Gateway Rate Limit",
+    },
+    "circuit_breaker": {
+        "aws": "AWS App Mesh / VPC Lattice",
+        "azure": "Azure Service Mesh / APIM Breaker",
+        "gcp": "Google Cloud Service Mesh",
+        "cloudflare": "Cloudflare Health Checks & Failover",
+        "oci": "OCI Service Mesh (Envoy)",
     },
     "auth_service": {
         "aws": "Amazon Cognito / AWS IAM",
@@ -593,11 +688,18 @@ CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
         "oci": "OKE Key Generator Service",
     },
     "ml_inference": {
-        "aws": "Amazon SageMaker / Bedrock",
-        "azure": "Azure Machine Learning / OpenAI Service",
-        "gcp": "Google Vertex AI",
+        "aws": "Amazon SageMaker / ECS Inference",
+        "azure": "Azure Machine Learning Endpoint",
+        "gcp": "Google Vertex AI Prediction",
         "cloudflare": "Cloudflare Workers AI",
-        "oci": "OCI Data Science / Generative AI",
+        "oci": "OCI Data Science Model Deployment",
+    },
+    "llm_gateway": {
+        "aws": "Amazon Bedrock / AI Gateway",
+        "azure": "Azure OpenAI / APIM AI Gateway",
+        "gcp": "Google Vertex AI Gateway",
+        "cloudflare": "Cloudflare AI Gateway",
+        "oci": "OCI Generative AI Service",
     },
     "media_transcoder": {
         "aws": "AWS Elemental MediaConvert",
@@ -676,6 +778,13 @@ CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
         "cloudflare": "Cloudflare Vectorize",
         "oci": "OCI Database 23ai AI Vector Search",
     },
+    "geo_index": {
+        "aws": "Amazon Location / ElastiCache Geo",
+        "azure": "Azure Maps / Managed Redis Geo",
+        "gcp": "Memorystore Geo / Firestore Geo",
+        "cloudflare": "Durable Objects Spatial Shard",
+        "oci": "OCI Spatial & Cache Geo",
+    },
     "consensus_store": {
         "aws": "AWS etcd / DynamoDB Lock Table",
         "azure": "Azure Blob Leases / etcd on AKS",
@@ -717,6 +826,13 @@ CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
         "gcp": "Google Pub/Sub Dead-Letter Topic",
         "cloudflare": "Cloudflare Queue DLQ",
         "oci": "OCI Queue Dead-Letter Channel",
+    },
+    "notification_hub": {
+        "aws": "Amazon SNS / SES / Pinpoint",
+        "azure": "Azure Notification Hubs / Comm.",
+        "gcp": "Firebase Cloud Messaging (FCM)",
+        "cloudflare": "Cloudflare Email Workers / Webhook",
+        "oci": "OCI Notifications & Email Delivery",
     },
     "search_engine": {
         "aws": "Amazon OpenSearch Service",
@@ -1228,6 +1344,68 @@ _SYNTHESIS_RULES: list[dict[str, Any]] = [
         ),
         "why": "Consumes queued events to batch-update counters, run cleanup, or handle retries off the hot path.",
         "checklist": ["Batch DB updates and design idempotent consumers"],
+    },
+    {
+        "type_id": "geo_index",
+        "patterns": (
+            "geospatial",
+            "h3",
+            "geohash",
+            "quadtree",
+            "nearby",
+            "proximity",
+            "driver location",
+            "postgis",
+        ),
+        "why": "Indexes live entity coordinates for fast proximity/radius searches without scanning the full database.",
+        "checklist": [
+            "Shard spatial grid by city/region and expire stale location TTLs automatically"
+        ],
+    },
+    {
+        "type_id": "notification_hub",
+        "patterns": (
+            "push notification",
+            "apns",
+            "fcm",
+            "sms",
+            "email alert",
+            "multi-channel",
+        ),
+        "why": "Decouples external APNs/FCM/SMTP/SMS carrier integrations with per-channel templates, backoff, and delivery receipts.",
+        "checklist": [
+            "Track idempotency keys and fallback/retry policies per notification carrier"
+        ],
+    },
+    {
+        "type_id": "circuit_breaker",
+        "patterns": (
+            "circuit breaker",
+            "service mesh",
+            "bulkhead",
+            "overload shedding",
+            "downstream health",
+        ),
+        "why": "Prevents cascading failures when slow or degraded downstreams exhaust caller thread/connection pools.",
+        "checklist": [
+            "Configure error-rate trip thresholds, half-open probes, and bounded timeouts"
+        ],
+    },
+    {
+        "type_id": "llm_gateway",
+        "patterns": (
+            "llm",
+            "prompt token",
+            "bedrock",
+            "openai",
+            "foundation model",
+            "generative ai",
+            "ai gateway",
+        ),
+        "why": "Centralizes LLM routing, prompt/token quotas, semantic caching, and safety guardrails across model providers.",
+        "checklist": [
+            "Track prompt+completion token budgets, streaming SSE pass-through, and fallback models"
+        ],
     },
 ]
 

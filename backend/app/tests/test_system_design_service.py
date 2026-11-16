@@ -2454,3 +2454,183 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
             assert solo_data["final_evaluation"]["xp_earned"] == 150
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_client_actors_new_blocks_palette_extensions_and_three_tier_prompt(
+    db_session: AsyncSession,
+):
+    """Verify 43 catalog blocks, cloud-agnostic clients, Scenario Blocks exposure, and 3-tier prompt formatting."""
+    import json as _json
+
+    from app.services.diagram_catalog import (
+        CANONICAL_DIAGRAM_BLOCKS,
+        CLOUD_EQUIVALENTS_BY_TYPE,
+    )
+
+    assert len(CANONICAL_DIAGRAM_BLOCKS) == 43
+    block_ids = {b["type_id"] for b in CANONICAL_DIAGRAM_BLOCKS}
+    for expected_id in (
+        "web_client",
+        "mobile_client",
+        "webhook_actor",
+        "static_hosting",
+        "circuit_breaker",
+        "llm_gateway",
+        "geo_index",
+        "notification_hub",
+    ):
+        assert expected_id in block_ids
+
+    for agnostic_id in ("web_client", "mobile_client", "webhook_actor"):
+        assert agnostic_id not in CLOUD_EQUIVALENTS_BY_TYPE
+
+    assert "aws" in CLOUD_EQUIVALENTS_BY_TYPE["static_hosting"]
+    assert "aws" in CLOUD_EQUIVALENTS_BY_TYPE["llm_gateway"]
+    assert "aws" in CLOUD_EQUIVALENTS_BY_TYPE["circuit_breaker"]
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1) /catalog returns 43 blocks with cloud-agnostic clients and AWS-mapped static_hosting
+            cat_res = await ac.get("/api/v1/system-design/catalog")
+            assert cat_res.status_code == 200
+            blocks_by_id = {b["type_id"]: b for b in cat_res.json()["blocks"]}
+            assert len(blocks_by_id) == 43
+            assert blocks_by_id["web_client"]["cloud_equivalents"] == {}
+            assert blocks_by_id["mobile_client"]["cloud_equivalents"] == {}
+            assert blocks_by_id["webhook_actor"]["cloud_equivalents"] == {}
+            assert (
+                "CloudFront"
+                in blocks_by_id["static_hosting"]["cloud_equivalents"]["aws"]
+            )
+
+            # 2) Frontier prompt endpoint formats cleanly and describes 3 scale tiers + extensions
+            prompt_res = await ac.post(
+                "/api/v1/system-design/challenges/frontier-prompt",
+                json={"topic": "AI Coding Assistant", "difficulty": "HARD"},
+            )
+            assert prompt_res.status_code == 200
+            md_prompt = prompt_res.json()["markdown_prompt"]
+            assert "Small / Lean Startup MVP" in md_prompt
+            assert "Medium-Large" in md_prompt
+            assert "Hyper-Scale" in md_prompt
+            assert "diagram_palette_extensions" in md_prompt
+            assert "LLM / AI Model Gateway" in md_prompt
+            assert "Geospatial / Proximity Index" in md_prompt
+            assert "Push / Email / SMS Gateway" in md_prompt
+
+            # 3) Imported challenge with diagram_palette_extensions exposes sanitized palette_extensions on session
+            def _make_variant(
+                vid: str, title: str, focus: str, qps: str, comps: list[str]
+            ) -> dict:
+                return {
+                    "variant_id": vid,
+                    "title": title,
+                    "focus_summary": focus,
+                    "business_context": {
+                        "product_goal": focus,
+                        "target_users": "Enterprise engineers",
+                    },
+                    "scale_estimates": {
+                        "dau": "500K",
+                        "daily_volume": "20M",
+                        "qps": qps,
+                    },
+                    "functional_requirements": [
+                        "Route customer support tickets via LLMs with audit trails",
+                        "Mask PII fields before external model invocation",
+                    ],
+                    "non_functional_requirements": [
+                        "<500ms p95 classification",
+                        "99.95% SLA",
+                    ],
+                    "constraints": ["Zero unredacted PII egress"],
+                    "priorities": ["P0: Redaction correctness"],
+                    "out_of_scope": ["Custom model fine-tuning UI"],
+                    "hidden_context": {
+                        "scale_targets": qps,
+                        "key_constraints": ["Strict tenant isolation"],
+                    },
+                    "expected_components": comps,
+                    "over_engineering_traps": [
+                        "Dedicated GPU cluster for simple keyword triage"
+                    ],
+                    "defence_questions": [
+                        f"How does {title} isolate multi-tenant PII?"
+                    ],
+                }
+
+            payload = {
+                "title": "Design a Custom AI Support Router",
+                "category": "DISTRIBUTED_SYSTEMS",
+                "difficulty": "MEDIUM",
+                "prompt_summary": "Architect a multi-tenant AI customer support router with PII scrubbing and full audit trails.",
+                "initial_prompt": "Let us design a multi-tenant AI customer support router. Clarify throughput, PII redaction rules, and SLA constraints first.",
+                "tags": ["ai", "routing"],
+                "interviewer_brief": {
+                    "diagram_palette_extensions": [
+                        {
+                            "type_id": "pii_scrubber",
+                            "label": "PII Redaction Proxy",
+                            "category": "compute_services",
+                            "icon": "shield",
+                            "default_role": "Masks sensitive fields before LLM invocation",
+                            "cloud_equivalents": {"aws": "Amazon Macie Proxy"},
+                        }
+                    ],
+                    "variants": [
+                        _make_variant(
+                            "lean-mvp",
+                            "Lean Startup MVP",
+                            "Single-region fast launch",
+                            "50 QPS",
+                            [
+                                "Web / Browser Client",
+                                "API Gateway",
+                                "LLM / AI Model Gateway",
+                            ],
+                        ),
+                        _make_variant(
+                            "enterprise-sla",
+                            "Enterprise Compliance",
+                            "Strict PII redaction and audit",
+                            "2,000 QPS",
+                            ["API Gateway", "LLM / AI Model Gateway"],
+                        ),
+                        _make_variant(
+                            "hyper-scale",
+                            "Global Burst Scale",
+                            "Multi-region failover",
+                            "50,000 QPS",
+                            [
+                                "Service Mesh / Circuit Breaker",
+                                "LLM / AI Model Gateway",
+                            ],
+                        ),
+                    ],
+                },
+            }
+            imp_res = await ac.post(
+                "/api/v1/system-design/challenges/import",
+                json={"raw_response": _json.dumps(payload)},
+            )
+            assert imp_res.status_code == 201
+            imp_ch_id = imp_res.json()["id"]
+
+            sess_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": imp_ch_id,
+                    "mode": "ADAPTIVE",
+                    "variant_id": "lean-mvp",
+                },
+            )
+            assert sess_res.status_code == 201
+            sess_data = sess_res.json()
+            assert len(sess_data["palette_extensions"]) == 1
+            assert sess_data["palette_extensions"][0]["type_id"] == "pii_scrubber"
+            assert "interviewer_brief" not in sess_data
+    finally:
+        app.dependency_overrides.clear()

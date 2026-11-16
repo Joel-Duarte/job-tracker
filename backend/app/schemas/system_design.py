@@ -540,6 +540,7 @@ class SystemDesignSessionRead(BaseModel):
     requirements_ledger: dict[str, Any] = Field(default_factory=dict)
     diagrams_metadata: list[dict[str, Any]] = Field(default_factory=list)
     diagram_guidance: dict[str, Any] = Field(default_factory=dict)
+    palette_extensions: list[dict[str, Any]] = Field(default_factory=list)
     architecture_reviews: list[dict[str, Any]] = Field(default_factory=list)
     defence_transcript: list[dict[str, Any]] = Field(default_factory=list)
     final_evaluation: dict[str, Any] | None = None
@@ -571,6 +572,39 @@ class SystemDesignSessionRead(BaseModel):
         reveal_variant = status_val == "COMPLETED" or selection_mode != "random"
         raw_brief = _get("session_brief")
         session_brief = raw_brief if isinstance(raw_brief, dict) else {}
+
+        raw_exts = session_brief.get("diagram_palette_extensions") or []
+        safe_exts: list[dict[str, Any]] = []
+        seen_ext_keys: set[str] = set()
+        if isinstance(raw_exts, list):
+            for idx, ext in enumerate(raw_exts):
+                if not isinstance(ext, dict):
+                    continue
+                label = str(ext.get("label") or ext.get("name") or "").strip()
+                if not label:
+                    continue
+                tid = str(ext.get("type_id") or "").strip() or f"scenario-{idx + 1}"
+                dedup_key = f"{tid}:{label.lower()}"
+                if dedup_key in seen_ext_keys:
+                    continue
+                seen_ext_keys.add(dedup_key)
+                safe_exts.append(
+                    {
+                        "type_id": tid,
+                        "label": label[:120],
+                        "category": str(
+                            ext.get("category") or "compute_services"
+                        ).strip(),
+                        "icon": str(ext.get("icon") or "box").strip(),
+                        "default_role": str(
+                            ext.get("default_role")
+                            or ext.get("hint_role")
+                            or f"Scenario-specific domain component: {label}."
+                        ).strip(),
+                        "is_custom": True,
+                        "is_scenario_extension": True,
+                    }
+                )
 
         data = (
             dict(value)
@@ -612,6 +646,7 @@ class SystemDesignSessionRead(BaseModel):
                 "active_task_provider": _get("active_task_provider"),
             }
         )
+        data["palette_extensions"] = safe_exts
         data.pop("session_brief", None)
         if reveal_variant:
             data["variant_title"] = session_brief.get("variant_title") or data.get(

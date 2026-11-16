@@ -3395,6 +3395,44 @@ export async function handleDemoRequest(config) {
             ? 'DEVELOPING'
             : 'NEEDS_PRACTICE'
 
+    const demoExtractPaletteExtensions = (session, challengeObj) => {
+      const brief = challengeObj?.interviewer_brief || session?.challenge?.interviewer_brief || {}
+      let raw = []
+      if (session?.variant_id && Array.isArray(brief.variants)) {
+        const matched = brief.variants.find((v) => v?.variant_id === session.variant_id)
+        if (matched && Array.isArray(matched.diagram_palette_extensions)) {
+          raw = matched.diagram_palette_extensions
+        }
+      }
+      if (!raw.length && Array.isArray(brief.diagram_palette_extensions)) {
+        raw = brief.diagram_palette_extensions
+      }
+      return raw
+        .filter((item) => item && typeof item === 'object' && item.type_id && item.label)
+        .map((item) => ({
+          type_id: String(item.type_id).trim(),
+          label: String(item.label).trim(),
+          category: String(item.category || 'compute_services').trim(),
+          icon: String(item.icon || 'box').trim(),
+          default_role: String(item.default_role || item.role || '').trim(),
+          cloud_equivalents:
+            item.cloud_equivalents && typeof item.cloud_equivalents === 'object'
+              ? item.cloud_equivalents
+              : {},
+        }))
+    }
+
+    const demoAttachPaletteExtensions = (session) => {
+      if (!session || typeof session !== 'object') return session
+      const existing = Array.isArray(session.palette_extensions) ? session.palette_extensions : []
+      return {
+        ...session,
+        palette_extensions: existing.length
+          ? existing
+          : demoExtractPaletteExtensions(session, session.challenge),
+      }
+    }
+
     const defaultDemoVariants = [
       { variant_id: 'standard-scale', title: 'Standard Scale Profile', focus_summary: 'Balanced throughput, SLA, and cost constraints' },
       { variant_id: 'enterprise-compliance', title: 'Enterprise Compliance Profile', focus_summary: 'Strict privacy, audit trail, and YAGNI data governance' },
@@ -3755,7 +3793,7 @@ export async function handleDemoRequest(config) {
     }
 
     if (urlPath === '/system-design/sessions' && method === 'get') {
-      return ok([...db.system_design_sessions])
+      return ok(db.system_design_sessions.map((s) => demoAttachPaletteExtensions(s)))
     }
 
     if (urlPath === '/system-design/sessions' && method === 'post') {
@@ -3783,7 +3821,12 @@ export async function handleDemoRequest(config) {
         }
         chosen = variants[hash % variants.length]
       }
-      const newSession = {
+      const chosenExt = Array.isArray(chosen?.diagram_palette_extensions)
+        ? chosen.diagram_palette_extensions
+        : Array.isArray(challenge?.interviewer_brief?.diagram_palette_extensions)
+          ? challenge.interviewer_brief.diagram_palette_extensions
+          : []
+      const newSession = demoAttachPaletteExtensions({
         id: nextId,
         challenge_id: challenge.id,
         application_id: data.application_id || null,
@@ -3814,6 +3857,7 @@ export async function handleDemoRequest(config) {
         },
         diagrams_metadata: [],
         diagram_guidance: {},
+        palette_extensions: chosenExt,
         architecture_reviews: [],
         defence_transcript: [],
         final_evaluation: null,
@@ -3823,7 +3867,7 @@ export async function handleDemoRequest(config) {
         updated_at: nowIso,
         completed_at: null,
         challenge,
-      }
+      })
       db.system_design_sessions = [newSession, ...db.system_design_sessions]
       saveDemoDb(db)
       return ok(newSession, 201)
@@ -3837,7 +3881,7 @@ export async function handleDemoRequest(config) {
         return { status: 404, data: { detail: 'System design session not found' } }
       }
       if (method === 'get') {
-        return ok(db.system_design_sessions[idx])
+        return ok(demoAttachPaletteExtensions(db.system_design_sessions[idx]))
       }
       if (method === 'delete') {
         db.system_design_sessions.splice(idx, 1)

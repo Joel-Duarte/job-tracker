@@ -239,12 +239,20 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     ),
 }
 
-CUSTOM_CHALLENGE_GENERATE_PROMPT = """You are a Staff System Design Interview Architect designing a tailored system design interview challenge with 3 genuinely distinct architectural requirement variants.
+CUSTOM_CHALLENGE_GENERATE_PROMPT = """You are a Staff System Design Interview Architect designing a tailored system design interview challenge with 3 distinct scale-tier & architectural variants.
 
 CRITICAL RULES:
 1. UNIQUENESS: Never duplicate or lightly re-skin any challenge in the provided EXISTING CHALLENGES list. Pick a concrete, role-relevant system design problem with a genuinely different problem domain and architectural bottleneck.
 2. CONTEXT GROUNDING & PRIVACY: If job application notes, company research, job description, match gap analysis, or interview email clues are provided, use them to target the company's real technical domain, scale pressures, and probable interview focus. NEVER copy private compensation figures, recruiter contacts, or verbatim personal notes into candidate-facing `title`, `prompt_summary`, or `initial_prompt`.
 3. NO ANSWER LEAKS: Keep `prompt_summary` and `initial_prompt` intentionally broad so the candidate still discovers scale, SLAs, and trade-offs during Stage 1 requirements interview.
+4. THREE PROGRESSIVE CHALLENGE SIZES / TYPES (MANDATORY `variants` ARRAY OF LENGTH 3):
+   - Variant 1 — SMALL / LEAN STARTUP MVP: Cost-constrained, modular simplicity, single region, ~10K–250K DAU, emphasizing YAGNI and avoiding premature microservice/Kafka sprawl.
+   - Variant 2 — MEDIUM-LARGE / ENTERPRISE COMPLIANCE & HIGH-SLA: Strict multi-tenant isolation, auditability, privacy/compliance or 99.99% reliability SLA, ~1M–20M users or high transactional durability.
+   - Variant 3 — HYPER-SCALE / GLOBAL BURST & REAL-TIME STRESS CASE: 50M+ DAU or 100K+ QPS, extreme read/write asymmetry, fan-out spikes, geo-distributed edges, or strict <30ms latency budgets.
+5. DIAGRAM SYSTEM & INTRODUCING CUSTOM BLOCKS:
+   - Prefer canonical component labels in `expected_components` when standard blocks fit: `Web / Browser Client`, `Mobile Client`, `External System / Webhook`, `Static Web / SPA Host`, `DNS / GeoDNS`, `CDN / Edge Cache`, `WAF / DDoS Shield`, `Load Balancer`, `API Gateway`, `Rate Limiter`, `Service Mesh / Circuit Breaker`, `Auth / IAM Service`, `WebSocket / Push Gateway`, `URL / Payload Safety Filter`, `Stateless App Service`, `Background Worker Pool`, `Scheduler / TTL Sweeper`, `Unique ID / Key Generator`, `ML / Ranking Service`, `LLM / AI Model Gateway`, `Media / Document Processor`, `Distributed Cache (Redis)`, `Local / L1 In-Process Cache`, `Feature / State Store`, `Bloom Filter / Dedup Index`, `Primary Relational DB`, `DB Read Replica`, `NoSQL / Wide-Column / KV DB`, `Object / Blob Storage`, `Time-Series DB`, `Vector Index / DB`, `Geospatial / Proximity Index`, `Coordination / Lease Store`, `Task Queue`, `Event Log / Kafka Stream`, `Pub/Sub Fan-out Bus`, `Stream Processor (Flink)`, `Dead-Letter Queue (DLQ)`, `Push / Email / SMS Gateway`, `Full-Text / Geo Search`, `Analytics / OLAP Store`, `Outbox / CDC Pipeline`, `Metrics, Logs & Tracing`.
+   - ONLY add `diagram_palette_extensions` when the problem domain genuinely needs a specialized domain block not covered above (e.g., `DRM License Server`, `Stripe Idempotency Ledger`, `Telemetry Anomaly Scorer`).
+   - Whenever you introduce a custom extension in `diagram_palette_extensions`, set a kebab-case `type_id`, clean `label`, valid `category` (`clients_edge | traffic_api | compute_services | caching_memory | databases_storage | messaging_streaming | search_analytics_ops`), valid `icon` (`box | server | database | bolt | git-commit-horizontal | network | brain | globe | search | shield | layers | compass | radio | clock`), concise `default_role`, AND include that exact `label` in the variant's `expected_components`.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
@@ -258,7 +266,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
     "variants": [
       {{
         "variant_id": "<short-kebab-slug-1>",
-        "title": "<Variant 1 Scenario Name, e.g. Cost-Constrained MVP>",
+        "title": "<Variant 1: Small / Lean Startup MVP Scenario Name>",
         "focus_summary": "<1-sentence trade-off focus for post-session summary>",
         "business_context": {{
           "product_goal": "<core business/product objective>",
@@ -267,7 +275,8 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
         "scale_estimates": {{
           "dau": "<concrete DAU/MAU target>",
           "daily_volume": "<concrete daily writes/reads>",
-          "qps": "<average and peak QPS>"
+          "qps": "<average and peak QPS>",
+          "storage": "<storage footprint estimate>"
         }},
         "functional_requirements": ["<core functional requirement 1>", "<core functional requirement 2>"],
         "non_functional_requirements": ["<latency p99 target>", "<availability SLA>", "<consistency/privacy requirement>"],
@@ -278,9 +287,9 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
           "scale_targets": "<concrete hidden DAU/QPS/storage/latency numbers revealed only when asked>",
           "key_constraints": ["<constraint 1>", "<constraint 2>"]
         }},
-        "expected_components": ["Load Balancer", "API Gateway", "Stateless App Service", "Primary Relational DB", "<additional atomic component e.g. Distributed Cache (Redis) or Scheduler / TTL Sweeper>"],
+        "expected_components": ["Web / Browser Client", "Load Balancer", "API Gateway", "Stateless App Service", "Primary Relational DB"],
         "diagram_palette_extensions": [
-          {{"type_id": "<optional-custom-slug>", "label": "<Optional Specialized Block>", "category": "compute_services", "icon": "box", "default_role": "<1-sentence role>"}}
+          {{"type_id": "<optional-custom-slug>", "label": "<Optional Specialized Domain Block>", "category": "compute_services", "icon": "box", "default_role": "<1-sentence role>"}}
         ],
         "over_engineering_traps": ["<unjustified complexity trap 1>"],
         "defence_questions": [
@@ -290,10 +299,10 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
       }},
       {{
         "variant_id": "<short-kebab-slug-2>",
-        "title": "<Variant 2 Scenario Name with fundamentally different scale/SLA/compliance trade-offs>",
+        "title": "<Variant 2: Medium-Large Enterprise / Compliance & High-SLA Scenario Name>",
         "focus_summary": "<1-sentence trade-off focus>",
         "business_context": {{"product_goal": "...", "target_users": "..."}},
-        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "..."}},
+        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "...", "storage": "..."}},
         "functional_requirements": ["..."],
         "non_functional_requirements": ["..."],
         "constraints": ["..."],
@@ -301,15 +310,16 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
         "out_of_scope": ["..."],
         "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
         "expected_components": ["..."],
+        "diagram_palette_extensions": [],
         "over_engineering_traps": ["..."],
         "defence_questions": ["...", "..."]
       }},
       {{
         "variant_id": "<short-kebab-slug-3>",
-        "title": "<Variant 3 Scenario Name stressing a different dimension like bursts, strict consistency, or geo-locality>",
+        "title": "<Variant 3: Hyper-Scale / Global Burst & Stress Scenario Name>",
         "focus_summary": "<1-sentence trade-off focus>",
         "business_context": {{"product_goal": "...", "target_users": "..."}},
-        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "..."}},
+        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "...", "storage": "..."}},
         "functional_requirements": ["..."],
         "non_functional_requirements": ["..."],
         "constraints": ["..."],
@@ -317,6 +327,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
         "out_of_scope": ["..."],
         "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
         "expected_components": ["..."],
+        "diagram_palette_extensions": [],
         "over_engineering_traps": ["..."],
         "defence_questions": ["...", "..."]
       }}
@@ -552,6 +563,11 @@ def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
     brief = dict(raw_brief)
     variants = _extract_brief_variants(brief)
     if variants:
+        top_exts = brief.get("diagram_palette_extensions")
+        if isinstance(top_exts, list) and top_exts:
+            for v in variants:
+                if not v.get("diagram_palette_extensions"):
+                    v["diagram_palette_extensions"] = list(top_exts)
         brief["variants"] = variants
         primary = variants[0]
         for key in _VARIANT_BRIEF_COPY_KEYS:

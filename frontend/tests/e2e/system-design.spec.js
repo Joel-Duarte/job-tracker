@@ -673,14 +673,25 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
     await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
   }
 
-  // Inspect ? explanation popover + Cross-Cloud Equivalents inside Guided Bank
+  // Inspect ? explanation popover: Client actor (.first()) stays cloud-agnostic; cloud infra shows Cross-Cloud Equivalents
   await page.getByTestId('hint-info-btn').first().click()
+  await expect(page.getByTestId('hint-info-popover')).toBeVisible()
+  await expect(page.getByTestId('hint-cloud-equivalents')).toHaveCount(0)
+  await page.getByRole('button', { name: /Explain (CDN|Load Balancer|API Gateway|Distributed Cache)/i }).first().click()
   await expect(page.getByTestId('hint-info-popover')).toBeVisible()
   await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('AWS:')
   await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('Azure:')
 
-  // Switch Cloud Provider Lens -> AWS, verify palette & placed node translate live, then test Collapsed Icon Rail
+  // Switch Cloud Provider Lens -> AWS, verify client actors stay cloud-agnostic while static_hosting + cache translate live
   await page.getByTestId('cloud-provider-select').selectOption('aws')
+  await page.getByTestId('palette-block-web_client').click()
+  await expect(page.getByTestId('canvas-node-web_client')).toContainText('Web / Browser Client')
+  await expect(page.getByTestId('node-cloud-badge-web_client')).toHaveCount(0)
+
+  await page.getByTestId('palette-block-static_hosting').click()
+  await expect(page.getByTestId('canvas-node-static_hosting')).toContainText('Amazon S3 + CloudFront SPA')
+  await expect(page.getByTestId('node-cloud-badge-static_hosting')).toHaveText('AWS')
+
   await page.getByTestId('palette-search-input').fill('ElastiCache')
   await page.getByTestId('palette-block-distributed_cache').click()
   await page.getByTestId('palette-search-input').fill('')
@@ -694,10 +705,51 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('canvas-node-api_gateway')).toContainText('Amazon API Gateway')
   await page.getByTestId('palette-collapse-btn').click()
 
+  // Local helper to drag/tap handle-to-handle directly on the canvas
+  async function wireCanvasNodes(srcTypeId, dstTypeId) {
+    await page.getByRole('button', { name: 'Fit' }).click()
+    const srcHandle = page
+      .getByTestId(`canvas-node-${srcTypeId}`)
+      .locator('.vue-flow__handle.source')
+      .first()
+    const dstHandle = page
+      .getByTestId(`canvas-node-${dstTypeId}`)
+      .locator('.vue-flow__handle.target')
+      .first()
+    await srcHandle.scrollIntoViewIfNeeded()
+    await dstHandle.scrollIntoViewIfNeeded()
+    if (testInfo.project.name.includes('mobile')) {
+      await srcHandle.dispatchEvent('click')
+      await dstHandle.dispatchEvent('click')
+    } else {
+      const srcBox = await srcHandle.boundingBox()
+      const dstBox = await dstHandle.boundingBox()
+      await page.mouse.move(srcBox.x + srcBox.width / 2, srcBox.y + srcBox.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height / 2, { steps: 12 })
+      await page.mouse.up()
+    }
+  }
+
+  // Wiring Web / Browser Client -> Amazon API Gateway shows live Correct connection toast
+  await wireCanvasNodes('web_client', 'api_gateway')
+  await expect(page.getByTestId('edge-popover')).toBeVisible()
+  await expect(page.locator('.toast-container')).toContainText('Correct connection')
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+
+  // Place Primary Relational DB & wire -> Redis to trigger live Wire Warning diagnostic
+  await page.getByTestId('palette-block-relational_db').click()
+  await wireCanvasNodes('relational_db', 'distributed_cache')
+  await expect(page.getByTestId('edge-popover')).toBeVisible()
+  await expect(page.locator('.toast-container')).toContainText('Check wire')
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+
   // Switch Cloud Provider Lens to Azure -> live-translates placed canonical nodes & shows Cross-Cloud Equivalents on click
   await page.getByTestId('cloud-provider-select').selectOption('azure')
   await expect(page.getByTestId('canvas-node-api_gateway')).toContainText('Azure API Management (APIM)')
   await expect(page.getByTestId('node-cloud-badge-api_gateway')).toHaveText('Azure')
+  await expect(page.getByTestId('canvas-node-web_client')).toContainText('Web / Browser Client')
+  await expect(page.getByTestId('node-cloud-badge-web_client')).toHaveCount(0)
   await page.getByTestId('canvas-node-api_gateway').click()
   await expect(page.getByTestId('node-popover')).toBeVisible()
   await expect(page.getByTestId('node-cloud-equivalents')).toContainText('OCI API Gateway')
@@ -712,29 +764,8 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('canvas-node-api_gateway')).toBeVisible()
   await expect(page.getByTestId('canvas-node-custom')).toBeVisible()
 
-  // Fit view then wire handle-to-handle directly on the canvas -> opens inline wire popover automatically
-  await page.getByRole('button', { name: 'Fit' }).click()
-  const srcHandle = page
-    .getByTestId('canvas-node-distributed_cache')
-    .locator('.vue-flow__handle.source')
-    .first()
-  const dstHandle = page
-    .getByTestId('canvas-node-api_gateway')
-    .locator('.vue-flow__handle.target')
-    .first()
-  await srcHandle.scrollIntoViewIfNeeded()
-  await dstHandle.scrollIntoViewIfNeeded()
-  if (testInfo.project.name.includes('mobile')) {
-    await srcHandle.dispatchEvent('click')
-    await dstHandle.dispatchEvent('click')
-  } else {
-    const srcBox = await srcHandle.boundingBox()
-    const dstBox = await dstHandle.boundingBox()
-    await page.mouse.move(srcBox.x + srcBox.width / 2, srcBox.y + srcBox.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height / 2, { steps: 12 })
-    await page.mouse.up()
-  }
+  // Wire handle-to-handle directly on the canvas -> opens inline wire popover automatically
+  await wireCanvasNodes('distributed_cache', 'api_gateway')
 
   await expect(page.getByTestId('edge-popover')).toBeVisible()
   await page.getByTestId('edge-label-input').fill('Invalidates key cache')
@@ -755,11 +786,13 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('flow-json-preview')).toContainText('"nodes"')
   await page.getByTestId('studio-flow-json-modal').getByRole('button', { name: 'Close' }).click()
 
-  // Open sidebar (on mobile) -> Checks tab & run Check Topology
+  // Open sidebar (on mobile) -> Checks tab & verify live Verified Connections, Wire Warnings & Check Topology
   if (testInfo.project.name.includes('mobile')) {
     await page.getByTestId('toggle-coach-drawer-btn').click()
   }
   await page.getByTestId('coach-tab-checks').click()
+  await expect(page.getByTestId('verified-connections-checklist')).toContainText('Correct connection')
+  await expect(page.getByTestId('live-wire-warnings')).toContainText('Check wire')
   await page.getByTestId('check-topology-btn').click()
   await expect(page.getByTestId('topology-diagnostics-section')).toBeVisible()
 
