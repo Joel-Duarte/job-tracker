@@ -226,6 +226,48 @@ async def update_challenge(
         ) from exc
 
 
+@router.post(
+    "/challenges/{challenge_id}/frontier-audit-prompt",
+    response_model=ChallengeFrontierPromptResponse,
+)
+async def prepare_frontier_challenge_audit_prompt(
+    challenge_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Build a self-contained Markdown prompt to audit or upgrade a custom challenge in Frontier chat."""
+    try:
+        return await SystemDesignService.prepare_frontier_challenge_audit_prompt(
+            db=db, challenge_id=challenge_id
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.put(
+    "/challenges/{challenge_id}/frontier-import",
+    response_model=SystemDesignChallengeRead,
+)
+async def upgrade_challenge_from_frontier(
+    challenge_id: int,
+    payload: ImportFrontierChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate and apply an upgraded challenge JSON from Frontier chat to an existing custom challenge."""
+    try:
+        challenge = await SystemDesignService.upgrade_challenge_from_frontier(
+            db=db, challenge_id=challenge_id, payload=payload
+        )
+        return SystemDesignChallengeRead.model_validate(challenge)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
 @router.delete("/challenges/{challenge_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_custom_challenge(
     challenge_id: int,

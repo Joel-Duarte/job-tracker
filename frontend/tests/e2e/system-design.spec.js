@@ -79,6 +79,24 @@ test('navigates via Agent System Design Lab tab, supports 3+ columns, custom/AI 
   // Custom challenge remains preserved across reset-defaults
   await expect(page.getByText('Design an Enterprise Webhook Bus')).toBeVisible()
 
+  // Audit & upgrade custom challenge in-place via Frontier bridge inside Edit modal
+  await page.getByTestId('edit-challenge-btn').last().click()
+  await page.getByTestId('challenge-audit-frontier-toggle').click()
+  await page.getByTestId('challenge-audit-frontier-prepare-btn').click()
+  await expect(page.getByTestId('challenge-audit-frontier-prompt-preview')).toHaveValue(/Design an Enterprise Webhook Bus/)
+  await page.getByTestId('challenge-audit-frontier-import-input').fill(
+    JSON.stringify({
+      title: 'Design a Global Webhook Relay',
+      category: 'DISTRIBUTED_SYSTEMS',
+      difficulty: 'HARD',
+      prompt_summary: 'Upgraded geo-distributed webhook relay scenario.',
+      initial_prompt: 'Design a geo-replicated webhook delivery engine.',
+      tags: ['webhooks', 'upgraded'],
+    })
+  )
+  await page.getByTestId('challenge-audit-frontier-import-btn').click()
+  await expect(page.getByRole('heading', { name: 'Design a Global Webhook Relay' })).toBeVisible()
+
   // Toggle Daylight & Midnight themes
   await page.locator('.theme-toggle').click()
   await page.locator('.theme-mode-btn', { hasText: 'Daylight' }).click()

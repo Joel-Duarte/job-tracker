@@ -1053,3 +1053,125 @@ async def test_challenge_generation_creates_queued_worker_task_with_telemetry(
         assert isinstance(cp.get("provider_telemetry"), dict)
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_frontier_challenge_audit_upgrade_and_type_id_normalization(
+    db_session: AsyncSession,
+):
+    """Verify non-canonical type_ids snap to catalog IDs and custom challenges can be audited/upgraded in place."""
+    from app.core.database import get_db
+    from app.main import app
+    from app.services.system_design_service import (
+        SystemDesignService,
+        _normalize_generated_brief,
+    )
+
+    normalized = _normalize_generated_brief(
+        {
+            "variants": [
+                {
+                    "variant_id": "v1",
+                    "title": "MVP",
+                    "expected_components": [
+                        "Event Log / Kafka Stream",
+                        "Analytics / OLAP Store",
+                    ],
+                    "expected_paths": [
+                        {
+                            "id": "write",
+                            "title": "Ingest",
+                            "steps": [
+                                {
+                                    "source_type_id": "app_service",
+                                    "target_type_id": "event_log_kafka_stream",
+                                    "delivery_mode": "async",
+                                },
+                                {
+                                    "source_type_id": "event_log_kafka_stream",
+                                    "target_type_id": "analytics_olap_store",
+                                    "delivery_mode": "async",
+                                },
+                            ],
+                        }
+                    ],
+                    "required_capabilities": [
+                        {
+                            "id": "analytics",
+                            "accepted_type_groups": [["analytics_olap_store"]],
+                        }
+                    ],
+                    "defence_questions": ["How handle backpressure?"],
+                },
+                {
+                    "variant_id": "v2",
+                    "title": "Enterprise",
+                    "expected_components": ["API Gateway"],
+                    "defence_questions": ["How handle multi-tenant isolation?"],
+                },
+            ]
+        }
+    )
+    step0 = normalized["variants"][0]["expected_paths"][0]["steps"][0]
+    step1 = normalized["variants"][0]["expected_paths"][0]["steps"][1]
+    assert step0["target_type_id"] == "event_stream"
+    assert step1["source_type_id"] == "event_stream"
+    assert step1["target_type_id"] == "olap_warehouse"
+    assert normalized["variants"][0]["required_capabilities"][0][
+        "accepted_type_groups"
+    ] == [["olap_warehouse"]]
+
+    await SystemDesignService._ensure_challenges_seeded(db_session)
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            import_res = await ac.post(
+                "/api/v1/system-design/challenges/import",
+                json={
+                    "raw_response": json.dumps(
+                        {
+                            "title": "Design a Telemetry Anomaly Detector",
+                            "category": "DATA_INFRASTRUCTURE",
+                            "difficulty": "MEDIUM",
+                            "prompt_summary": "Detect anomalies in real-time IoT sensor telemetry streams cleanly.",
+                            "initial_prompt": "Design a telemetry ingestion and anomaly scoring pipeline.",
+                            "tags": ["telemetry"],
+                            "interviewer_brief": normalized,
+                        }
+                    )
+                },
+            )
+            assert import_res.status_code == 201
+            cid = import_res.json()["id"]
+
+            audit_res = await ac.post(
+                f"/api/v1/system-design/challenges/{cid}/frontier-audit-prompt"
+            )
+            assert audit_res.status_code == 200
+            assert (
+                "Design a Telemetry Anomaly Detector"
+                in audit_res.json()["markdown_prompt"]
+            )
+
+            upgraded_payload = {
+                "title": "Design a Multi-Region Telemetry Anomaly Platform",
+                "category": "DATA_INFRASTRUCTURE",
+                "difficulty": "HARD",
+                "prompt_summary": "Upgraded scenario with full multi-region telemetry scoring and alerting.",
+                "initial_prompt": "Design an end-to-end anomaly detection and alerting platform.",
+                "tags": ["telemetry", "upgraded"],
+                "interviewer_brief": normalized,
+            }
+            up_res = await ac.put(
+                f"/api/v1/system-design/challenges/{cid}/frontier-import",
+                json={"raw_response": json.dumps(upgraded_payload)},
+            )
+            assert up_res.status_code == 200
+            assert (
+                up_res.json()["title"]
+                == "Design a Multi-Region Telemetry Anomaly Platform"
+            )
+            assert up_res.json()["difficulty"] == "HARD"
+    finally:
+        app.dependency_overrides.clear()

@@ -221,6 +221,10 @@ export const SystemDesignAPI = {
   prepareFrontierChallengePrompt: (data) =>
     apiClient.post('/system-design/challenges/frontier-prompt', data),
   importFrontierChallenge: (data) => apiClient.post('/system-design/challenges/import', data),
+  prepareFrontierChallengeAuditPrompt: (challengeId) =>
+    apiClient.post(`/system-design/challenges/${challengeId}/frontier-audit-prompt`),
+  upgradeChallengeFromFrontier: (challengeId, data) =>
+    apiClient.put(`/system-design/challenges/${challengeId}/frontier-import`, data),
   updateChallenge: (challengeId, data) =>
     apiClient.put(`/system-design/challenges/${challengeId}`, data),
   resetDefaultChallenges: () => apiClient.post('/system-design/challenges/reset-defaults'),

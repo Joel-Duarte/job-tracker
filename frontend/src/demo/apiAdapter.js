@@ -4000,6 +4000,58 @@ export async function handleDemoRequest(config) {
       return ok(serializeChallenge(created), 201)
     }
 
+    const auditPromptMatch = urlPath.match(/^\/system-design\/challenges\/(\d+)\/frontier-audit-prompt$/)
+    if (auditPromptMatch && method === 'post') {
+      const cid = Number(auditPromptMatch[1])
+      const ch = (db.system_design_challenges || []).find((c) => Number(c.id) === cid)
+      if (!ch) return errResp(404, 'Challenge not found')
+      const snapshot = {
+        title: ch.title,
+        category: ch.category,
+        difficulty: ch.difficulty,
+        prompt_summary: ch.prompt_summary,
+        initial_prompt: ch.initial_prompt,
+        tags: ch.tags || [],
+        interviewer_brief: ch.interviewer_brief || {},
+      }
+      return ok({
+        filename: `${ch.slug || 'challenge'}-frontier-audit-prompt.md`,
+        markdown_prompt: `# Frontier Challenge Audit & Upgrade — ${ch.title}\n\nVerify all 3 variants, expected_paths, required_capabilities, and canonical type_ids:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\``,
+        context_signals: ['Existing Challenge Brief', 'Schema Audit Checklist'],
+        existing_challenge_titles: [],
+      })
+    }
+
+    const upgradeMatch = urlPath.match(/^\/system-design\/challenges\/(\d+)\/frontier-import$/)
+    if (upgradeMatch && method === 'put') {
+      const cid = Number(upgradeMatch[1])
+      const idx = (db.system_design_challenges || []).findIndex((c) => Number(c.id) === cid)
+      if (idx === -1) return errResp(404, 'Challenge not found')
+      const existing = db.system_design_challenges[idx]
+      if (existing.is_builtin) return errResp(400, 'Built-in challenges cannot be overwritten')
+      const raw = String(data.raw_response || '').trim()
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      let parsed = null
+      try {
+        parsed = JSON.parse(fenced ? fenced[1].trim() : raw)
+      } catch {
+        return errResp(400, 'Invalid JSON payload')
+      }
+      const updated = {
+        ...existing,
+        title: String(parsed.title || existing.title).trim(),
+        category: String(parsed.category || existing.category).trim().toUpperCase(),
+        difficulty: String(parsed.difficulty || existing.difficulty).trim().toUpperCase(),
+        prompt_summary: String(parsed.prompt_summary || existing.prompt_summary).trim(),
+        initial_prompt: String(parsed.initial_prompt || existing.initial_prompt).trim(),
+        tags: Array.isArray(parsed.tags) && parsed.tags.length ? parsed.tags : existing.tags,
+        interviewer_brief: parsed.interviewer_brief || existing.interviewer_brief,
+      }
+      db.system_design_challenges[idx] = updated
+      saveDemoDb(db)
+      return ok(serializeChallenge(updated))
+    }
+
     if (urlPath === '/system-design/challenges/reset-defaults' && method === 'post') {
       const defaults = getDefaultDemoSystemDesignChallenges().map((d) => ({ ...d, is_archived: false }))
       const customChallenges = (db.system_design_challenges || []).filter((c) => !c.is_builtin)

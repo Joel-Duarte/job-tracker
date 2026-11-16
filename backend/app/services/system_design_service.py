@@ -58,10 +58,12 @@ from app.schemas.system_design import (
     SystemDesignSessionRead,
 )
 from app.services.diagram_catalog import (
+    BLOCKS_BY_TYPE_ID,
     CLOUD_PROVIDERS,
     build_coach_canvas_actions,
     compute_diagram_hint_penalty,
     evaluate_canvas_topology,
+    match_component_to_catalog,
     node_matches_expected,
     normalize_cloud_provider,
     normalize_flow_payload,
@@ -257,11 +259,12 @@ CRITICAL RULES:
    - Variant 1 — SMALL / LEAN STARTUP MVP: Cost-constrained, modular simplicity, single region, ~10K–250K DAU, emphasizing YAGNI and avoiding premature microservice/Kafka sprawl.
    - Variant 2 — MEDIUM-LARGE / ENTERPRISE COMPLIANCE & HIGH-SLA: Strict multi-tenant isolation, auditability, privacy/compliance or 99.99% reliability SLA, ~1M–20M users or high transactional durability.
    - Variant 3 — HYPER-SCALE / GLOBAL BURST & REAL-TIME STRESS CASE: 50M+ DAU or 100K+ QPS, extreme read/write asymmetry, fan-out spikes, geo-distributed edges, or strict <30ms latency budgets.
-5. DIAGRAM SYSTEM & INTRODUCING CUSTOM BLOCKS:
-   - Prefer canonical component labels in `expected_components` when standard blocks fit: `Web / Browser Client`, `Mobile Client`, `External System / Webhook`, `Static Web / SPA Host`, `DNS / GeoDNS`, `CDN / Edge Cache`, `WAF / DDoS Shield`, `Load Balancer`, `API Gateway`, `Rate Limiter`, `Service Mesh / Circuit Breaker`, `Auth / IAM Service`, `WebSocket / Push Gateway`, `URL / Payload Safety Filter`, `Stateless App Service`, `Background Worker Pool`, `Scheduler / TTL Sweeper`, `Unique ID / Key Generator`, `ML / Ranking Service`, `LLM / AI Model Gateway`, `Media / Document Processor`, `Distributed Cache (Redis)`, `Local / L1 In-Process Cache`, `Feature / State Store`, `Bloom Filter / Dedup Index`, `Primary Relational DB`, `DB Read Replica`, `NoSQL / Wide-Column / KV DB`, `Object / Blob Storage`, `Time-Series DB`, `Vector Index / DB`, `Geospatial / Proximity Index`, `Coordination / Lease Store`, `Task Queue`, `Event Log / Kafka Stream`, `Pub/Sub Fan-out Bus`, `Stream Processor (Flink)`, `Dead-Letter Queue (DLQ)`, `Push / Email / SMS Gateway`, `Full-Text / Geo Search`, `Analytics / OLAP Store`, `Outbox / CDC Pipeline`, `Metrics, Logs & Tracing`.
+5. DIAGRAM SYSTEM, CANONICAL TYPE IDs & CUSTOM BLOCKS:
+   - Prefer canonical component labels in `expected_components` and MUST use their exact `type_id`s inside `expected_paths` and `required_capabilities[*].accepted_type_groups`:
+     `web_client` (Web / Browser Client), `mobile_client` (Mobile Client), `webhook_actor` (External System / Webhook), `static_hosting` (Static Web / SPA Host), `dns` (DNS / GeoDNS), `cdn` (CDN / Edge Cache), `waf_ddos` (WAF / DDoS Shield), `load_balancer` (Load Balancer), `api_gateway` (API Gateway), `rate_limiter` (Rate Limiter), `auth_service` (Auth / IAM Service), `realtime_gateway` (WebSocket / Push Gateway), `content_filter` (URL / Payload Safety Filter), `circuit_breaker` (Service Mesh / Circuit Breaker), `app_service` (Stateless App Service), `async_worker` (Background Worker Pool), `scheduler` (Scheduler / TTL Sweeper), `id_generator` (Unique ID / Key Generator), `ml_inference` (ML / Ranking Service), `llm_gateway` (LLM / AI Model Gateway), `media_transcoder` (Media / Document Processor), `distributed_cache` (Distributed Cache (Redis)), `local_cache` (Local / L1 In-Process Cache), `feature_store` (Feature / State Store), `bloom_filter` (Bloom Filter / Dedup Index), `relational_db` (Primary Relational DB), `read_replica` (DB Read Replica), `nosql_kv` (NoSQL / Wide-Column / KV DB), `object_storage` (Object / Blob Storage), `timeseries_db` (Time-Series DB), `vector_db` (Vector Index / DB), `geo_index` (Geospatial / Proximity Index), `consensus_store` (Coordination / Lease Store), `message_queue` (Task Queue), `event_stream` (Event Log / Kafka Stream), `pubsub_bus` (Pub/Sub Fan-out Bus), `stream_processor` (Stream Processor (Flink)), `dlq` (Dead-Letter Queue (DLQ)), `notification_hub` (Push / Email / SMS Gateway), `search_engine` (Full-Text / Geo Search), `olap_warehouse` (Analytics / OLAP Store), `cdc_connector` (Outbox / CDC Pipeline), `observability` (Metrics, Logs & Tracing).
    - ONLY add `diagram_palette_extensions` when the problem domain genuinely needs a specialized domain block not covered above (e.g., `DRM License Server`, `Stripe Idempotency Ledger`, `Telemetry Anomaly Scorer`).
    - Whenever you introduce a custom extension in `diagram_palette_extensions`, set a kebab-case `type_id`, clean `label`, valid `category` (`clients_edge | traffic_api | compute_services | caching_memory | databases_storage | messaging_streaming | search_analytics_ops`), valid `icon` (`box | server | database | bolt | git-commit-horizontal | network | brain | globe | search | shield | layers | compass | radio | clock`), concise `default_role`, AND include that exact `label` in the variant's `expected_components`.
-   - Include clean multi-hop `expected_paths` (at least 2 flows such as Read Path and Write/Async Path using canonical `source_type_id` / `target_type_id`) AND non-spoiling `required_capabilities` (where `accepted_type_groups` lists multiple valid architectural options, e.g. `[["relational_db"], ["nosql_kv"]]`) on each variant so learners see full end-to-end systems while keeping freedom to choose defendable alternatives.
+   - Include clean multi-hop `expected_paths` (2 concise flows per variant: e.g. Core Read/Query Path and Write/Async Ingestion Path) AND non-spoiling `required_capabilities` (3-4 capabilities per variant where `accepted_type_groups` lists multiple valid architectural options using exact canonical `type_id`s above, e.g. `[["relational_db"], ["nosql_kv"]]`) on ALL 3 VARIANTS. Keep each text field crisp (1 concise sentence) so the full 3-variant JSON completes cleanly without truncation.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
@@ -340,6 +343,8 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
         "out_of_scope": ["..."],
         "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
         "expected_components": ["..."],
+        "expected_paths": [{{"id": "read_path", "title": "...", "steps": [{{"source_type_id": "...", "target_type_id": "...", "delivery_mode": "sync", "suggested_label": "...", "rationale": "..."}}]}}],
+        "required_capabilities": [{{"id": "...", "title": "...", "goal": "...", "accepted_type_groups": [["..."]], "defence_tradeoff": "..."}}],
         "diagram_palette_extensions": [],
         "over_engineering_traps": ["..."],
         "defence_questions": ["...", "..."]
@@ -357,6 +362,8 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
         "out_of_scope": ["..."],
         "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
         "expected_components": ["..."],
+        "expected_paths": [{{"id": "read_path", "title": "...", "steps": [{{"source_type_id": "...", "target_type_id": "...", "delivery_mode": "sync", "suggested_label": "...", "rationale": "..."}}]}}],
+        "required_capabilities": [{{"id": "...", "title": "...", "goal": "...", "accepted_type_groups": [["..."]], "defence_tradeoff": "..."}}],
         "diagram_palette_extensions": [],
         "over_engineering_traps": ["..."],
         "defence_questions": ["...", "..."]
@@ -577,6 +584,62 @@ def _build_session_brief(
     return scoped
 
 
+def _resolve_blueprint_type_id(
+    raw_tid: str, variant_exts: list[dict[str, Any]] | None
+) -> str:
+    cleaned = str(raw_tid or "").strip()
+    if not cleaned:
+        return ""
+    ext_ids = {
+        str(e.get("type_id") or "").strip()
+        for e in (variant_exts or [])
+        if isinstance(e, dict)
+    }
+    if cleaned in BLOCKS_BY_TYPE_ID or cleaned in ext_ids:
+        return cleaned
+    matched = match_component_to_catalog(cleaned.replace("_", " "), variant_exts)
+    resolved = str(matched.get("type_id") or "").strip()
+    if resolved and resolved != "custom":
+        return resolved
+    return cleaned
+
+
+def _normalize_variant_blueprint(variant: dict[str, Any]) -> None:
+    exts = variant.get("diagram_palette_extensions")
+    ext_list = exts if isinstance(exts, list) else []
+    for path in variant.get("expected_paths") or []:
+        if not isinstance(path, dict):
+            continue
+        for step in path.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            if step.get("source_type_id"):
+                step["source_type_id"] = _resolve_blueprint_type_id(
+                    str(step["source_type_id"]), ext_list
+                )
+            if step.get("target_type_id"):
+                step["target_type_id"] = _resolve_blueprint_type_id(
+                    str(step["target_type_id"]), ext_list
+                )
+    for cap in variant.get("required_capabilities") or []:
+        if not isinstance(cap, dict):
+            continue
+        raw_groups = cap.get("accepted_type_groups") or []
+        norm_groups: list[list[str]] = []
+        for grp in raw_groups:
+            if not isinstance(grp, list):
+                continue
+            fixed = [
+                _resolve_blueprint_type_id(str(t), ext_list)
+                for t in grp
+                if str(t or "").strip()
+            ]
+            if fixed:
+                norm_groups.append(fixed)
+        if norm_groups:
+            cap["accepted_type_groups"] = norm_groups
+
+
 def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
     """Normalize AI-generated interviewer_brief, flattening variant 1 to top-level defaults."""
     default_brief = {
@@ -599,11 +662,15 @@ def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
             for v in variants:
                 if not v.get("diagram_palette_extensions"):
                     v["diagram_palette_extensions"] = list(top_exts)
+        for v in variants:
+            _normalize_variant_blueprint(v)
         brief["variants"] = variants
         primary = variants[0]
         for key in _VARIANT_BRIEF_COPY_KEYS:
             if key in primary and key not in brief:
                 brief[key] = primary[key]
+    else:
+        _normalize_variant_blueprint(brief)
     return brief
 
 
@@ -1644,7 +1711,7 @@ class SystemDesignService:
         """Step 2 for SYSTEM_DESIGN_CHALLENGE_GEN: invoke AI model, validate, and repair once if needed."""
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(
-            db, task_type="SYSTEM_DESIGN_INTERVIEWER"
+            db, task_type="SYSTEM_DESIGN_INTERVIEWER", max_tokens=6144
         )
         existing_challenges = list(prepared_ctx.get("existing_challenges") or [])
         allow_duplicate = bool(prepared_ctx.get("allow_duplicate", False))
@@ -1832,6 +1899,109 @@ class SystemDesignService:
             allow_duplicate=bool(payload.allow_duplicate),
             default_tags=["frontier-imported"],
         )
+
+    @staticmethod
+    async def prepare_frontier_challenge_audit_prompt(
+        db: AsyncSession, challenge_id: int
+    ) -> ChallengeFrontierPromptResponse:
+        """Build a copyable Frontier review/upgrade prompt for an existing challenge's full JSON."""
+        challenge = (
+            await db.execute(
+                select(SystemDesignChallengeModel).where(
+                    SystemDesignChallengeModel.id == challenge_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not challenge:
+            raise LookupError(f"System design challenge {challenge_id} not found.")
+
+        snapshot = {
+            "title": challenge.title,
+            "category": challenge.category,
+            "difficulty": challenge.difficulty,
+            "prompt_summary": challenge.prompt_summary,
+            "initial_prompt": challenge.initial_prompt,
+            "tags": list(challenge.tags or []),
+            "interviewer_brief": dict(challenge.interviewer_brief or {}),
+        }
+        sys_rules = CUSTOM_CHALLENGE_GENERATE_PROMPT.format(
+            difficulty=challenge.difficulty or "MEDIUM"
+        )
+        markdown_prompt = "\n\n".join(
+            [
+                f"# Frontier Challenge Audit & Upgrade — {challenge.title}",
+                (
+                    "Audit the locally generated System Design challenge JSON below against these quality checks:\n"
+                    "1. Verify all 3 scale-tier variants exist (`Startup MVP`, `Enterprise / Compliance`, `Hyper-Scale / Global Burst`) with realistic `scale_estimates` and distinct bottlenecks.\n"
+                    "2. Verify every variant has at least 2 multi-hop `expected_paths` (Read/Query path AND Write/Async/Ingestion path) using canonical `type_id`s.\n"
+                    "3. Verify every variant has 3-4 non-spoiling `required_capabilities` with defendable alternative options in `accepted_type_groups`.\n"
+                    "4. Fix missing components (e.g., `llm_gateway`, `event_stream`, `async_worker`, `dlq`, `observability`) and return ONLY the complete upgraded JSON object."
+                ),
+                "---",
+                "## Schema & Canonical Type ID Rules",
+                sys_rules,
+                "---",
+                "## Current Challenge JSON to Audit & Upgrade",
+                f"```json\n{json.dumps(snapshot, indent=2)}\n```",
+            ]
+        )
+        return ChallengeFrontierPromptResponse(
+            filename=f"{challenge.slug}-frontier-audit-prompt.md",
+            markdown_prompt=markdown_prompt,
+            context_signals=["Existing Challenge Brief", "Schema Audit Checklist"],
+            existing_challenge_titles=[],
+        )
+
+    @staticmethod
+    async def upgrade_challenge_from_frontier(
+        db: AsyncSession, challenge_id: int, payload: ImportFrontierChallengeRequest
+    ) -> SystemDesignChallengeModel:
+        """Validate and apply a Frontier-upgraded challenge JSON in place."""
+        challenge = (
+            await db.execute(
+                select(SystemDesignChallengeModel).where(
+                    SystemDesignChallengeModel.id == challenge_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not challenge:
+            raise LookupError(f"System design challenge {challenge_id} not found.")
+        if challenge.is_builtin:
+            raise ValueError(
+                "Built-in challenges are factory-protected and cannot be overwritten in place."
+            )
+
+        parsed = _parse_strict_json_object(payload.raw_response)
+        _validate_generated_challenge_payload(parsed)
+
+        challenge.title = str(parsed.get("title") or challenge.title).strip()[:200]
+        challenge.category = (
+            str(parsed.get("category") or challenge.category or "DISTRIBUTED_SYSTEMS")
+            .strip()
+            .upper()
+        )
+        challenge.difficulty = (
+            str(parsed.get("difficulty") or challenge.difficulty or "MEDIUM")
+            .strip()
+            .upper()
+        )
+        challenge.prompt_summary = str(
+            parsed.get("prompt_summary") or challenge.prompt_summary
+        ).strip()
+        challenge.initial_prompt = str(
+            parsed.get("initial_prompt") or challenge.initial_prompt
+        ).strip()
+        normalized_tags = _normalize_string_list(parsed.get("tags"))
+        if normalized_tags:
+            challenge.tags = normalized_tags
+        challenge.interviewer_brief = _normalize_generated_brief(
+            parsed.get("interviewer_brief")
+        )
+        flag_modified(challenge, "interviewer_brief")
+
+        await db.commit()
+        await db.refresh(challenge)
+        return challenge
 
     @staticmethod
     async def generate_custom_challenge(

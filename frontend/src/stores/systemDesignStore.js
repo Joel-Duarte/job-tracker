@@ -268,6 +268,38 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
+  async function prepareChallengeFrontierAuditPrompt(challengeId) {
+    loadingChallengePrompt.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.prepareFrontierChallengeAuditPrompt(challengeId)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingChallengePrompt.value = false
+    }
+  }
+
+  async function upgradeChallengeFromFrontier(challengeId, rawResponse) {
+    importingChallenge.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.upgradeChallengeFromFrontier(challengeId, {
+        raw_response: rawResponse,
+      })
+      const updated = res.data
+      challenges.value = challenges.value.map((c) => (c.id === challengeId ? updated : c))
+      return updated
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      importingChallenge.value = false
+    }
+  }
+
   async function updateChallenge(challengeId, payload) {
     updatingChallenge.value = true
     error.value = null
@@ -1003,6 +1035,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     generateChallenge,
     prepareChallengeFrontierPrompt,
     importFrontierChallenge,
+    prepareChallengeFrontierAuditPrompt,
+    upgradeChallengeFromFrontier,
     updateChallenge,
     resetDefaultChallenges,
     deleteChallenge,

@@ -42,6 +42,7 @@ import { renderChatMarkdown } from '../utils/markdownRenderer'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
+import FrontierPromptBridge from '../components/common/FrontierPromptBridge.vue'
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -540,6 +541,7 @@ async function openCreateChallengeModal() {
 function openEditChallengeModal(challenge) {
   editingChallengeId.value = challenge.id
   editingChallengeIsBuiltin.value = Boolean(challenge.is_builtin)
+  auditFrontierPromptData.value = null
   createModalTab.value = 'manual'
   manualForm.value = {
     title: challenge.title || '',
@@ -552,6 +554,38 @@ function openEditChallengeModal(challenge) {
     scaleNotes: challenge.scale_notes || '',
   }
   showCreateChallengeModal.value = true
+}
+
+const auditFrontierBridgeRef = ref(null)
+const auditFrontierPromptData = ref(null)
+
+async function handlePrepareChallengeAuditFrontier() {
+  if (!editingChallengeId.value) return
+  try {
+    const res = await store.prepareChallengeFrontierAuditPrompt(editingChallengeId.value)
+    auditFrontierPromptData.value = res
+    try {
+      await navigator.clipboard?.writeText(res.markdown_prompt)
+      uiStore.showToast('Challenge audit prompt copied! Paste into Claude/ChatGPT, then apply upgraded JSON.', 'success')
+    } catch {
+      uiStore.showToast('Challenge audit prompt ready below! Copy & run in Frontier chat.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to prepare audit prompt', 'error')
+  }
+}
+
+async function handleImportChallengeAuditFrontier(rawJson) {
+  if (!editingChallengeId.value) return
+  try {
+    const updated = await store.upgradeChallengeFromFrontier(editingChallengeId.value, rawJson)
+    auditFrontierBridgeRef.value?.clearImport()
+    showCreateChallengeModal.value = false
+    editingChallengeId.value = null
+    uiStore.showToast(`Upgraded '${updated.title}' from Frontier review!`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Invalid upgraded challenge JSON.', 'error')
+  }
 }
 
 async function handleCreateManualChallenge() {
@@ -1735,6 +1769,21 @@ onUnmounted(() => {
                   placeholder="e.g., 5,000 events/sec peak, 10k tenants, 99.95% delivery SLA"
                 />
               </label>
+
+              <FrontierPromptBridge
+                v-if="editingChallengeId"
+                ref="auditFrontierBridgeRef"
+                test-id-prefix="challenge-audit-frontier"
+                title="Verify or Upgrade Challenge with Frontier (Claude / ChatGPT / Gemini)"
+                subtitle="Send this challenge's full JSON & schema rules to a Frontier model so it verifies all 3 variants, Read/Write paths, and defendable capabilities, then paste the upgraded JSON below."
+                prepare-label="Prepare & Copy Audit Prompt"
+                import-label="Apply Upgraded Challenge JSON"
+                paste-placeholder="Paste the upgraded full challenge JSON object here..."
+                :loading="store.loadingChallengePrompt || store.importingChallenge"
+                :prompt-data="auditFrontierPromptData"
+                @prepare="handlePrepareChallengeAuditFrontier"
+                @import="handleImportChallengeAuditFrontier"
+              />
             </template>
 
             <div class="sd-modal-actions">
