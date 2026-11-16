@@ -937,14 +937,16 @@ onUnmounted(() => {
                 }}
               </span>
             </summary>
-            <div class="sd-scale-pill-row">
-              <span v-for="item in scaleMathSummary.items" :key="item.label" class="sd-scale-mini-pill">
-                <strong>{{ item.label }}:</strong> {{ item.value }}
-              </span>
-              <span v-if="scaleMathSummary.latencyLine" class="sd-scale-mini-pill">
-                <strong>SLA:</strong> {{ scaleMathSummary.latencyLine }}
-              </span>
-            </div>
+            <dl class="sd-scale-kv-list">
+              <div v-for="item in scaleMathSummary.items" :key="item.label" class="sd-scale-kv-row">
+                <dt class="sd-scale-kv-key">{{ item.label }}</dt>
+                <dd class="sd-scale-kv-val">{{ item.value }}</dd>
+              </div>
+              <div v-if="scaleMathSummary.latencyLine" class="sd-scale-kv-row">
+                <dt class="sd-scale-kv-key">SLA</dt>
+                <dd class="sd-scale-kv-val">{{ scaleMathSummary.latencyLine }}</dd>
+              </div>
+            </dl>
           </details>
 
           <section
@@ -976,11 +978,12 @@ onUnmounted(() => {
               class="sd-ledger-ref-group"
             >
               <span class="sd-ledger-ref-label">Scale Estimates</span>
-              <div class="sd-scale-pill-row">
-                <span v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-mini-pill">
-                  <strong>{{ key }}:</strong> {{ val }}
-                </span>
-              </div>
+              <dl class="sd-scale-kv-list">
+                <div v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-kv-row">
+                  <dt class="sd-scale-kv-key">{{ key }}</dt>
+                  <dd class="sd-scale-kv-val">{{ val }}</dd>
+                </div>
+              </dl>
             </div>
             <div v-if="sessionLedger.assumptions?.length" class="sd-ledger-ref-group">
               <span class="sd-ledger-ref-label">Assumptions &amp; Constraints</span>
@@ -2443,35 +2446,76 @@ onUnmounted(() => {
   color: var(--text-main, #f8fafc);
   cursor: pointer;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  list-style: none;
+}
+
+.sd-scale-math-head::-webkit-details-marker {
+  display: none;
+}
+
+.sd-scale-math-head::before {
+  content: '▸';
+  font-size: 0.68rem;
+  color: var(--text-secondary, #94a3b8);
+  transition: transform 0.15s ease;
+}
+
+.sd-scale-math-card[open] .sd-scale-math-head::before {
+  content: '▾';
 }
 
 .sd-scale-summary-preview {
   color: var(--text-secondary, #94a3b8);
   font-weight: 400;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.sd-scale-pill-row {
+.sd-scale-math-card[open] .sd-scale-summary-preview {
+  display: none;
+}
+
+.sd-scale-kv-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 5px;
-  margin-top: 2px;
+  margin: 4px 0 0;
+  padding: 0;
 }
 
-.sd-scale-mini-pill {
-  font-size: 0.7rem;
-  padding: 2px 7px;
-  border-radius: 999px;
+.sd-scale-kv-row {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) 1fr;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
   border: 1px solid var(--border-subtle, #334155);
   background: var(--bg-surface, #1e293b);
-  color: var(--text-secondary, #94a3b8);
 }
 
-.sd-scale-mini-pill strong {
+.sd-scale-kv-key {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--text-main, #f8fafc);
+  white-space: nowrap;
+}
+
+.sd-scale-kv-val {
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.38;
+  color: var(--text-secondary, #94a3b8);
 }
 
 .sd-more-checkbox {
