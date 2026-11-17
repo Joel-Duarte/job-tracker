@@ -238,13 +238,15 @@ class RevealedComponentHint(BaseModel):
 
 
 class CoachCanvasAction(BaseModel):
-    """Executable non-destructive canvas placement/wiring suggestion from the Studio Coach."""
+    """Reviewable canvas additions and edits proposed by the Studio Coach."""
 
     id: str
     title: str
     description: str = ""
     blocks: list[dict[str, Any]] = Field(default_factory=list)
     edges: list[dict[str, Any]] = Field(default_factory=list)
+    node_updates: list[dict[str, Any]] = Field(default_factory=list)
+    edge_updates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DiagramHintResponse(BaseModel):

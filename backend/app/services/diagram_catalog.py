@@ -2969,4 +2969,99 @@ def build_coach_canvas_actions(
             }
         )
 
+    node_updates: list[dict[str, Any]] = []
+    for node in nodes:
+        type_id = str(node.get("type_id") or "")
+        node_id = str(node.get("id") or "")
+        service = get_cloud_service_name(type_id, active_cloud)
+        if not node_id or not service:
+            continue
+
+        current_stack = str(node.get("tech_stack") or "").strip()
+        known_stacks = {
+            str(value).strip()
+            for value in CLOUD_EQUIVALENTS_BY_TYPE.get(type_id, {}).values()
+            if str(value).strip()
+        }
+        default_stack = str(
+            BLOCKS_BY_TYPE_ID.get(type_id, {}).get("tech_stack") or ""
+        ).strip()
+        if default_stack:
+            known_stacks.add(default_stack)
+        if current_stack == service or (
+            current_stack and current_stack not in known_stacks
+        ):
+            continue
+
+        node_updates.append(
+            {
+                "node_id": node_id,
+                "changes": {"tech_stack": service},
+            }
+        )
+
+    nodes_by_id = {str(node.get("id") or ""): node for node in nodes}
+    edge_updates_by_id: dict[str, dict[str, Any]] = {}
+    for path in expected_paths:
+        for step in path.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            source_type = str(step.get("source_type_id") or "")
+            target_type = str(step.get("target_type_id") or "")
+            if not source_type or not target_type:
+                continue
+            expected_mode = "async" if step.get("delivery_mode") == "async" else "sync"
+            for edge in edges:
+                source_node = nodes_by_id.get(str(edge.get("source") or ""))
+                target_node = nodes_by_id.get(str(edge.get("target") or ""))
+                if (
+                    not source_node
+                    or not target_node
+                    or str(source_node.get("type_id") or "") != source_type
+                    or str(target_node.get("type_id") or "") != target_type
+                ):
+                    continue
+                edge_id = str(edge.get("id") or "")
+                current_mode = (
+                    "async" if edge.get("delivery_mode") == "async" else "sync"
+                )
+                if edge_id and current_mode != expected_mode:
+                    changes: dict[str, Any] = {"delivery_mode": expected_mode}
+                    suggested_label = str(step.get("suggested_label") or "").strip()
+                    if suggested_label and not str(edge.get("label") or "").strip():
+                        changes["label"] = suggested_label
+                    edge_updates_by_id[edge_id] = {
+                        "edge_id": edge_id,
+                        "changes": changes,
+                    }
+                break
+
+    edit_action = None
+    if node_updates or edge_updates_by_id:
+        parts = []
+        if node_updates:
+            parts.append(f"{len(node_updates)} block technology setting(s)")
+        if edge_updates_by_id:
+            parts.append(f"{len(edge_updates_by_id)} existing flow setting(s)")
+        edit_action = {
+            "id": "refine_existing_elements",
+            "title": "Refine Existing Elements",
+            "description": "Review changes to "
+            + " and ".join(parts)
+            + " to match the selected reference.",
+            "blocks": [],
+            "edges": [],
+            "node_updates": node_updates,
+            "edge_updates": list(edge_updates_by_id.values()),
+        }
+
+    if edit_action:
+        if any(
+            word in lower_msg
+            for word in ("edit", "change", "fix", "refine", "tune", "adjust")
+        ):
+            path_actions.insert(0, edit_action)
+        else:
+            path_actions.append(edit_action)
+
     return path_actions[:4]

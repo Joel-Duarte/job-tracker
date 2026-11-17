@@ -44,7 +44,7 @@ import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
 import FrontierPromptBridge from '../components/common/FrontierPromptBridge.vue'
 
-defineProps({
+const props = defineProps({
   embedded: { type: Boolean, default: false },
 })
 
@@ -1148,7 +1148,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="page-container system-design-view">
+  <div
+    class="page-container system-design-view"
+    :class="{
+      'sd-embedded': props.embedded,
+      'sd-session-active': props.embedded && activeSession,
+    }"
+  >
     <!-- ================================================================
          LOBBY VIEW: Curated & Custom Challenges Grid
          ================================================================ -->
@@ -1863,7 +1869,6 @@ onUnmounted(() => {
                 {{ store.isActiveSessionCoached ? 'Coached Run · 100 XP' : 'Solo Run · 150 XP' }}
               </span>
             </div>
-            <p class="sd-muted">{{ activeSession.challenge?.initial_prompt }}</p>
           </div>
 
           <button
@@ -1899,77 +1904,79 @@ onUnmounted(() => {
           </button>
         </nav>
 
-        <!-- Background Queue Task Banner (F-04) -->
-        <div
-          v-if="['QUEUED', 'RUNNING', 'PROCESSING', 'FAILED', 'CANCELLED'].includes(activeSession.active_task_status)"
-          class="sd-task-banner"
-          :class="{
-            'is-failed': ['FAILED', 'CANCELLED'].includes(activeSession.active_task_status),
-          }"
-          data-testid="sd-active-task-banner"
-        >
-          <div class="sd-task-banner-info">
-            <Loader2
-              v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
-              :size="15"
-              class="spin"
-            />
-            <AlertTriangle v-else :size="15" />
-            <div>
-              <strong>
-                {{
-                  activeSession.active_task_type === 'SYSTEM_DESIGN_EVALUATION'
-                    ? 'Final Evaluation Task'
-                    : 'Architecture Review Task'
-                }}
-                • {{ activeSession.active_task_status }}
-                <span v-if="activeSession.active_task_stage">({{ activeSession.active_task_stage }})</span>
-                <span
-                  v-if="activeSession.active_task_attempt_count > 1"
-                  class="sd-task-banner-meta"
-                >
-                  • Attempt #{{ activeSession.active_task_attempt_count }}
-                </span>
-                <span
-                  v-if="activeSession.active_task_provider"
-                  class="sd-task-banner-meta"
-                >
-                  • {{ activeSession.active_task_provider }}
-                </span>
-                <span
-                  v-if="(activeSession.active_task_completed_steps || []).length"
-                  class="sd-task-banner-meta"
-                >
-                  • {{ activeSession.active_task_completed_steps.length }}/3 steps
-                </span>
-              </strong>
-              <p v-if="activeSession.active_task_error" class="sd-task-banner-error">
-                {{ activeSession.active_task_error }}
-              </p>
-            </div>
+      </div>
+
+      <!-- Background Queue Task Banner (F-04) -->
+      <div
+        v-if="['QUEUED', 'RUNNING', 'PROCESSING', 'FAILED', 'CANCELLED'].includes(activeSession.active_task_status)"
+        class="sd-task-banner"
+        :class="{
+          'is-failed': ['FAILED', 'CANCELLED'].includes(activeSession.active_task_status),
+          'is-processing': ['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status),
+        }"
+        data-testid="sd-active-task-banner"
+      >
+        <div class="sd-task-banner-info">
+          <Loader2
+            v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
+            :size="15"
+            class="spin"
+          />
+          <AlertTriangle v-else :size="15" />
+          <div class="sd-task-banner-copy">
+            <strong>
+              {{
+                activeSession.active_task_type === 'SYSTEM_DESIGN_EVALUATION'
+                  ? 'Final Evaluation Task'
+                  : 'Architecture Review Task'
+              }}
+              • {{ activeSession.active_task_status }}
+              <span v-if="activeSession.active_task_stage">({{ activeSession.active_task_stage }})</span>
+              <span
+                v-if="activeSession.active_task_attempt_count > 1"
+                class="sd-task-banner-meta"
+              >
+                • Attempt #{{ activeSession.active_task_attempt_count }}
+              </span>
+              <span
+                v-if="activeSession.active_task_provider"
+                class="sd-task-banner-meta"
+              >
+                • {{ activeSession.active_task_provider }}
+              </span>
+              <span
+                v-if="(activeSession.active_task_completed_steps || []).length"
+                class="sd-task-banner-meta"
+              >
+                • {{ activeSession.active_task_completed_steps.length }}/3 steps
+              </span>
+            </strong>
+            <p v-if="activeSession.active_task_error" class="sd-task-banner-error">
+              {{ activeSession.active_task_error }}
+            </p>
           </div>
-          <div class="sd-task-banner-actions">
-            <button
-              v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
-              type="button"
-              class="btn btn-secondary btn-xs"
-              data-testid="sd-cancel-task-btn"
-              @click="handleCancelActiveTask"
-            >
-              <X :size="12" />
-              <span>Cancel Task</span>
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-primary btn-xs"
-              data-testid="sd-retry-task-btn"
-              @click="handleRetryActiveTask"
-            >
-              <RotateCcw :size="12" />
-              <span>Retry Task</span>
-            </button>
-          </div>
+        </div>
+        <div class="sd-task-banner-actions">
+          <button
+            v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
+            type="button"
+            class="btn btn-secondary btn-xs"
+            data-testid="sd-cancel-task-btn"
+            @click="handleCancelActiveTask"
+          >
+            <X :size="12" />
+            <span>Cancel Task</span>
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-primary btn-xs"
+            data-testid="sd-retry-task-btn"
+            @click="handleRetryActiveTask"
+          >
+            <RotateCcw :size="12" />
+            <span>Retry Task</span>
+          </button>
         </div>
       </div>
 
@@ -2021,6 +2028,7 @@ onUnmounted(() => {
                 class="btn-input-icon"
                 data-testid="req-hint-btn"
                 :disabled="store.sendingRequirements"
+                aria-label="Ask for a Coaching Hint"
                 @click="handleSendRequirementsMessage(true)"
                 title="Ask for a Coaching Hint"
               >
@@ -2031,6 +2039,7 @@ onUnmounted(() => {
                 class="btn btn-primary btn-input-send"
                 data-testid="req-send-btn"
                 :disabled="store.sendingRequirements || !reqMessageInput.trim()"
+                aria-label="Send question"
                 title="Send question"
               >
                 <Loader2 v-if="store.sendingRequirements" :size="15" class="spin" />
@@ -2079,76 +2088,119 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="sd-form-stack">
-            <label class="sd-field">
-              <span>Functional Requirements (one per line)</span>
+          <div class="sd-form-stack sd-ledger-sections">
+            <details class="sd-ledger-section" open>
+              <summary>
+                <span>Functional Requirements (one per line)</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.functionalText.split('\n').filter(line => line.trim()).join(' · ') || 'No requirements recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Functional Requirements (one per line)</span>
               <textarea
                 v-model="ledgerForm.functionalText"
                 class="form-textarea"
-                rows="3"
+                rows="2"
                 placeholder="e.g., Create short links&#10;Redirect short code with 302"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Non-Functional Requirements & SLAs (one per line)</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Non-Functional Requirements &amp; SLAs</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.nonFunctionalText.split('\n').filter(line => line.trim()).join(' · ') || 'No requirements recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Non-Functional Requirements &amp; SLAs (one per line)</span>
               <textarea
                 v-model="ledgerForm.nonFunctionalText"
                 class="form-textarea"
-                rows="3"
+                rows="2"
                 placeholder="e.g., 99.95% availability&#10;p99 redirect latency < 50ms"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Scale & Capacity Estimates (`metric: value` per line)</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Scale &amp; Capacity Estimates</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.scaleText.split('\n').filter(line => line.trim()).join(' · ') || 'No estimates recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Scale &amp; Capacity Estimates (`metric: value` per line)</span>
               <textarea
                 v-model="ledgerForm.scaleText"
                 class="form-textarea"
-                rows="2"
+                rows="1"
                 placeholder="e.g., read_write_ratio: 100:1&#10;mau: 50M users"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Out of Scope (one per line)</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Out of Scope</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.outOfScopeText.split('\n').filter(line => line.trim()).join(' · ') || 'No items recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Out of Scope (one per line)</span>
               <textarea
                 v-model="ledgerForm.outOfScopeText"
                 class="form-textarea"
-                rows="2"
+                rows="1"
                 placeholder="e.g., Custom billing dashboards"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Confirmed / Baseline Assumptions (one per line)</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Confirmed / Baseline Assumptions</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.assumptionsText.split('\n').filter(line => line.trim()).join(' · ') || 'No assumptions recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Confirmed / Baseline Assumptions (one per line)</span>
               <textarea
                 v-model="ledgerForm.assumptionsText"
                 class="form-textarea"
-                rows="2"
+                rows="1"
                 placeholder="e.g., Assume single-region writes unless specified otherwise"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Unresolved Questions (one per line)</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Unresolved Questions (one per line)</span>
+                <span class="sd-count-pill">{{ ledgerForm.unresolvedQuestionsText.split('\n').filter(line => line.trim()).length }} open</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.unresolvedQuestionsText.split('\n').filter(line => line.trim()).join(' · ') || 'No open questions' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Unresolved Questions (one per line)</span>
               <textarea
                 v-model="ledgerForm.unresolvedQuestionsText"
                 class="form-textarea"
-                rows="2"
+                rows="1"
                 placeholder="e.g., Custom domain SSL provisioning?"
               />
-            </label>
+              </label>
+            </details>
 
-            <label class="sd-field">
-              <span>Notes & Key APIs</span>
+            <details class="sd-ledger-section">
+              <summary>
+                <span>Notes &amp; Key APIs</span>
+                <span class="sd-ledger-preview">{{ ledgerForm.notes || 'No notes recorded' }}</span>
+              </summary>
+              <label class="sd-field">
+                <span>Notes &amp; Key APIs</span>
               <textarea
                 v-model="ledgerForm.notes"
                 class="form-textarea"
-                rows="2"
+                rows="1"
                 placeholder="Any agreed assumptions or constraints..."
               />
-            </label>
+              </label>
+            </details>
           </div>
 
           <div class="sd-ledger-actions">
@@ -2175,12 +2227,13 @@ onUnmounted(() => {
             <button
               type="button"
               class="btn btn-primary"
+              data-testid="lock-requirements-btn"
               :disabled="store.savingLedger"
               @click="handleSaveLedger(true)"
             >
               <Loader2 v-if="store.savingLedger" :size="14" class="spin" />
               <Lock v-else :size="14" />
-              <span>Lock Requirements &amp; Proceed to Diagram</span>
+              <span>Lock &amp; continue</span>
             </button>
           </div>
         </section>
@@ -2201,34 +2254,29 @@ onUnmounted(() => {
               <span class="badge badge-assessment">Full-Screen Canvas</span>
             </div>
 
-            <p class="sd-muted sd-helper-copy">
-              Open the dedicated full-screen workspace to drag components from the palette, connect handles and label wires inline, unlock guided component hints, and save Flow JSON revisions.
-            </p>
+            <div class="sd-studio-launch-intro">
+              <p class="sd-muted sd-helper-copy">
+                Open the dedicated full-screen workspace to drag components from the palette, connect handles and label wires inline,
+                unlock guided component hints, and save Flow JSON revisions.
+              </p>
 
-            <button
-              type="button"
-              class="btn btn-primary sd-launch-studio-btn"
-              data-testid="open-design-studio-btn"
-              @click="openDesignStudio()"
-            >
-              <Maximize2 :size="15" />
-              <span>Open Design Studio</span>
-            </button>
+              <button
+                type="button"
+                class="btn btn-secondary sd-launch-studio-btn"
+                data-testid="open-design-studio-btn"
+                @click="openDesignStudio()"
+              >
+                <Maximize2 :size="15" />
+                <span>Open Design Studio</span>
+              </button>
+            </div>
 
             <div class="sd-studio-revisions-block">
-              <div class="sd-card-header">
+              <div class="sd-card-header sd-revisions-header">
                 <h4>
-                  <span>Saved Revisions ({{ store.activeDiagrams.length }})</span>
+                  <span>Saved Revisions</span>
+                  <span class="badge badge-assessment">{{ store.activeDiagrams.length }}</span>
                 </h4>
-                <label class="sd-checkbox-row">
-                  <input
-                    v-model="useWebSearchReview"
-                    type="checkbox"
-                    data-testid="review-web-search-checkbox"
-                  />
-                  <Globe :size="14" class="sd-primary-icon" />
-                  <span>Ground with Web Search</span>
-                </label>
               </div>
 
               <div v-if="!store.activeDiagrams.length" class="sd-empty-box">
@@ -2236,105 +2284,131 @@ onUnmounted(() => {
                 <p>No diagram saved yet. Launch the Design Studio or upload an exported image on the right.</p>
               </div>
 
-              <template v-else>
-                <div class="sd-revision-tabs">
+              <div v-else class="sd-revision-list">
+                <article
+                  v-for="rev in store.activeDiagrams"
+                  :key="rev.version"
+                  class="sd-revision-row"
+                  :class="{ selected: selectedRevision?.version === rev.version }"
+                >
                   <button
-                    v-for="rev in store.activeDiagrams"
-                    :key="rev.version"
                     type="button"
-                    class="mode-pill"
-                    :class="{ active: selectedRevision?.version === rev.version }"
+                    class="sd-revision-select"
+                    :aria-pressed="selectedRevision?.version === rev.version"
                     @click="selectedDiagramVersion = rev.version"
                   >
-                    <span>v{{ rev.version }} ({{ rev.diagram_kind === 'canvas' ? 'Canvas' : 'Image' }})</span>
+                    <strong>v{{ rev.version }} ({{ rev.diagram_kind === 'canvas' ? 'Canvas' : 'Image' }})</strong>
+                    <span class="badge badge-assessment">
+                      {{ rev.node_count || 0 }} blocks · {{ rev.edge_count || 0 }} flows
+                    </span>
                   </button>
-                </div>
-
-                <div v-if="selectedRevision" class="sd-canvas-revision-detail">
-                  <template v-if="selectedRevision.diagram_kind === 'canvas'">
-                    <div class="sd-canvas-rev-meta">
-                      <span class="badge badge-assessment">
-                        Flow JSON · {{ selectedRevision.node_count || 0 }} block(s) · {{ selectedRevision.edge_count || 0 }} flow(s)
-                      </span>
-                      <div v-if="selectedRevision.components_preview?.length" class="challenge-tags">
-                        <span
-                          v-for="comp in selectedRevision.components_preview"
-                          :key="comp"
-                          class="sd-tag"
-                        >
-                          {{ comp }}
-                        </span>
-                      </div>
-                    </div>
-                  </template>
-                  <img
-                    v-else
-                    :src="getRevisionImageUrl(selectedRevision)"
-                    :alt="`Diagram revision v${selectedRevision.version}`"
-                    class="sd-preview-img"
-                  />
-
-                  <p v-if="selectedRevision.notes" class="sd-muted">
-                    <strong>Notes:</strong> {{ selectedRevision.notes }}
-                  </p>
-
-                  <div
-                    v-if="selectedReview && Number(selectedReview.diagram_version) === Number(selectedRevision.version)"
-                    class="sd-diagram-review-summary"
-                    data-testid="diagram-review-summary"
+                  <details
+                    v-if="rev.components_preview?.length || rev.notes || rev.diagram_kind !== 'canvas'"
+                    class="sd-revision-disclosure"
                   >
-                    <div class="sd-review-summary-head">
-                      <span class="sd-review-status-pill">
-                        <CheckCircle2 :size="13" class="sd-success-icon" />
-                        <strong>Reviewed (v{{ selectedReview.diagram_version }})</strong>
+                    <summary>
+                      <span>Revision details</span>
+                      <span
+                        v-if="rev.components_preview?.length || rev.notes"
+                        class="sd-revision-preview"
+                      >
+                        {{ rev.components_preview?.join(' · ') || rev.notes }}
                       </span>
+                    </summary>
+                    <div v-if="rev.components_preview?.length" class="challenge-tags">
+                      <span v-for="comp in rev.components_preview" :key="comp" class="sd-tag">
+                        {{ comp }}
+                      </span>
+                    </div>
+                    <p v-if="rev.notes" class="sd-muted"><strong>Notes:</strong> {{ rev.notes }}</p>
+                    <img
+                      v-if="rev.diagram_kind !== 'canvas'"
+                      :src="getRevisionImageUrl(rev)"
+                      :alt="`Diagram revision v${rev.version}`"
+                      class="sd-preview-img"
+                    />
+                  </details>
+                  <div class="sd-revision-actions">
+                    <label
+                      v-if="selectedRevision?.version === rev.version"
+                      class="sd-checkbox-row sd-web-search-row"
+                    >
+                      <input
+                        v-model="useWebSearchReview"
+                        type="checkbox"
+                        data-testid="review-web-search-checkbox"
+                      />
+                      <Globe :size="14" class="sd-primary-icon" />
+                      <span>Ground with Web Search</span>
+                    </label>
+                    <div class="sd-revision-action-buttons">
+                      <button
+                        v-if="rev.diagram_kind === 'canvas'"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        data-testid="load-canvas-revision-btn"
+                        @click="handleLoadRevisionIntoCanvas(rev)"
+                      >
+                        <Edit3 :size="14" />
+                        <span>Edit in Studio</span>
+                      </button>
                       <button
                         type="button"
                         class="btn btn-secondary btn-sm"
-                        @click="selectStage('REVIEW')"
+                        data-testid="analyze-selected-revision-btn"
+                        :disabled="store.reviewingDiagram"
+                        @click="handleAnalyzeArchitecture(rev.version)"
                       >
-                        <span>Open Full Critique</span>
-                        <ArrowRight :size="13" />
+                        <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
+                        <Sparkles v-else :size="14" />
+                        <span>Analyze Architecture (v{{ rev.version }})</span>
                       </button>
                     </div>
-                    <p class="sd-review-summary-copy">{{ selectedReview.overall_impression }}</p>
-                    <div class="challenge-tags">
-                      <span class="sd-tag">{{ (selectedReview.strengths || []).length }} strengths</span>
-                      <span class="sd-tag">{{ (selectedReview.bottlenecks_and_spofs || []).length }} bottlenecks</span>
-                      <span class="sd-tag">{{ (selectedReview.missing_components || []).length }} missing</span>
-                    </div>
                   </div>
-
-                  <div class="sd-canvas-rev-actions">
-                    <button
-                      v-if="selectedRevision.diagram_kind === 'canvas'"
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      data-testid="load-canvas-revision-btn"
-                      @click="handleLoadRevisionIntoCanvas(selectedRevision)"
-                    >
-                      <Edit3 :size="14" />
-                      <span>Edit v{{ selectedRevision.version }} in Studio</span>
-                    </button>
+                  <div
+                    v-if="
+                      selectedReview &&
+                      Number(selectedReview.diagram_version) === Number(rev.version)
+                    "
+                    class="sd-diagram-review-summary"
+                    data-testid="diagram-review-summary"
+                  >
+                    <span class="sd-review-status-pill">
+                      <CheckCircle2 :size="15" class="sd-success-icon" />
+                      <strong>Reviewed (v{{ selectedReview.diagram_version }})</strong>
+                    </span>
+                    <div class="sd-review-metrics">
+                      <span class="sd-review-metric">
+                        <CheckCircle2 :size="15" />
+                        {{ (selectedReview.strengths || []).length }}
+                        {{ (selectedReview.strengths || []).length === 1 ? 'strength' : 'strengths' }}
+                      </span>
+                      <span class="sd-review-metric">
+                        <AlertTriangle :size="15" />
+                        {{ (selectedReview.bottlenecks_and_spofs || []).length }}
+                        {{ (selectedReview.bottlenecks_and_spofs || []).length === 1 ? 'bottleneck' : 'bottlenecks' }}
+                      </span>
+                      <span class="sd-review-metric">
+                        <ShieldAlert :size="15" />
+                        {{ (selectedReview.missing_components || []).length }} missing
+                      </span>
+                    </div>
                     <button
                       type="button"
                       class="btn btn-primary btn-sm"
-                      data-testid="analyze-selected-revision-btn"
-                      :disabled="store.reviewingDiagram"
-                      @click="handleAnalyzeArchitecture(selectedRevision.version)"
+                      @click="selectStage('REVIEW')"
                     >
-                      <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
-                      <Sparkles v-else :size="14" />
-                      <span>Analyze Architecture (v{{ selectedRevision.version }})</span>
+                      <span>Open Full Critique</span>
+                      <ArrowRight :size="13" />
                     </button>
                   </div>
-                </div>
-              </template>
+                </article>
+              </div>
             </div>
           </section>
 
           <!-- External Image Upload & Paste -->
-          <section class="sd-card">
+          <section class="sd-card sd-upload-card">
             <div class="sd-card-header">
               <h3>
                 <Upload :size="16" />
@@ -2356,13 +2430,16 @@ onUnmounted(() => {
             >
               <FileImage :size="28" class="sd-primary-icon" />
               <p>Drop a diagram image here, paste with Ctrl+V, or choose a file:</p>
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                class="diagram-file-input"
-                aria-label="Upload diagram image"
-                @change="handleFileInputChange"
-              />
+              <label class="btn btn-secondary sd-browse-files">
+                <span>Browse files</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="diagram-file-input"
+                  aria-label="Upload diagram image"
+                  @change="handleFileInputChange"
+                />
+              </label>
             </div>
 
             <div v-if="stagedPreviewUrl" class="sd-staged-preview">
@@ -2370,7 +2447,7 @@ onUnmounted(() => {
               <img :src="stagedPreviewUrl" alt="Staged architecture diagram preview" class="sd-preview-img" />
             </div>
 
-            <div class="sd-form-stack">
+            <div class="sd-upload-footer">
               <label class="sd-field">
                 <span>Revision Notes (optional)</span>
                 <input
@@ -2474,12 +2551,14 @@ onUnmounted(() => {
 
         <template v-else>
           <div class="sd-card review-banner">
-            <div class="review-banner-text">
+            <div class="review-banner-heading">
               <div class="session-row-title-row">
                 <span class="badge badge-assessment">Revision v{{ selectedReview.diagram_version }}</span>
                 <h3>Architecture Critique</h3>
               </div>
-              <p>{{ selectedReview.overall_impression }}</p>
+            </div>
+            <div class="review-banner-text">
+              <p class="sd-critique-copy">{{ selectedReview.overall_impression }}</p>
             </div>
             <div class="review-banner-actions">
               <button
@@ -2511,92 +2590,114 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Visual Clarifications Needed (Explicitly Separated From Design Flaws) -->
-          <div
-            v-if="selectedReview.visual_clarifications_needed?.length"
-            class="sd-card sd-clarification-card"
-          >
-            <div class="sd-card-header">
-              <h3>
-                <HelpCircle :size="16" />
-                <span>Visual Clarifications Needed</span>
-              </h3>
-              <span class="badge badge-interview">Clarify, Not Penalized</span>
-            </div>
-            <ul class="sd-bullet-list">
-              <li v-for="item in selectedReview.visual_clarifications_needed" :key="item">{{ item }}</li>
-            </ul>
-          </div>
-
           <div class="sd-review-grid">
-            <article class="sd-card">
-              <div class="sd-card-header">
-                <h3>
-                  <CheckCircle2 :size="16" class="sd-success-icon" />
-                  <span>Strengths</span>
-                </h3>
-              </div>
-              <ul class="sd-bullet-list">
-                <li v-for="item in selectedReview.strengths" :key="item">{{ item }}</li>
-                <li v-if="!selectedReview.strengths?.length" class="sd-muted">None highlighted yet.</li>
-              </ul>
-            </article>
+            <div class="sd-review-column sd-review-column-left">
+              <section
+                v-if="selectedReview.visual_clarifications_needed?.length"
+                class="sd-review-group sd-clarification-group"
+              >
+                <div class="sd-review-group-heading">
+                  <h3>
+                    <HelpCircle :size="16" />
+                    <span>Visual Clarifications Needed</span>
+                  </h3>
+                  <span class="badge badge-interview">Clarify, Not Penalized</span>
+                </div>
+                <ul class="sd-bullet-list">
+                  <li v-for="item in selectedReview.visual_clarifications_needed" :key="item">{{ item }}</li>
+                </ul>
+              </section>
 
-            <article class="sd-card">
-              <div class="sd-card-header">
-                <h3>
-                  <AlertTriangle :size="16" class="sd-warning-icon" />
-                  <span>Bottlenecks & Single Points of Failure</span>
-                </h3>
-              </div>
-              <ul class="sd-bullet-list">
-                <li v-for="item in selectedReview.bottlenecks_and_spofs" :key="item">{{ item }}</li>
-                <li v-if="!selectedReview.bottlenecks_and_spofs?.length" class="sd-muted">None detected.</li>
-              </ul>
-            </article>
+              <details class="sd-review-group" open>
+                <summary class="sd-review-group-heading">
+                  <h3>
+                    <CheckCircle2 :size="16" class="sd-success-icon" />
+                    <span>Strengths</span>
+                  </h3>
+                </summary>
+                <p class="sd-review-preview">
+                  {{ selectedReview.strengths?.[0] || 'None highlighted yet.' }}
+                </p>
+                <ul class="sd-bullet-list">
+                  <li v-for="item in selectedReview.strengths" :key="item">{{ item }}</li>
+                  <li v-if="!selectedReview.strengths?.length" class="sd-muted">None highlighted yet.</li>
+                </ul>
+              </details>
 
-            <article class="sd-card">
+              <details class="sd-review-group">
+                <summary class="sd-review-group-heading">
+                  <h3>
+                    <AlertTriangle :size="16" class="sd-warning-icon" />
+                    <span>Bottlenecks & Single Points of Failure</span>
+                  </h3>
+                </summary>
+                <p class="sd-review-preview">
+                  {{ selectedReview.bottlenecks_and_spofs?.[0] || 'None detected.' }}
+                </p>
+                <ul class="sd-bullet-list">
+                  <li v-for="item in selectedReview.bottlenecks_and_spofs" :key="item">{{ item }}</li>
+                  <li v-if="!selectedReview.bottlenecks_and_spofs?.length" class="sd-muted">None detected.</li>
+                </ul>
+              </details>
+
+              <details class="sd-review-group">
+                <summary class="sd-review-group-heading">
+                  <h3>
+                    <Layers :size="16" />
+                    <span>Interpreted Components & Complexity Check</span>
+                  </h3>
+                </summary>
+                <p class="sd-review-preview">
+                  {{ selectedReview.interpreted_components?.join(', ') || 'No components interpreted.' }}
+                </p>
+                <div class="sd-review-expanded-content">
+                  <p class="sd-muted sd-sub-heading">Observed components:</p>
+                  <div class="challenge-tags">
+                    <span v-for="comp in selectedReview.interpreted_components" :key="comp" class="sd-tag">
+                      {{ comp }}
+                    </span>
+                  </div>
+                  <template v-if="selectedReview.unnecessary_complexity?.length">
+                    <p class="sd-muted sd-sub-heading">Unnecessary complexity:</p>
+                    <ul class="sd-bullet-list">
+                      <li v-for="item in selectedReview.unnecessary_complexity" :key="item">{{ item }}</li>
+                    </ul>
+                  </template>
+                </div>
+              </details>
+            </div>
+
+            <article class="sd-card sd-review-column sd-review-column-right">
               <div class="sd-card-header">
                 <h3>
                   <ShieldAlert :size="16" />
                   <span>Missing Components & Requirement Gaps</span>
                 </h3>
               </div>
-              <ul class="sd-bullet-list">
-                <li v-for="item in selectedReview.missing_components" :key="`mc-${item}`">
-                  <strong>Missing:</strong> {{ item }}
-                </li>
-                <li v-for="item in selectedReview.requirement_gaps" :key="`rg-${item}`">
-                  <strong>Requirement gap:</strong> {{ item }}
-                </li>
-                <li
-                  v-if="!selectedReview.missing_components?.length && !selectedReview.requirement_gaps?.length"
-                  class="sd-muted"
-                >
-                  All locked requirements appear represented.
-                </li>
-              </ul>
-            </article>
-
-            <article class="sd-card">
-              <div class="sd-card-header">
-                <h3>
-                  <Layers :size="16" />
-                  <span>Interpreted Components & Complexity Check</span>
-                </h3>
-              </div>
-              <p class="sd-muted sd-sub-heading">Observed components:</p>
-              <div class="challenge-tags">
-                <span v-for="comp in selectedReview.interpreted_components" :key="comp" class="sd-tag">
-                  {{ comp }}
-                </span>
-              </div>
-              <p v-if="selectedReview.unnecessary_complexity?.length" class="sd-muted sd-sub-heading">
-                Unnecessary complexity:
+              <details class="sd-review-disclosure" open>
+                <summary>
+                  <span>Missing components</span>
+                  <span class="sd-count-pill">{{ selectedReview.missing_components?.length || 0 }}</span>
+                </summary>
+                <ul class="sd-bullet-list">
+                  <li v-for="item in selectedReview.missing_components" :key="`mc-${item}`">{{ item }}</li>
+                </ul>
+              </details>
+              <details class="sd-review-disclosure">
+                <summary>
+                  <span>Requirement gaps</span>
+                  <span class="sd-count-pill">{{ selectedReview.requirement_gaps?.length || 0 }}</span>
+                </summary>
+                <ul class="sd-bullet-list">
+                  <li v-for="item in selectedReview.requirement_gaps" :key="`rg-${item}`">{{ item }}</li>
+                </ul>
+              </details>
+              <p
+                v-if="!selectedReview.missing_components?.length && !selectedReview.requirement_gaps?.length"
+                class="sd-muted"
+              >
+                All locked requirements appear represented.
               </p>
-              <ul v-if="selectedReview.unnecessary_complexity?.length" class="sd-bullet-list">
-                <li v-for="item in selectedReview.unnecessary_complexity" :key="item">{{ item }}</li>
-              </ul>
             </article>
           </div>
         </template>
@@ -2654,6 +2755,7 @@ onUnmounted(() => {
                 :class="{ active: useWebSearchDefence }"
                 data-testid="defence-web-search-toggle"
                 :aria-pressed="useWebSearchDefence"
+                aria-label="Ground next interviewer probe with Web Search"
                 title="Ground next interviewer probe with Web Search"
                 @click="useWebSearchDefence = !useWebSearchDefence"
               >
@@ -2664,6 +2766,7 @@ onUnmounted(() => {
                 class="btn-input-icon"
                 data-testid="defence-hint-btn"
                 :disabled="store.sendingDefence"
+                aria-label="Ask for a Coaching Hint"
                 title="Ask for a Coaching Hint"
                 @click="handleSendDefenceMessage(true)"
               >
@@ -2674,6 +2777,7 @@ onUnmounted(() => {
                 class="btn btn-primary btn-input-send"
                 data-testid="defence-send-btn"
                 :disabled="store.sendingDefence || !defenceMessageInput.trim()"
+                aria-label="Send defence response"
                 title="Send defence response"
               >
                 <Loader2 v-if="store.sendingDefence" :size="15" class="spin" />
@@ -2691,18 +2795,23 @@ onUnmounted(() => {
                 <FileImage :size="16" />
                 <span>Active Design Reference</span>
               </h3>
-              <span v-if="selectedRevision" class="badge badge-assessment">v{{ selectedRevision.version }}</span>
+              <span v-if="selectedRevision" class="sd-reference-version-line">
+                <span class="badge badge-assessment">v{{ selectedRevision.version }}</span>
+                <span v-if="selectedRevision.diagram_kind === 'canvas'">
+                  {{ selectedRevision.node_count || 0 }} blocks · {{ selectedRevision.edge_count || 0 }} flows
+                </span>
+              </span>
             </div>
 
             <div v-if="selectedRevision?.diagram_kind === 'canvas'" class="sd-canvas-ref-box">
-              <span class="badge badge-assessment">
-                Canvas Flow JSON · {{ selectedRevision.node_count || 0 }} block(s) · {{ selectedRevision.edge_count || 0 }} flow(s)
-              </span>
-              <div v-if="selectedRevision.components_preview?.length" class="challenge-tags">
-                <span v-for="comp in selectedRevision.components_preview" :key="comp" class="sd-tag">
-                  {{ comp }}
-                </span>
-              </div>
+              <details v-if="selectedRevision.components_preview?.length" class="sd-reference-components">
+                <summary>Show component names</summary>
+                <div class="challenge-tags">
+                  <span v-for="comp in selectedRevision.components_preview" :key="comp" class="sd-tag">
+                    {{ comp }}
+                  </span>
+                </div>
+              </details>
               <button
                 type="button"
                 class="btn btn-secondary btn-sm"
@@ -2730,6 +2839,17 @@ onUnmounted(() => {
           <div class="sd-sidebar-actions">
             <button
               type="button"
+              class="btn btn-primary w-full"
+              data-testid="evaluate-session-btn"
+              :disabled="store.evaluatingSession"
+              @click="handleEvaluateSession"
+            >
+              <Loader2 v-if="store.evaluatingSession" :size="14" class="spin" />
+              <ClipboardCheck v-else :size="14" />
+              <span>Complete &amp; Evaluate with Local AI</span>
+            </button>
+            <button
+              type="button"
               class="btn btn-secondary w-full"
               @click="openDesignStudio(selectedRevision?.version || null, true)"
             >
@@ -2740,61 +2860,11 @@ onUnmounted(() => {
               type="button"
               class="btn btn-ghost btn-sm w-full"
               data-testid="toggle-stage4-external-defence-btn"
-              @click="showStage4ExternalDefence = !showStage4ExternalDefence"
+              aria-haspopup="dialog"
+              @click="showStage4ExternalDefence = true"
             >
               <FileCode :size="13" />
-              <span>{{ showStage4ExternalDefence ? 'Hide External Defence' : 'Spar in External AI (ChatGPT/Claude)' }}</span>
-            </button>
-            <div
-              v-if="showStage4ExternalDefence"
-              class="sd-external-bridge-box"
-              data-testid="stage4-external-defence-panel"
-            >
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm w-full"
-                data-testid="copy-frontier-defence-prompt-btn"
-                :disabled="store.loadingFrontierPacket"
-                @click="handleCopyStage4DefencePrompt"
-              >
-                <Copy :size="13" />
-                <span>{{ stage4DefenceCopied ? 'Copied Defence Prompt!' : 'Copy Defence Sparring Prompt' }}</span>
-              </button>
-              <textarea
-                v-if="store.frontierDefencePrompt?.markdown_prompt"
-                :value="store.frontierDefencePrompt.markdown_prompt"
-                readonly
-                rows="3"
-                class="form-textarea sd-code-textarea"
-                data-testid="frontier-defence-prompt-preview"
-              />
-              <textarea
-                v-model="stage4ImportDefenceText"
-                rows="3"
-                class="form-textarea"
-                data-testid="import-frontier-defence-textarea"
-                placeholder="Paste your external Defence Q&A summary for Stage 5 grading..."
-              />
-              <button
-                type="button"
-                class="btn btn-primary btn-sm w-full"
-                data-testid="import-frontier-defence-submit-btn"
-                :disabled="!stage4ImportDefenceText.trim() || store.sendingDefence"
-                @click="handleImportStage4Defence"
-              >
-                <span>Log External Defence</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              class="btn btn-primary w-full"
-              data-testid="evaluate-session-btn"
-              :disabled="store.evaluatingSession"
-              @click="handleEvaluateSession"
-            >
-              <Loader2 v-if="store.evaluatingSession" :size="14" class="spin" />
-              <ClipboardCheck v-else :size="14" />
-              <span>Complete &amp; Evaluate with Local AI</span>
+              <span>Spar in External AI (ChatGPT/Claude)</span>
             </button>
           </div>
         </aside>
@@ -2898,60 +2968,71 @@ onUnmounted(() => {
               </div>
             </section>
 
-            <!-- Key Takeaways -->
-            <section class="sd-eval-highlights">
-              <article class="sd-card">
-                <h3>Top Strengths</h3>
-                <ul class="sd-bullet-list">
-                  <li v-for="item in store.activeFinalEvaluation.key_strengths" :key="item">{{ item }}</li>
-                </ul>
-              </article>
-              <article class="sd-card">
-                <h3>Critical Gaps</h3>
-                <ul class="sd-bullet-list">
-                  <li v-for="item in store.activeFinalEvaluation.critical_gaps" :key="item">{{ item }}</li>
-                </ul>
-              </article>
-              <article class="sd-card">
-                <h3>Recommended Next Steps</h3>
-                <ul class="sd-bullet-list">
-                  <li v-for="item in store.activeFinalEvaluation.recommended_next_steps" :key="item">{{ item }}</li>
-                </ul>
-              </article>
-            </section>
+            <div class="sd-evaluation-content">
+              <section class="sd-card sd-eval-highlights" data-testid="eval-highlights">
+                <div class="sd-card-header">
+                  <h3>Key Takeaways</h3>
+                </div>
+                <details class="sd-eval-takeaway">
+                  <summary>
+                    <span class="sd-eval-takeaway-title">Top Strengths</span>
+                    <span class="sd-eval-preview">
+                      {{ store.activeFinalEvaluation.key_strengths?.[0] || 'No strengths recorded.' }}
+                    </span>
+                  </summary>
+                  <ul class="sd-bullet-list">
+                    <li v-for="item in store.activeFinalEvaluation.key_strengths" :key="item">{{ item }}</li>
+                  </ul>
+                </details>
+                <details class="sd-eval-takeaway">
+                  <summary>
+                    <span class="sd-eval-takeaway-title">Critical Gaps</span>
+                    <span class="sd-eval-preview">
+                      {{ store.activeFinalEvaluation.critical_gaps?.[0] || 'No critical gaps recorded.' }}
+                    </span>
+                  </summary>
+                  <ul class="sd-bullet-list">
+                    <li v-for="item in store.activeFinalEvaluation.critical_gaps" :key="item">{{ item }}</li>
+                  </ul>
+                </details>
+                <details class="sd-eval-takeaway">
+                  <summary>
+                    <span class="sd-eval-takeaway-title">Recommended Next Steps</span>
+                    <span class="sd-eval-preview">
+                      {{ store.activeFinalEvaluation.recommended_next_steps?.[0] || 'No next steps recorded.' }}
+                    </span>
+                  </summary>
+                  <ul class="sd-bullet-list">
+                    <li v-for="item in store.activeFinalEvaluation.recommended_next_steps" :key="item">{{ item }}</li>
+                  </ul>
+                </details>
+              </section>
 
-            <!-- Evidence-Backed Rubric Table -->
-            <section class="sd-card">
-              <div class="sd-card-header">
-                <h3>Evidence-Based Rubric Breakdown</h3>
-                <span class="sd-muted">{{ (store.activeFinalEvaluation.rubric_scores || []).length }} dimensions</span>
-              </div>
-              <div class="sd-rubric-table-wrap">
-                <table class="sd-rubric-table">
-                  <thead>
-                    <tr>
-                      <th>Dimension</th>
-                      <th>Score</th>
-                      <th>Observed Evidence</th>
-                      <th>Assessment Critique</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="row in (store.activeFinalEvaluation.rubric_scores || [])"
-                      :key="row.dimension"
-                    >
-                      <td><strong>{{ row.dimension }}</strong></td>
-                      <td>
-                        <span class="badge badge-applied">{{ row.score }} / 5</span>
-                      </td>
-                      <td class="sd-evidence-cell">{{ row.evidence }}</td>
-                      <td>{{ row.critique }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
+              <section class="sd-card sd-eval-rubric-panel" data-testid="eval-rubric-panel">
+                <div class="sd-card-header">
+                  <h3>Evidence-Based Rubric Breakdown</h3>
+                  <span class="sd-muted">{{ (store.activeFinalEvaluation.rubric_scores || []).length }} dimensions</span>
+                </div>
+                <div class="sd-rubric-list">
+                  <details
+                    v-for="(row, index) in (store.activeFinalEvaluation.rubric_scores || [])"
+                    :key="row.dimension"
+                    class="sd-rubric-item"
+                    :open="index === 0"
+                  >
+                    <summary>
+                      <strong>{{ row.dimension }}</strong>
+                      <span class="badge badge-applied">{{ row.score }} / 5</span>
+                      <span class="sd-rubric-preview">{{ row.evidence }}</span>
+                    </summary>
+                    <div class="sd-rubric-evidence">
+                      <p><strong>Observed Evidence</strong>{{ row.evidence }}</p>
+                      <p><strong>Assessment Critique</strong>{{ row.critique }}</p>
+                    </div>
+                  </details>
+                </div>
+              </section>
+            </div>
           </template>
         </template>
 
@@ -3047,6 +3128,71 @@ onUnmounted(() => {
         </section>
       </div>
     </template>
+
+    <div
+      v-if="showStage4ExternalDefence"
+      class="sd-modal-overlay"
+      data-testid="stage4-external-defence-modal"
+      @click.self="showStage4ExternalDefence = false"
+      @keydown.esc="showStage4ExternalDefence = false"
+    >
+      <section
+        class="sd-card sd-modal-dialog sd-external-defence-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stage4-external-defence-title"
+        tabindex="-1"
+      >
+        <div class="sd-card-header">
+          <h2 id="stage4-external-defence-title">Spar in External AI (ChatGPT/Claude)</h2>
+          <button
+            type="button"
+            class="btn-icon"
+            aria-label="Close external defence dialog"
+            autofocus
+            @click="showStage4ExternalDefence = false"
+          >
+            <X :size="16" />
+          </button>
+        </div>
+        <div class="sd-external-bridge-box" data-testid="stage4-external-defence-panel">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm w-full"
+            data-testid="copy-frontier-defence-prompt-btn"
+            :disabled="store.loadingFrontierPacket"
+            @click="handleCopyStage4DefencePrompt"
+          >
+            <Copy :size="13" />
+            <span>{{ stage4DefenceCopied ? 'Copied Defence Prompt!' : 'Copy Defence Sparring Prompt' }}</span>
+          </button>
+          <textarea
+            v-if="store.frontierDefencePrompt?.markdown_prompt"
+            :value="store.frontierDefencePrompt.markdown_prompt"
+            readonly
+            rows="3"
+            class="form-textarea sd-code-textarea"
+            data-testid="frontier-defence-prompt-preview"
+          />
+          <textarea
+            v-model="stage4ImportDefenceText"
+            rows="3"
+            class="form-textarea"
+            data-testid="import-frontier-defence-textarea"
+            placeholder="Paste your external Defence Q&A summary for Stage 5 grading..."
+          />
+          <button
+            type="button"
+            class="btn btn-primary btn-sm w-full"
+            data-testid="import-frontier-defence-submit-btn"
+            :disabled="!stage4ImportDefenceText.trim() || store.sendingDefence"
+            @click="handleImportStage4Defence"
+          >
+            <span>Log External Defence</span>
+          </button>
+        </div>
+      </section>
+    </div>
 
     <!-- Seed / Variant Launcher Modal -->
     <div
@@ -3687,35 +3833,50 @@ onUnmounted(() => {
 }
 
 .sd-diagram-review-summary {
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sd-review-summary-head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  min-height: 68px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--primary-subtle);
+}
+
+.sd-review-metrics {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.sd-review-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.sd-diagram-review-summary .sd-review-status-pill {
+  flex: 0 0 auto;
+}
+
+.sd-diagram-review-summary .btn {
+  margin-left: auto;
 }
 
 .sd-review-status-pill {
   display: inline-flex;
+  gap: 8px;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-main);
-}
-
-.sd-review-summary-copy {
+  white-space: nowrap;
   font-size: 12.5px;
-  color: var(--text-secondary);
-  line-height: 1.45;
+  color: var(--text-main);
 }
 
 .sd-defence-sidebar {
@@ -4515,19 +4676,34 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.sd-studio-launch-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sd-studio-launch-intro .sd-helper-copy {
+  flex: 1;
+  min-width: 0;
+}
+
 .sd-launch-studio-btn {
   width: fit-content;
+  flex-shrink: 0;
 }
 
 .sd-studio-revisions-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-color);
+  gap: 8px;
+  min-height: 0;
 }
 
 .sd-studio-revisions-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 13px;
   font-weight: 600;
@@ -4601,5 +4777,970 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.system-design-view.sd-embedded {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px;
+  gap: 8px;
+  overflow: auto;
+  font-size: 14px;
+}
+
+.system-design-view.sd-embedded.sd-session-active {
+  overflow: hidden;
+}
+
+.sd-session-active .sd-card {
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+}
+
+.sd-session-active .sd-workspace-header {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  gap: 6px;
+}
+
+.sd-session-active .workspace-compact-top {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.sd-session-active .workspace-title-block {
+  min-width: 0;
+}
+
+.sd-session-active .workspace-title-meta-row {
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sd-session-active .workspace-title-block h1 {
+  max-width: min(30vw, 360px);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-session-active .sd-tag,
+.sd-session-active .badge {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.sd-session-active .sd-header-variant-btn {
+  min-height: 40px;
+}
+
+.sd-session-active .stage-stepper {
+  gap: 6px;
+}
+
+.sd-session-active .stage-step-btn {
+  min-height: 44px;
+  padding: 6px 8px;
+}
+
+.sd-session-active .sd-task-banner {
+  min-height: 44px;
+}
+
+.sd-session-active .sd-task-banner.is-processing {
+  flex: 0 0 44px;
+  min-height: 44px;
+  padding: 4px 10px;
+  overflow: hidden;
+}
+
+.sd-session-active .sd-task-banner-info,
+.sd-session-active .sd-task-banner-copy,
+.sd-session-active .sd-task-banner strong {
+  min-width: 0;
+}
+
+.sd-session-active .sd-task-banner strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-session-active .sd-task-banner-actions .btn {
+  min-height: 40px;
+}
+
+.sd-session-active > .sd-two-col,
+.sd-session-active > .sd-design-stage,
+.sd-session-active > .sd-review-stage,
+.sd-session-active > .sd-evaluation-stage {
+  flex: 1;
+  min-height: 0;
+}
+
+.sd-session-active .sd-two-col {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.sd-session-active .sd-two-col > .sd-card {
+  height: 100%;
+  min-height: 0;
+}
+
+.sd-session-active .sd-chat-panel,
+.sd-session-active .sd-ledger-panel {
+  overflow: hidden;
+}
+
+.sd-session-active .sd-transcript-list {
+  min-height: 0;
+  max-height: none;
+}
+
+.sd-session-active .sd-chat-input-bar {
+  flex: 0 0 auto;
+}
+
+.sd-session-active .sd-chat-input {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.sd-session-active .btn-input-icon,
+.sd-session-active .btn-input-send {
+  width: 44px;
+  height: 44px;
+}
+
+.sd-session-active .sd-ledger-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.sd-session-active .sd-ledger-panel > .sd-card-header {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-session-active .sd-ledger-head-actions .btn {
+  min-height: 40px;
+}
+
+.sd-session-active .sd-ledger-sections {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 0;
+}
+
+.sd-ledger-section {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-ledger-section summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.sd-ledger-section summary::-webkit-details-marker,
+.sd-ledger-section summary::marker {
+  display: none;
+  content: '';
+}
+
+.sd-ledger-section summary::before,
+.sd-review-disclosure summary::before {
+  content: '›';
+  color: var(--text-muted);
+}
+
+.sd-ledger-section[open] summary::before,
+.sd-review-disclosure[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.sd-ledger-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.sd-count-pill {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sd-ledger-section .sd-field {
+  padding: 0 8px 10px 20px;
+  font-size: 12.5px;
+}
+
+.sd-ledger-section .form-textarea {
+  min-height: 40px;
+  field-sizing: content;
+  max-height: 150px;
+  font-size: 14px;
+}
+
+.sd-session-active .sd-ledger-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-bottom: 80px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-session-active .sd-ledger-actions .btn {
+  min-height: 44px;
+}
+
+.sd-session-active .sd-design-stage,
+.sd-session-active .sd-review-stage {
+  overflow: hidden;
+}
+
+.sd-session-active .sd-design-stage > .sd-two-col {
+  height: 100%;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.sd-session-active .sd-design-stage .sd-card {
+  overflow: hidden;
+}
+
+.sd-session-active .sd-studio-launch-card,
+.sd-session-active .sd-upload-card {
+  min-height: 0;
+}
+
+.sd-session-active .sd-studio-launch-card .sd-helper-copy {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sd-session-active .sd-studio-revisions-block {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sd-session-active .sd-revisions-header {
+  flex: 0 0 auto;
+}
+
+.sd-revision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sd-revision-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+}
+
+.sd-revision-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 16px;
+  text-align: left;
+  flex-wrap: wrap;
+}
+
+.sd-revision-disclosure {
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-revision-disclosure summary,
+.sd-reference-components summary {
+  min-height: 48px;
+  padding: 12px 16px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.sd-revision-preview {
+  display: inline-block;
+  max-width: 75%;
+  margin-left: 8px;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.sd-revision-disclosure > .challenge-tags,
+.sd-revision-disclosure > p,
+.sd-revision-disclosure > .sd-preview-img {
+  margin-right: 16px;
+  margin-left: 16px;
+}
+
+.sd-revision-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 68px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-revision-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sd-web-search-row {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  min-height: 40px;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.sd-web-search-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.sd-session-active .sd-revision-actions .btn,
+.sd-session-active .sd-launch-studio-btn {
+  min-height: 44px;
+}
+
+.sd-session-active .sd-upload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.sd-session-active .sd-upload-card .sd-helper-copy {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sd-session-active .sd-dropzone {
+  flex: 0 0 108px;
+  min-height: 108px;
+  padding: 8px;
+  gap: 6px;
+}
+
+.sd-session-active .sd-dropzone > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sd-session-active .sd-dropzone p {
+  margin: 0;
+}
+
+.sd-browse-files {
+  position: relative;
+  min-height: 40px;
+  cursor: pointer;
+}
+
+.diagram-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.sd-session-active .sd-staged-preview {
+  min-height: 0;
+  overflow: auto;
+}
+
+.sd-session-active .sd-staged-preview .sd-preview-img {
+  max-height: 160px;
+}
+
+.sd-upload-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  margin-bottom: 80px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-upload-footer .sd-field {
+  font-size: 12.5px;
+}
+
+.sd-upload-footer .form-input {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.sd-upload-footer > .btn {
+  min-height: 44px;
+}
+
+.sd-session-active .review-banner {
+  flex: 0 0 auto;
+  align-items: stretch;
+  gap: 8px;
+  flex-direction: column;
+}
+
+.sd-session-active .review-banner-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sd-session-active .review-banner-text {
+  min-width: 0;
+  width: 100%;
+}
+
+.sd-session-active .review-banner-text h3 {
+  margin: 0;
+}
+
+.sd-critique-copy {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.sd-session-active .review-banner-actions {
+  justify-content: flex-end;
+  align-items: center;
+  margin-left: 0;
+}
+
+.sd-session-active .review-banner-actions .btn {
+  min-height: 44px;
+}
+
+.sd-session-active .sd-review-grid {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.sd-review-column {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sd-review-column-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 12px;
+  border: var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.sd-review-group {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-review-group:last-child {
+  border-bottom: 0;
+}
+
+.sd-session-active .sd-review-group {
+  padding: 4px 0;
+}
+
+.sd-session-active .sd-review-group > summary {
+  position: relative;
+  min-height: 44px;
+  padding-left: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sd-session-active .sd-review-group > summary::before,
+.sd-review-disclosure summary::before,
+.sd-eval-takeaway summary::before,
+.sd-rubric-item summary::before {
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+  content: '›';
+  transition: transform var(--transition-fast);
+}
+
+.sd-session-active .sd-review-group[open] > summary::before,
+.sd-review-disclosure[open] summary::before,
+.sd-eval-takeaway[open] summary::before,
+.sd-rubric-item[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.sd-session-active .sd-review-group > summary::-webkit-details-marker,
+.sd-session-active .sd-review-group > summary::marker {
+  display: none;
+  content: '';
+}
+
+.sd-session-active .sd-review-preview {
+  margin: 0;
+  padding: 0 8px 10px 24px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-session-active .sd-review-group[open] > .sd-review-preview {
+  display: none;
+}
+
+.sd-review-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sd-review-group-heading h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.sd-review-group .sd-bullet-list,
+.sd-review-column-right .sd-bullet-list {
+  margin: 6px 0 0;
+  font-size: 14px;
+}
+
+.sd-session-active .sd-review-group .sd-bullet-list,
+.sd-session-active .sd-review-column-right .sd-bullet-list {
+  padding-left: 22px;
+  padding-right: 8px;
+  line-height: 1.5;
+  gap: 8px;
+}
+
+.sd-session-active .sd-review-expanded-content {
+  padding: 0 8px 8px 24px;
+}
+
+.sd-review-column-right {
+  gap: 0;
+}
+
+.sd-review-column-right .sd-card-header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-review-disclosure {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-review-disclosure summary {
+  position: relative;
+  padding-left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+
+.sd-review-disclosure summary::-webkit-details-marker,
+.sd-review-disclosure summary::marker {
+  display: none;
+  content: '';
+}
+
+.sd-review-disclosure summary span:first-of-type {
+  flex: 1;
+}
+
+.sd-review-column-right > .sd-muted {
+  padding: 10px 12px;
+}
+
+.sd-session-active .sd-defence-sidebar {
+  overflow: hidden;
+}
+
+.sd-session-active .sd-sidebar-top {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 8px;
+}
+
+.sd-reference-version-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.sd-session-active .sd-canvas-ref-box {
+  gap: 4px;
+}
+
+.sd-reference-components {
+  max-height: 120px;
+  overflow: auto;
+}
+
+.sd-session-active .sd-sidebar-notes {
+  min-height: 0;
+}
+
+.sd-session-active .sd-sidebar-notes h4 {
+  margin: 0;
+}
+
+.sd-session-active .sd-sidebar-notes .sd-bullet-list {
+  gap: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sd-session-active .sd-sidebar-notes .sd-bullet-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-session-active .sd-sidebar-actions {
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow-y: auto;
+  margin-bottom: 80px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  gap: 6px;
+}
+
+.sd-session-active .sd-sidebar-actions > .btn {
+  min-height: 44px;
+}
+
+.sd-session-active .sd-external-bridge-box {
+  margin-top: 0;
+}
+
+.sd-session-active :is(button, summary, input, textarea, select):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .system-design-view.sd-embedded.sd-session-active {
+    overflow-y: auto;
+  }
+
+  .sd-session-active .sd-studio-launch-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sd-session-active .sd-revision-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .sd-session-active .sd-revision-action-buttons {
+    flex-wrap: wrap;
+  }
+
+  .sd-session-active .sd-diagram-review-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sd-session-active .sd-web-search-row {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .sd-session-active .sd-diagram-review-summary .btn {
+    margin-left: 0;
+  }
+
+  .sd-session-active .workspace-compact-top,
+  .sd-session-active .workspace-title-meta-row {
+    flex-wrap: wrap;
+  }
+
+  .sd-session-active > .sd-two-col,
+  .sd-session-active .sd-design-stage > .sd-two-col,
+  .sd-session-active .sd-review-grid {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .sd-session-active > .sd-two-col > .sd-card,
+  .sd-session-active .sd-design-stage > .sd-two-col > .sd-card {
+    min-height: 420px;
+  }
+}
+
+.sd-session-active .sd-evaluation-stage {
+  gap: 8px;
+  overflow: hidden;
+}
+
+.sd-eval-subnav {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.sd-evaluation-content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 12px;
+}
+
+.sd-evaluation-content > .sd-card {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sd-session-active .sd-eval-hero {
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.sd-session-active .sd-evaluation-stage > .sd-frontier-card {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 56px;
+  overflow-y: auto;
+}
+
+.sd-session-active .sd-eval-rubric-panel {
+  padding-bottom: 80px;
+  overflow: hidden;
+}
+
+.sd-session-active .eval-score-box {
+  padding: 8px 14px;
+}
+
+.sd-session-active .eval-score-value {
+  font-size: 30px;
+}
+
+.sd-eval-highlights,
+.sd-eval-rubric-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sd-eval-highlights .sd-card-header,
+.sd-eval-rubric-panel .sd-card-header {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-eval-takeaway,
+.sd-rubric-item {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-eval-takeaway summary,
+.sd-rubric-item summary {
+  position: relative;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding-left: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sd-eval-takeaway summary {
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+}
+
+.sd-rubric-item summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.sd-eval-takeaway summary::-webkit-details-marker,
+.sd-eval-takeaway summary::marker,
+.sd-rubric-item summary::-webkit-details-marker,
+.sd-rubric-item summary::marker {
+  display: none;
+  content: '';
+}
+
+.sd-eval-takeaway-title,
+.sd-rubric-item summary > strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.sd-eval-preview,
+.sd-rubric-preview {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-eval-takeaway[open] .sd-eval-preview,
+.sd-rubric-item[open] .sd-rubric-preview {
+  display: none;
+}
+
+.sd-eval-takeaway .sd-bullet-list {
+  margin: 0;
+  padding: 0 8px 4px 22px;
+  line-height: 1.5;
+}
+
+.sd-rubric-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sd-rubric-item summary > .badge {
+  justify-self: end;
+}
+
+.sd-rubric-evidence {
+  display: grid;
+  gap: 10px;
+  padding: 0 8px 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sd-rubric-evidence p {
+  margin: 0;
+}
+
+.sd-rubric-evidence strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-main);
+  font-size: 12.5px;
+}
+
+.sd-external-defence-dialog {
+  max-width: 680px;
+}
+
+.sd-external-defence-dialog .sd-card-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.sd-external-defence-dialog .sd-external-bridge-box {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.sd-external-defence-dialog :is(textarea, button) {
+  min-height: 44px;
+}
+
+@media (max-width: 900px) {
+  .sd-session-active .review-banner-actions {
+    justify-content: flex-start;
+  }
+
+  .sd-evaluation-stage {
+    overflow-y: auto;
+  }
+
+  .sd-evaluation-content {
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sd-evaluation-content > .sd-card {
+    max-height: 55dvh;
+  }
 }
 </style>

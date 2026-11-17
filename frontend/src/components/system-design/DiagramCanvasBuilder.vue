@@ -1,20 +1,13 @@
 <script setup>
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
+import { ControlButton, Controls } from '@vue-flow/controls'
 import { ConnectionMode, MarkerType, VueFlow, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   Cloud,
-  HelpCircle,
   Layers,
-  Lightbulb,
   Maximize2,
   Plus,
   Search,
@@ -23,7 +16,6 @@ import {
 } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import {
-  CATEGORY_ACCENTS,
   CLOUD_EQUIVALENTS_BY_TYPE,
   CUSTOM_ICON_OPTIONS,
   DEFAULT_CLOUD_PROVIDERS,
@@ -31,7 +23,6 @@ import {
   DEFAULT_DIAGRAM_CATEGORIES,
   formatEdgeDisplayLabel,
   getBlockEquivalents,
-  getProviderShortLabel,
   resolveBlockCloudDisplay,
   resolveDiagramIcon,
   evaluateDrawnWireFeedback,
@@ -55,23 +46,22 @@ const { fitView, screenToFlowCoordinate } = useVueFlow({ id: 'sd-canvas-builder'
 const nodes = ref([])
 const edges = ref([])
 
-const paletteCollapsed = ref(false)
 const cloudProvider = ref(props.session?.diagram_guidance?.cloud_provider || 'generic')
 const searchQuery = ref('')
-const selectedCategory = ref('all')
 const showCustomCreator = ref(false)
 const customName = ref('')
 const customCategory = ref('compute_services')
 const customIcon = ref('box')
 const customTech = ref('')
 const customNotes = ref('')
+const customNameInput = ref(null)
+const customBlockTrigger = ref(null)
 
 const selectedNodeId = ref(null)
 const selectedEdgeId = ref(null)
 const popoverAnchor = ref(null)
 const canvasStageEl = ref(null)
 const edgeLabelInputEl = ref(null)
-const bankCollapsed = ref(false)
 const undoStack = ref([])
 const canUndo = computed(() => undoStack.value.length > 0)
 
@@ -87,8 +77,6 @@ const providers = computed(() =>
 const scenarioBlocks = computed(() =>
   Array.isArray(props.session?.palette_extensions) ? props.session.palette_extensions : []
 )
-const activeCloudShortLabel = computed(() => getProviderShortLabel(cloudProvider.value, providers.value))
-
 function blockCloudMeta(item) {
   return resolveBlockCloudDisplay(item, cloudProvider.value, catalogBlocks.value, providers.value)
 }
@@ -130,17 +118,9 @@ function appendResilienceChip(chipText) {
   selectedNode.value.data.notes = current ? `${current}; ${chipText}` : chipText
 }
 
-const activeHintEquivalents = computed(() => {
-  if (!activeHintDetail.value?.type_id) return []
-  return getBlockEquivalents(activeHintDetail.value.type_id, catalogBlocks.value)
-})
-
 const filteredScenarioBlocks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   return scenarioBlocks.value.filter((block) => {
-    if (selectedCategory.value !== 'all' && block.category !== selectedCategory.value) {
-      return false
-    }
     if (!q) return true
     const haystack = `${block.label || ''} ${block.default_role || ''}`.toLowerCase()
     return haystack.includes(q)
@@ -150,27 +130,22 @@ const filteredScenarioBlocks = computed(() => {
 const filteredBlocks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   return catalogBlocks.value.filter((block) => {
-    if (selectedCategory.value !== 'all' && block.category !== selectedCategory.value) {
-      return false
-    }
     if (!q) return true
     const eqValues = Object.values(block.cloud_equivalents || CLOUD_EQUIVALENTS_BY_TYPE[block.type_id] || {}).join(' ')
     const haystack = `${block.label} ${block.default_role || ''} ${(block.keywords || []).join(' ')} ${eqValues}`.toLowerCase()
     return haystack.includes(q)
   })
 })
-
-const guidance = computed(() => props.session?.diagram_guidance || {})
-const revealedComponents = computed(() => guidance.value?.revealed_components || [])
-const activeHintDetailName = ref(null)
-const activeHintDetail = computed(
-  () =>
-    revealedComponents.value.find(
-      (item) => `${item.name}-${item.type_id}` === activeHintDetailName.value
-    ) || null
-)
-const placedGuidedCount = computed(
-  () => revealedComponents.value.filter((item) => isRevealedPlaced(item)).length
+const paletteGroups = computed(() =>
+  categories.value
+    .map((category) => ({
+      ...category,
+      blocks: filteredBlocks.value.filter((block) => block.category === category.id),
+      scenarioBlocks: filteredScenarioBlocks.value.filter(
+        (block) => block.category === category.id
+      ),
+    }))
+    .filter((category) => category.blocks.length || category.scenarioBlocks.length)
 )
 
 const selectedNode = computed(
@@ -216,16 +191,6 @@ function computeAnchorFromEvent(nativeEvent) {
   const clampedX = Math.max(12, Math.min(rect.width - 310, rawX))
   const clampedY = Math.max(12, Math.min(rect.height - 230, rawY))
   return { x: Math.round(clampedX), y: Math.round(clampedY) }
-}
-
-function isRevealedPlaced(item) {
-  const targetName = String(item?.name || item?.label || '').toLowerCase()
-  const targetType = String(item?.type_id || '')
-  return nodes.value.some((n) => {
-    if (targetType && targetType !== 'custom' && n.data?.type_id === targetType) return true
-    const combined = `${n.data?.label || ''} ${n.data?.tech_stack || ''}`.toLowerCase()
-    return targetName && combined.includes(targetName)
-  })
 }
 
 function nextPlacementPosition() {
@@ -326,7 +291,16 @@ function handleAddCustomBlock() {
   customName.value = ''
   customTech.value = ''
   customNotes.value = ''
+  closeCustomCreator()
+}
+
+function openCustomCreator() {
+  showCustomCreator.value = true
+}
+
+function closeCustomCreator() {
   showCustomCreator.value = false
+  nextTick(() => customBlockTrigger.value?.focus())
 }
 
 function handleDragStart(event, block) {
@@ -405,9 +379,8 @@ function closePopovers() {
   popoverAnchor.value = null
 }
 
-function syncSelectedEdgeMeta() {
-  if (!selectedEdge.value) return
-  const edge = selectedEdge.value
+function syncEdgeMeta(edge) {
+  if (!edge) return
   const isAsync = edge.data?.delivery_mode === 'async'
   edge.animated = isAsync
   edge.style = isAsync ? { strokeDasharray: '6 4', strokeWidth: 2 } : { strokeWidth: 2 }
@@ -416,6 +389,10 @@ function syncSelectedEdgeMeta() {
     edge.data?.delivery_mode,
     edge.data?.text_label
   )
+}
+
+function syncSelectedEdgeMeta() {
+  syncEdgeMeta(selectedEdge.value)
 }
 
 function toggleSelectedEdgeAsync(checked) {
@@ -465,7 +442,8 @@ function applyCoachAction(action) {
   pushUndoSnapshot()
   let changed = false
 
-  for (const block of action.blocks || []) {
+  for (const block of Array.isArray(action.blocks) ? action.blocks : []) {
+    if (!block || typeof block !== 'object') continue
     const existing = nodes.value.find((n) =>
       _nodeMatchesActionSpec(n, block.type_id, block.label || block.name)
     )
@@ -483,7 +461,25 @@ function applyCoachAction(action) {
     }
   }
 
-  for (const edgeSpec of action.edges || []) {
+  for (const update of Array.isArray(action.node_updates) ? action.node_updates : []) {
+    const node = nodes.value.find((item) => item.id === String(update?.node_id || ''))
+    if (!update || !node || !update.changes || typeof update.changes !== 'object') continue
+    const nextData = { ...node.data }
+    let nodeChanged = false
+    for (const field of ['label', 'tech_stack']) {
+      if (typeof update.changes[field] !== 'string') continue
+      if (nextData[field] === update.changes[field]) continue
+      nextData[field] = update.changes[field]
+      nodeChanged = true
+    }
+    if (nodeChanged) {
+      node.data = nextData
+      changed = true
+    }
+  }
+
+  for (const edgeSpec of Array.isArray(action.edges) ? action.edges : []) {
+    if (!edgeSpec || typeof edgeSpec !== 'object') continue
     const srcNode = nodes.value.find((n) =>
       _nodeMatchesActionSpec(n, edgeSpec.source_type_id, edgeSpec.source_label)
     )
@@ -519,6 +515,25 @@ function applyCoachAction(action) {
         },
       },
     ]
+    changed = true
+  }
+
+  for (const update of Array.isArray(action.edge_updates) ? action.edge_updates : []) {
+    const edge = edges.value.find((item) => item.id === String(update?.edge_id || ''))
+    if (!update || !edge || !update.changes || typeof update.changes !== 'object') continue
+    const nextData = { ...edge.data }
+    if (['sync', 'async'].includes(update.changes.delivery_mode)) {
+      nextData.delivery_mode = update.changes.delivery_mode
+    }
+    for (const field of ['protocol', 'label']) {
+      if (typeof update.changes[field] === 'string') {
+        nextData[field === 'label' ? 'text_label' : field] = update.changes[field]
+      }
+    }
+    const edgeChanged = Object.keys(nextData).some((field) => nextData[field] !== edge.data?.[field])
+    if (!edgeChanged) continue
+    edge.data = nextData
+    syncEdgeMeta(edge)
     changed = true
   }
 
@@ -604,6 +619,12 @@ watch(
   { immediate: true }
 )
 
+watch(showCustomCreator, async (isOpen) => {
+  if (!isOpen) return
+  await nextTick()
+  customNameInput.value?.focus()
+})
+
 defineExpose({
   getCurrentNodes: () => serializeFlowNodes(nodes.value),
   getCurrentEdges: () => serializeFlowEdges(edges.value),
@@ -619,86 +640,97 @@ defineExpose({
 
 <template>
   <div class="sd-studio-canvas-shell" data-testid="diagram-canvas-builder">
-    <!-- Collapsible Left Component Palette -->
-    <aside
-      class="sd-studio-palette"
-      :class="{ collapsed: paletteCollapsed }"
-      aria-label="Architecture component palette"
-    >
+    <!-- Component Palette -->
+    <aside class="sd-studio-palette" aria-label="Architecture component palette">
       <div class="sd-palette-top-row">
-        <span v-if="!paletteCollapsed" class="sd-palette-title">
+        <span class="sd-palette-title">
           <Layers :size="14" />
           <span>Components</span>
         </span>
-        <button
-          type="button"
-          class="sd-palette-collapse-btn"
-          data-testid="palette-collapse-btn"
-          :title="paletteCollapsed ? 'Expand component palette' : 'Collapse to icon rail'"
-          @click="paletteCollapsed = !paletteCollapsed"
-        >
-          <ChevronRight v-if="paletteCollapsed" :size="15" />
-          <ChevronLeft v-else :size="15" />
-        </button>
       </div>
 
-      <!-- Collapsed Left Rail (clickable + draggable icons + Cloud indicator) -->
-      <div
-        v-if="paletteCollapsed"
-        class="sd-palette-rail"
-        data-testid="palette-collapsed-rail"
-      >
-        <button
-          type="button"
-          class="sd-rail-cloud-pill"
-          :title="`Active cloud: ${activeCloudShortLabel} (click to expand palette and switch)`"
-          @click="paletteCollapsed = false"
-        >
-          {{ activeCloudShortLabel === 'Generic' ? 'GEN' : activeCloudShortLabel }}
-        </button>
-        <button
-          type="button"
-          class="sd-rail-btn sd-rail-custom-btn"
-          title="Add custom block"
-          @click="paletteCollapsed = false; showCustomCreator = true"
-        >
-          <Plus :size="15" />
-        </button>
-        <div class="sd-rail-scroll">
-          <button
-            v-for="block in filteredScenarioBlocks"
-            :key="`rail-ext-${block.type_id}-${block.label}`"
-            type="button"
-            class="sd-rail-btn sd-rail-scenario-btn"
-            draggable="true"
-            :data-testid="`palette-rail-block-${block.type_id}`"
-            :style="{ color: CATEGORY_ACCENTS[block.category]?.color || '#3b82f6' }"
-            :title="`[Scenario] ${block.label} — ${block.default_role}`"
-            @dragstart="handleDragStart($event, block)"
-            @click="addBlockToCanvas(block)"
+        <label class="sd-palette-search">
+          <Search :size="14" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="form-input sd-search-input"
+            data-testid="palette-search-input"
+            aria-label="Filter components"
+            placeholder="Filter components..."
+          />
+        </label>
+        <p class="sd-palette-hint">Drag onto the canvas, or click to add.</p>
+
+        <div class="sd-palette-list">
+          <div
+            v-for="(category, categoryIndex) in paletteGroups"
+            :key="category.id"
+            class="sd-palette-category"
           >
-            <component :is="resolveDiagramIcon(block.icon)" :size="16" />
-          </button>
-          <button
-            v-for="block in filteredBlocks"
-            :key="`rail-${block.type_id}`"
-            type="button"
-            class="sd-rail-btn"
-            draggable="true"
-            :data-testid="`palette-rail-block-${block.type_id}`"
-            :style="{ color: CATEGORY_ACCENTS[block.category]?.color || '#3b82f6' }"
-            :title="`${blockCloudMeta(block).displayTitle}${blockCloudMeta(block).genericLabel !== blockCloudMeta(block).displayTitle ? ` (${blockCloudMeta(block).genericLabel})` : ''} — ${block.default_role}`"
-            @dragstart="handleDragStart($event, block)"
-            @click="addBlockToCanvas(block)"
-          >
-            <component :is="resolveDiagramIcon(block.icon)" :size="16" />
-          </button>
+            <details class="sd-palette-category-details" :open="categoryIndex === 0">
+              <summary>{{ category.label }}</summary>
+              <div v-if="category.scenarioBlocks.length" data-testid="scenario-palette-blocks">
+                <button
+                  v-for="ext in category.scenarioBlocks"
+                  :key="`ext-${ext.type_id}-${ext.label}`"
+                  type="button"
+                  class="sd-palette-item is-scenario"
+                  draggable="true"
+                  :data-testid="`palette-block-${ext.type_id}`"
+                  :title="`${ext.default_role} (Scenario extension block — click or drag)`"
+                  @dragstart="handleDragStart($event, ext)"
+                  @click="addBlockToCanvas(ext)"
+                >
+                  <span class="sd-palette-item-icon">
+                    <component :is="resolveDiagramIcon(ext.icon)" :size="15" />
+                  </span>
+                  <span class="sd-palette-item-text">
+                    <span class="sd-palette-item-name">{{ ext.label }}</span>
+                    <span class="sd-palette-item-role">Domain extension</span>
+                  </span>
+                </button>
+              </div>
+              <button
+                v-for="block in category.blocks"
+                :key="block.type_id"
+                type="button"
+                class="sd-palette-item"
+                draggable="true"
+                :data-testid="`palette-block-${block.type_id}`"
+                :title="`${block.default_role} (Click or drag onto canvas)`"
+                @dragstart="handleDragStart($event, block)"
+                @click="addBlockToCanvas(block)"
+              >
+                <span class="sd-palette-item-icon">
+                  <component :is="resolveDiagramIcon(block.icon)" :size="15" />
+                </span>
+                <span class="sd-palette-item-text">
+                  <span class="sd-palette-item-name">{{ blockCloudMeta(block).displayTitle }}</span>
+                  <span
+                    v-if="blockCloudMeta(block).genericLabel && blockCloudMeta(block).genericLabel !== blockCloudMeta(block).displayTitle"
+                    class="sd-palette-item-role"
+                  >
+                    {{ blockCloudMeta(block).genericLabel }}
+                  </span>
+                </span>
+              </button>
+            </details>
+          </div>
         </div>
-      </div>
 
-      <template v-else>
-        <!-- Cloud Provider Lens Selector -->
-        <div class="sd-cloud-lens-box">
+        <div class="sd-palette-footer">
+          <button
+            type="button"
+            class="sd-custom-block-button"
+            data-testid="open-custom-block-btn"
+            :aria-expanded="showCustomCreator"
+            aria-haspopup="dialog"
+            ref="customBlockTrigger"
+            @click="openCustomCreator"
+          >
+            Custom Block
+          </button>
           <label class="sd-cloud-lens-label">
             <Cloud :size="13" />
             <span>Cloud</span>
@@ -715,267 +747,10 @@ defineExpose({
             </select>
           </label>
         </div>
-
-        <div class="sd-palette-search">
-          <Search :size="14" />
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="form-input sd-search-input"
-            data-testid="palette-search-input"
-            placeholder="Filter components..."
-          />
-        </div>
-
-        <div class="sd-palette-cats">
-          <button
-            type="button"
-            class="sd-cat-pill"
-            :class="{ active: selectedCategory === 'all' }"
-            @click="selectedCategory = 'all'"
-          >
-            All
-          </button>
-          <button
-            v-for="cat in categories"
-            :key="cat.id"
-            type="button"
-            class="sd-cat-pill"
-            :class="{ active: selectedCategory === cat.id }"
-            @click="selectedCategory = cat.id"
-          >
-            {{ cat.label }}
-          </button>
-        </div>
-
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm w-full"
-          data-testid="open-custom-block-btn"
-          @click="showCustomCreator = !showCustomCreator"
-        >
-          <Plus :size="14" />
-          <span>{{ showCustomCreator ? 'Close Custom Block' : 'Custom Block' }}</span>
-        </button>
-
-        <div v-if="showCustomCreator" class="sd-custom-block-form" data-testid="custom-block-form">
-          <input
-            v-model="customName"
-            type="text"
-            class="form-input"
-            data-testid="custom-block-name-input"
-            placeholder="Block name (e.g. Base62 Ring)"
-          />
-          <select v-model="customCategory" class="form-select">
-            <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-              {{ cat.label }}
-            </option>
-          </select>
-          <select v-model="customIcon" class="form-select">
-            <option v-for="opt in CUSTOM_ICON_OPTIONS" :key="opt.value" :value="opt.value">
-              Icon: {{ opt.label }}
-            </option>
-          </select>
-          <input
-            v-model="customTech"
-            type="text"
-            class="form-input"
-            data-testid="custom-block-tech-input"
-            placeholder="Tech / engine (optional)"
-          />
-          <button
-            type="button"
-            class="btn btn-primary btn-sm w-full"
-            data-testid="add-custom-block-btn"
-            :disabled="!customName.trim()"
-            @click="handleAddCustomBlock"
-          >
-            <Plus :size="14" />
-            <span>Add Block</span>
-          </button>
-        </div>
-
-        <div class="sd-palette-list">
-          <div
-            v-if="filteredScenarioBlocks.length"
-            class="sd-scenario-palette-group"
-            data-testid="scenario-palette-blocks"
-          >
-            <span class="sd-scenario-group-label">Scenario Blocks</span>
-            <button
-              v-for="ext in filteredScenarioBlocks"
-              :key="`ext-${ext.type_id}-${ext.label}`"
-              type="button"
-              class="sd-palette-item is-scenario"
-              draggable="true"
-              :data-testid="`palette-block-${ext.type_id}`"
-              :title="`${ext.default_role} (Scenario extension block — click or drag)`"
-              @dragstart="handleDragStart($event, ext)"
-              @click="addBlockToCanvas(ext)"
-            >
-              <span
-                class="sd-palette-item-icon"
-                :style="{ color: CATEGORY_ACCENTS[ext.category]?.color || '#3b82f6' }"
-              >
-                <component :is="resolveDiagramIcon(ext.icon)" :size="15" />
-              </span>
-              <span class="sd-palette-item-text">
-                <span class="sd-palette-item-name">{{ ext.label }}</span>
-                <span class="sd-palette-item-role">Domain extension</span>
-              </span>
-              <Plus :size="13" class="sd-palette-plus" />
-            </button>
-          </div>
-          <button
-            v-for="block in filteredBlocks"
-            :key="block.type_id"
-            type="button"
-            class="sd-palette-item"
-            draggable="true"
-            :data-testid="`palette-block-${block.type_id}`"
-            :title="`${block.default_role} (Click or drag onto canvas)`"
-            @dragstart="handleDragStart($event, block)"
-            @click="addBlockToCanvas(block)"
-          >
-            <span
-              class="sd-palette-item-icon"
-              :style="{ color: CATEGORY_ACCENTS[block.category]?.color || '#3b82f6' }"
-            >
-              <component :is="resolveDiagramIcon(block.icon)" :size="15" />
-            </span>
-            <span class="sd-palette-item-text">
-              <span class="sd-palette-item-name">{{ blockCloudMeta(block).displayTitle }}</span>
-              <span
-                v-if="blockCloudMeta(block).genericLabel && blockCloudMeta(block).genericLabel !== blockCloudMeta(block).displayTitle"
-                class="sd-palette-item-role"
-              >
-                {{ blockCloudMeta(block).genericLabel }}
-              </span>
-            </span>
-            <Plus :size="13" class="sd-palette-plus" />
-          </button>
-        </div>
-      </template>
     </aside>
 
     <!-- Main Full-Height Interactive Canvas -->
     <div class="sd-studio-main">
-      <!-- Guided Hint Tray (shown only once user unlocks component hints) -->
-      <div
-        v-if="revealedComponents.length"
-        class="sd-hint-tray"
-        data-testid="diagram-hint-tray"
-      >
-        <div class="sd-hint-tray-head">
-          <strong>
-            <Lightbulb :size="14" />
-            <span>Guided Bank ({{ placedGuidedCount }}/{{ revealedComponents.length }} placed)</span>
-          </strong>
-          <div class="sd-hint-tray-head-right">
-            <span class="sd-muted">Click a block to place it, or ? for why &amp; checklist</span>
-            <button
-              type="button"
-              class="btn btn-secondary btn-xs"
-              data-testid="toggle-guided-bank-btn"
-              @click="bankCollapsed = !bankCollapsed"
-            >
-              <ChevronDown v-if="bankCollapsed" :size="12" />
-              <ChevronUp v-else :size="12" />
-              <span>{{ bankCollapsed ? 'Expand' : 'Collapse' }}</span>
-            </button>
-          </div>
-        </div>
-        <div v-show="!bankCollapsed" class="sd-hint-pills">
-          <div
-            v-for="item in revealedComponents"
-            :key="`${item.name}-${item.type_id}`"
-            class="sd-hint-chip-group"
-            :class="{ placed: isRevealedPlaced(item) }"
-          >
-            <button
-              type="button"
-              class="sd-hint-pill"
-              :class="{ placed: isRevealedPlaced(item) }"
-              :title="item.why_required || item.hint_role"
-              @click="addBlockToCanvas(item)"
-            >
-              <component :is="resolveDiagramIcon(item.icon)" :size="14" />
-              <span>{{ blockCloudMeta(item).displayTitle }}</span>
-              <CheckCircle2 v-if="isRevealedPlaced(item)" :size="13" class="sd-placed-check" />
-              <Plus v-else :size="13" />
-            </button>
-            <button
-              type="button"
-              class="sd-hint-info-btn"
-              :class="{
-                active: activeHintDetailName === `${item.name}-${item.type_id}`,
-              }"
-              data-testid="hint-info-btn"
-              :aria-label="`Explain ${item.label}`"
-              title="Why this component & configuration checklist"
-              @click.stop="
-                activeHintDetailName =
-                  activeHintDetailName === `${item.name}-${item.type_id}`
-                    ? null
-                    : `${item.name}-${item.type_id}`
-              "
-            >
-              <HelpCircle :size="12" />
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-if="activeHintDetail"
-          class="sd-hint-detail-popover"
-          data-testid="hint-info-popover"
-        >
-          <div class="sd-hint-detail-head">
-            <strong>{{ activeHintDetail.label }} — Why &amp; Checklist</strong>
-            <div class="sd-hint-detail-actions">
-              <button
-                type="button"
-                class="btn btn-secondary btn-xs"
-                @click="addBlockToCanvas(activeHintDetail)"
-              >
-                <Plus :size="12" />
-                <span>Place</span>
-              </button>
-              <button
-                type="button"
-                class="sd-icon-btn"
-                aria-label="Close detail"
-                @click="activeHintDetailName = null"
-              >
-                <X :size="13" />
-              </button>
-            </div>
-          </div>
-          <p class="sd-hint-why">
-            {{ activeHintDetail.why_required || activeHintDetail.hint_role }}
-          </p>
-          <ul
-            v-if="activeHintDetail.config_checklist?.length"
-            class="sd-hint-checklist"
-          >
-            <li
-              v-for="checkItem in activeHintDetail.config_checklist"
-              :key="checkItem"
-            >
-              {{ checkItem }}
-            </li>
-          </ul>
-          <div v-if="activeHintEquivalents.length" class="sd-cloud-eq-section" data-testid="hint-cloud-equivalents">
-            <span class="sd-cloud-eq-title">Cross-Cloud Services</span>
-            <div class="sd-cloud-eq-grid">
-              <div v-for="eq in activeHintEquivalents" :key="eq.id" class="sd-cloud-eq-chip">
-                <strong>{{ eq.shortLabel }}:</strong> {{ eq.serviceName }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div
         ref="canvasStageEl"
         class="sd-flow-stage"
@@ -984,10 +759,13 @@ defineExpose({
       >
         <div v-if="!nodes.length" class="sd-canvas-empty-hint">
           <Layers :size="26" />
-          <p>Click or drag blocks from the left palette to design your architecture.</p>
-          <span class="sd-muted">
-            Drag from any dot on a box to another dot to wire them, then click any wire or box to describe it.
-          </span>
+          <h2>Start with your first block</h2>
+          <p>Drag a component from the left, or click one to drop it onto the canvas.</p>
+          <ol class="sd-canvas-empty-steps">
+            <li><span>1</span>Place blocks</li>
+            <li><span>2</span>Wire dot to dot</li>
+            <li><span>3</span>Click a wire to describe it</li>
+          </ol>
         </div>
 
         <VueFlow
@@ -1002,34 +780,34 @@ defineExpose({
           @edge-click="handleEdgeClick"
           @pane-click="closePopovers"
         >
-          <Background pattern-color="rgba(148, 163, 184, 0.25)" :gap="20" />
-          <Controls />
+          <Background pattern-color="var(--border-subtle)" :gap="20" />
+          <Controls
+            position="bottom-center"
+            :show-zoom="true"
+            :show-fit-view="false"
+            :show-interactive="true"
+            :fit-view-params="{ padding: 0.2 }"
+          >
+            <ControlButton
+              title="Fit"
+              aria-label="Fit"
+              @click="fitView({ padding: 0.2 })"
+            >
+              <Maximize2 :size="14" />
+            </ControlButton>
+            <ControlButton
+              title="Clear canvas"
+              aria-label="Clear canvas"
+              :disabled="!nodes.length"
+              @click="clearCanvas"
+            >
+              <Trash2 :size="14" />
+            </ControlButton>
+          </Controls>
           <template #node-architecture="nodeProps">
             <ArchitectureNode v-bind="nodeProps" />
           </template>
         </VueFlow>
-
-        <!-- Canvas Quick Utility Pill (Fit / Clear) -->
-        <div class="sd-canvas-floating-tools">
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            title="Fit architecture to screen"
-            @click="fitView({ padding: 0.2 })"
-          >
-            <Maximize2 :size="13" />
-            <span>Fit</span>
-          </button>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="!nodes.length"
-            @click="clearCanvas"
-          >
-            <Trash2 :size="13" />
-            <span>Clear</span>
-          </button>
-        </div>
 
         <!-- Contextual Node Popover (only appears when clicking a node) -->
         <div
@@ -1176,6 +954,92 @@ defineExpose({
         </div>
       </div>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="showCustomCreator"
+        class="sd-custom-block-backdrop"
+        data-testid="custom-block-modal"
+        @click.self="closeCustomCreator"
+        @keydown.esc.stop.prevent="closeCustomCreator"
+      >
+        <section
+          class="sd-custom-block-dialog"
+          data-testid="custom-block-form"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="custom-block-title"
+        >
+          <div class="sd-custom-block-dialog-header">
+            <div>
+              <span class="sd-custom-block-eyebrow">Canvas component</span>
+              <h2 id="custom-block-title">Create Custom Block</h2>
+            </div>
+            <button
+              type="button"
+              class="sd-icon-btn"
+              aria-label="Close custom block dialog"
+              @click="closeCustomCreator"
+            >
+              <X :size="16" />
+            </button>
+          </div>
+          <div class="sd-custom-block-fields">
+            <label>
+              <span>Block name</span>
+              <input
+                ref="customNameInput"
+                v-model="customName"
+                type="text"
+                class="form-input"
+                data-testid="custom-block-name-input"
+                placeholder="e.g. Base62 Ring"
+              />
+            </label>
+            <label>
+              <span>Category</span>
+              <select v-model="customCategory" class="form-select">
+                <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                  {{ cat.label }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>Icon</span>
+              <select v-model="customIcon" class="form-select">
+                <option v-for="opt in CUSTOM_ICON_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>Technology or engine <span class="sd-muted">(optional)</span></span>
+              <input
+                v-model="customTech"
+                type="text"
+                class="form-input"
+                data-testid="custom-block-tech-input"
+                placeholder="e.g. Go + Etcd Lease"
+              />
+            </label>
+          </div>
+          <div class="sd-custom-block-dialog-actions">
+            <button type="button" class="btn btn-secondary" @click="closeCustomCreator">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              data-testid="add-custom-block-btn"
+              :disabled="!customName.trim()"
+              @click="handleAddCustomBlock"
+            >
+              <Plus :size="14" />
+              <span>Add Block</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1201,71 +1065,6 @@ defineExpose({
   border: 1px solid var(--border-subtle, #334155);
   background: var(--bg-surface, #1e293b);
   overflow: hidden;
-  transition: width 0.16s ease;
-}
-
-.sd-studio-palette.collapsed {
-  width: 54px;
-  padding: 8px 5px;
-  align-items: center;
-}
-
-.sd-palette-rail {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.sd-rail-cloud-pill {
-  padding: 2px 5px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border-subtle, #334155));
-  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
-  color: var(--accent, #2563eb);
-  font-size: 0.62rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.sd-rail-scroll {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  overflow-y: auto;
-  padding-bottom: 4px;
-}
-
-.sd-rail-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 32px;
-  border-radius: 7px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-elevated, rgba(148, 163, 184, 0.06));
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.sd-rail-btn:hover {
-  border-color: var(--accent, #3b82f6);
-}
-
-.sd-rail-custom-btn {
-  color: var(--text-main, #f8fafc);
-}
-
-.sd-rail-scenario-btn {
-  border-color: color-mix(in srgb, var(--accent, #3b82f6) 55%, var(--border-subtle, #334155));
 }
 
 .sd-scenario-palette-group {
@@ -1324,19 +1123,6 @@ defineExpose({
   font-weight: 650;
 }
 
-.sd-palette-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: transparent;
-  color: var(--text-secondary, #94a3b8);
-  cursor: pointer;
-}
-
 .sd-palette-search {
   display: flex;
   align-items: center;
@@ -1375,14 +1161,65 @@ defineExpose({
   color: #ffffff;
 }
 
-.sd-custom-block-form {
+.sd-custom-block-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background-color: color-mix(in srgb, var(--bg-app) 72%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.sd-custom-block-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(100%, 520px);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.sd-custom-block-dialog-header,
+.sd-custom-block-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sd-custom-block-dialog-header h2 {
+  margin: 4px 0 0;
+  color: var(--text-main);
+  font-size: 18px;
+}
+
+.sd-custom-block-eyebrow {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.sd-custom-block-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.sd-custom-block-fields label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px dashed var(--border-subtle, #475569);
-  background: var(--bg-elevated, rgba(15, 23, 42, 0.35));
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.sd-custom-block-dialog-actions {
+  justify-content: flex-end;
 }
 
 .sd-palette-list {
@@ -1487,135 +1324,6 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.sd-hint-tray {
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 40%, var(--border-subtle, #334155));
-  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, var(--bg-surface, #1e293b));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.sd-hint-tray-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sd-hint-tray-head strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
-  color: var(--text-main, #f8fafc);
-}
-
-.sd-hint-tray-head-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sd-hint-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.sd-hint-chip-group {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-surface, #1e293b);
-  overflow: hidden;
-}
-
-.sd-hint-chip-group.placed {
-  border-color: #10b981;
-}
-
-.sd-hint-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-main, #f8fafc);
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-.sd-hint-pill.placed {
-  color: #10b981;
-}
-
-.sd-hint-info-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 7px 4px 4px;
-  border: none;
-  border-left: 1px solid color-mix(in srgb, var(--border-subtle, #334155) 70%, transparent);
-  background: transparent;
-  color: var(--text-secondary, #94a3b8);
-  cursor: pointer;
-}
-
-.sd-hint-info-btn:hover,
-.sd-hint-info-btn.active {
-  color: var(--accent, #3b82f6);
-  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
-}
-
-.sd-hint-detail-popover {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-surface, #1e293b);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 0.78rem;
-}
-
-.sd-hint-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sd-hint-detail-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sd-hint-why {
-  margin: 0;
-  color: var(--text-primary, #f8fafc);
-  line-height: 1.35;
-}
-
-.sd-hint-checklist {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-secondary, #94a3b8);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sd-placed-check {
-  color: #10b981;
 }
 
 .sd-flow-stage {
@@ -1738,31 +1446,257 @@ defineExpose({
     max-height: 140px;
   }
 
-  .sd-studio-palette.collapsed {
-    width: 100%;
-    height: auto;
-    max-height: 54px;
-    flex-direction: row;
-    padding: 6px 8px;
-    overflow: hidden;
-  }
-
-  .sd-studio-palette.collapsed .sd-palette-rail {
-    flex-direction: row;
-    width: auto;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .sd-studio-palette.collapsed .sd-rail-scroll {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 0;
-  }
-
   .sd-flow-stage {
     min-height: 460px;
+  }
+}
+
+.sd-studio-canvas-shell {
+  gap: 12px;
+  padding: 8px;
+}
+
+.sd-studio-palette {
+  width: 270px;
+  padding: 12px;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  border-color: var(--border-color);
+  background: var(--bg-card);
+}
+
+.sd-palette-title {
+  font-size: 14px;
+}
+
+.sd-palette-search {
+  min-height: 40px;
+  padding: 0 8px;
+  border-color: var(--border-color);
+  background: var(--bg-input);
+}
+
+.sd-palette-search .sd-search-input {
+  min-height: 38px;
+  font-size: 14px;
+}
+
+.sd-palette-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.sd-palette-list {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  padding-right: 2px;
+}
+
+.sd-palette-category {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sd-palette-category-details > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sd-palette-category-details > summary::-webkit-details-marker,
+.sd-palette-category-details > summary::marker {
+  display: none;
+  content: '';
+}
+
+.sd-palette-category-details > summary::before {
+  content: '›';
+  width: 20px;
+  color: var(--text-muted);
+}
+
+.sd-palette-category-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.sd-palette-item {
+  min-height: 44px;
+  padding: 4px 6px;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 14px;
+}
+
+.sd-palette-item:hover {
+  background: var(--bg-surface-hover);
+  border-color: transparent;
+}
+
+.sd-palette-item-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.sd-palette-item-role,
+.sd-palette-plus {
+  display: none;
+}
+
+.sd-palette-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-custom-block-button {
+  min-height: 44px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.sd-custom-block-button:hover {
+  background: var(--bg-surface-hover);
+}
+
+.sd-cloud-lens-label {
+  min-height: 44px;
+  font-size: 12.5px;
+}
+
+.sd-cloud-select {
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.sd-studio-main {
+  min-height: 0;
+  gap: 8px;
+}
+
+.sd-flow-stage {
+  min-height: 0;
+  border-radius: var(--radius-md);
+  border-color: var(--border-color);
+  background-color: var(--bg-card);
+}
+
+.sd-canvas-empty-hint {
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.sd-canvas-empty-hint h2 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 22px;
+}
+
+.sd-canvas-empty-hint p {
+  max-width: 360px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.sd-canvas-empty-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sd-canvas-empty-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.sd-canvas-empty-steps li span {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--primary-contrast);
+  font-weight: 700;
+}
+
+:deep(.vue-flow__controls) {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+:deep(.vue-flow__controls-button) {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  fill: currentColor;
+}
+
+:deep(.vue-flow__controls-button:last-child) {
+  border-right: 0;
+}
+
+:deep(.vue-flow__controls-button:hover) {
+  background: var(--bg-surface-hover);
+}
+
+:is(button, summary, input, textarea, select):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 820px) {
+  .sd-studio-canvas-shell {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .sd-studio-palette {
+    width: 100%;
   }
 }
 

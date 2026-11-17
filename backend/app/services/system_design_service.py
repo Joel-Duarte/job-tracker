@@ -3302,7 +3302,7 @@ class SystemDesignService:
                 )
             if suggested_actions:
                 parts.append(
-                    f"You can click '{suggested_actions[0].title}' below to apply this increment directly to your canvas."
+                    f"Review '{suggested_actions[0].title}' below to preview this increment before applying it."
                 )
             reply_text = " ".join(parts) or (
                 "Your core topology covers the primary flows! Make sure your Canvas Notes capture TTL/retention, capacity math, and failover strategy."
@@ -4147,6 +4147,31 @@ class SystemDesignService:
             }
             for f in (topo_eval.get("findings") or [])
         ]
+        editable_canvas_json = json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": node.get("id"),
+                        "type_id": node.get("type_id"),
+                        "label": node.get("label"),
+                        "tech_stack": node.get("tech_stack"),
+                    }
+                    for node in flow_snapshot["nodes"]
+                ],
+                "edges": [
+                    {
+                        "id": edge.get("id"),
+                        "source": edge.get("source"),
+                        "target": edge.get("target"),
+                        "label": edge.get("label"),
+                        "protocol": edge.get("protocol"),
+                        "delivery_mode": edge.get("delivery_mode"),
+                    }
+                    for edge in flow_snapshot["edges"]
+                ],
+            },
+            indent=2,
+        )
 
         question_line = (
             f"\n**Learner Question:** {payload.question.strip()}\n"
@@ -4167,6 +4192,12 @@ class SystemDesignService:
                 ),
                 f"- **Canvas Notes**: {payload.current_notes or 'None'}",
                 "",
+                "## Existing Canvas IDs for Reviewable Edits",
+                "Use these exact IDs if proposing changes to an existing block or wire. The Studio will show a before/after preview and ask for approval.",
+                "```json",
+                editable_canvas_json,
+                "```",
+                "",
                 "## Updated Capability Readiness & Diagnostics",
                 "```json",
                 json.dumps(
@@ -4184,13 +4215,19 @@ class SystemDesignService:
                 "> 1. Act as a supportive, Socratic Staff Systems Architect coaching the learner visually as they build their diagram.",
                 "> 2. Respect defendable alternative architectures (e.g., Serverless vs App Service, NoSQL vs SQL+Replica, Queue vs Stream) whenever capabilities and SLAs are satisfied.",
                 f"> 3. Frame managed services idiomatically for Active Cloud Lens: **{cloud_label}**.",
-                '> 4. Optionally include a compact `CoachCanvasAction` JSON snippet if proposing blocks/edges to paste back into Studio (`{"id": "coach-step", "title": "...", "blocks": [{"type_id": "distributed_cache", "label": "Redis"}], "edges": [{"source_type_id": "app_service", "target_type_id": "distributed_cache", "label": "Cache lookup", "delivery_mode": "sync"}]}`).',
+                '> 4. If proposing canvas changes, include a compact `CoachCanvasAction` JSON snippet. Additions use `blocks`/`edges`; edits use `node_updates: [{"node_id": "...", "changes": {"tech_stack": "..."}}]` or `edge_updates: [{"edge_id": "...", "changes": {"delivery_mode": "async"}}]`. Never change `type_id`, and only use exact IDs from the current canvas.',
                 "",
                 f"## Scenario & Variant Focus\n- **Title**: {challenge.title}\n- **Cloud Lens**: {cloud_label}",
                 "",
                 "## Locked Stage 1 Requirements Ledger",
                 "```json",
                 json.dumps(session.requirements_ledger or {}, indent=2),
+                "```",
+                "",
+                "## Existing Canvas IDs for Reviewable Edits",
+                "Use these exact IDs when proposing changes to existing blocks or wires. The Studio will show a before/after preview and ask for approval.",
+                "```json",
+                editable_canvas_json,
                 "```",
                 "",
                 "## Current Canvas Topology & Capability Readiness",

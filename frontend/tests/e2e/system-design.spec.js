@@ -164,7 +164,7 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await expect(page.locator('textarea').nth(1)).toHaveValue(/high read fan-out|Core API/)
   await page.getByTestId('resync-ledger-btn').click()
   await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API endpoint to create\/ingest primary entities/)
-  await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
+  await page.getByTestId('lock-requirements-btn').click()
 
   // Locking Stage 1 opens the dedicated full-screen Design Studio; Back returns to Stage 2 card for image upload
   await expect(page).toHaveURL(/\/system-design\/\d+\/design/)
@@ -175,6 +175,7 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await expect(page.getByRole('heading', { name: 'Upload Architecture Diagram' })).toBeVisible()
   await expect(page.getByTestId('stage-step-DESIGN')).toBeEnabled()
   await expect(page.getByTestId('stage-step-REVIEW')).toBeDisabled()
+  await expect(page.locator('.sd-brief-disclosure')).toHaveCount(0)
 
   await page.locator('.diagram-file-input').setInputFiles({
     name: 'url-shortener-v1.png',
@@ -193,12 +194,23 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
 
   // Stage 3: Multimodal review unlocks Review + Defence, and shows summary back on Diagram tab
   await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
-  await expect(page.getByText(/\[Web-Grounded\]/)).toBeVisible()
+  await expect(page.locator('.sd-critique-copy')).toContainText('[Web-Grounded]')
+  await expect(page.locator('.sd-critique-disclosure')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Visual Clarifications Needed' })).toBeVisible()
   await expect(page.getByTestId('stage-step-DEFENCE')).toBeEnabled()
 
   await page.getByTestId('stage-step-DESIGN').click()
   await expect(page.getByTestId('diagram-review-summary')).toBeVisible()
+  await expect(page.getByTestId('diagram-review-summary')).not.toContainText('[Web-Grounded]')
+  await expect(page.locator('.sd-review-summary-copy')).toHaveCount(0)
+  await expect(page.locator('.sd-revision-row')).toHaveCount(1)
+  await expect(page.locator('.sd-revision-preview')).toContainText(
+    'Added Redis cache ahead of Postgres primary'
+  )
+  await expect(page.getByTestId('diagram-review-summary').locator('.sd-review-metric')).toHaveCount(3)
+  await expect(
+    page.getByTestId('diagram-review-summary').getByRole('button', { name: 'Open Full Critique' })
+  ).toHaveClass(/btn-primary/)
   await page.getByRole('button', { name: 'Open Full Critique' }).click()
 
   // Stage 4: Interactive Architecture Defence (uncluttered, no frontier card here)
@@ -686,7 +698,7 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('req-chat-input').fill('What read/write traffic targets apply?')
   await page.getByTestId('req-send-btn').click()
   await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API/)
-  await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
+  await page.getByTestId('lock-requirements-btn').click()
 
   // Dedicated full-screen Design Studio route with minimal header (no 3-mode switcher, no -pts badge)
   await expect(page).toHaveURL(/\/system-design\/\d+\/design/)
@@ -697,15 +709,23 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('guidance-penalty-badge')).toHaveCount(0)
   await expect(page.getByTestId('studio-assistance-pill')).toContainText('Solo')
 
-  // Desktop opens with 4-Tab Docked Sidebar on Reqs tab (and zero redundant topbar toggle button); mobile opens collapsed
-  if (testInfo.project.name.includes('mobile')) {
-    await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
-    await expect(page.getByTestId('toggle-coach-drawer-btn')).toBeVisible()
-    await page.getByTestId('toggle-coach-drawer-btn').click()
-  } else {
-    await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
+  async function openStudioMore() {
+    if (!(await page.getByTestId('studio-more-dropdown').isVisible())) {
+      await page.getByTestId('studio-more-btn').click()
+    }
   }
+
+  async function clickStudioMoreItem(testId) {
+    await openStudioMore()
+    await page.getByTestId(testId).click()
+  }
+
+  // Studio panels remain visible and cannot disappear behind a collapsed drawer.
   await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+  await expect(page.getByTestId('palette-collapse-btn')).toHaveCount(0)
+  await openStudioMore()
+  await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
+  await page.getByTestId('studio-more-btn').click()
   await expect(page.getByTestId('studio-requirements-reference')).toBeVisible()
   await page
     .getByTestId('canvas-notes-input')
@@ -713,27 +733,58 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
 
   // Switch to Coach tab -> Apply to Canvas + Undo
   await page.getByTestId('coach-tab-chat').click()
+  await page.getByTestId('coach-starter-guide').click()
+  await expect(page.getByTestId('coach-chat-thread')).toContainText('next missing block or connection')
   await page.getByTestId('coach-starter-write-path').click()
   await expect(page.getByTestId('coach-chat-thread')).toContainText('Write Path')
   await page.getByTestId('coach-apply-action-btn').first().click()
+  await expect(page.getByTestId('coach-action-preview-modal')).toBeVisible()
+  await expect(page.getByTestId('coach-action-preview-modal')).toContainText('Before')
+  await page.getByTestId('confirm-coach-action-btn').click()
+  await openStudioMore()
   await expect(page.getByTestId('studio-undo-btn')).toBeVisible()
   await expect(page.getByTestId('studio-assistance-pill')).toContainText('Coached')
-  await page.getByTestId('studio-undo-btn').click()
+  await clickStudioMoreItem('studio-undo-btn')
+  await openStudioMore()
   await expect(page.getByTestId('studio-undo-btn')).toHaveCount(0)
+  await page.getByTestId('studio-more-btn').click()
 
-  // Switch to Bank tab: Next Hint & Reveal All Required (clicking twice does NOT crash!)
+  // Guidance lives in the Assistant, not in a canvas-top tray.
   await page.getByTestId('coach-tab-bank').click()
-  await page.getByTestId('hint-next-component-btn').click()
-  await expect(page.getByTestId('diagram-hint-tray')).toBeVisible()
+  await expect(page.getByText('Next: reveal the next required block')).toHaveCount(0)
+  const revealNextButton = page.getByTestId('reveal-next-step-btn')
+  const revealAllButton = page.getByTestId('reveal-bank-btn')
+  const [nextButtonBox, allButtonBox] = await Promise.all([
+    revealNextButton.boundingBox(),
+    revealAllButton.boundingBox(),
+  ])
+  expect(allButtonBox.y).toBe(nextButtonBox.y)
+  expect(allButtonBox.x).toBeGreaterThan(nextButtonBox.x)
+  await expect(page.getByTestId('diagram-hint-tray')).toHaveCount(0)
+  await revealNextButton.click()
+  await expect(page.getByTestId('guided-next-component')).toBeVisible()
+  await expect(page.getByTestId('all-revealed-components')).toHaveCount(0)
+  await expect(page.getByTestId('guided-next-component').locator('.sd-guided-next-reason')).toHaveText(
+    /\S+/
+  )
 
   await page.getByTestId('reveal-bank-btn').click()
-  await expect(page.getByTestId('diagram-hint-tray')).toContainText('URL / Payload Safety Filter')
+  const allRevealed = page.getByTestId('all-revealed-components')
+  await allRevealed.locator(':scope > summary').click()
+  await expect(allRevealed).toContainText('URL / Payload Safety Filter')
+  const featuredBlockName = await page
+    .getByTestId('guided-next-component')
+    .locator('.sd-guided-next-title strong')
+    .innerText()
+  await expect(
+    allRevealed.locator('.sd-revealed-component > summary').filter({ hasText: featuredBlockName })
+  ).toHaveCount(0)
   await page.getByTestId('reveal-bank-btn').click()
   await expect(page.getByTestId('reveal-bank-btn')).toBeEnabled()
   await expect(page.getByTestId('reference-blueprint-framing')).toContainText('Reference Blueprint')
   await expect(page.getByTestId('path-milestones-section')).toContainText('Read Path')
-  await expect(page.getByTestId('diagram-hint-tray')).toContainText('Task Queue')
-  await expect(page.getByTestId('diagram-hint-tray')).not.toContainText('Flink')
+  await expect(allRevealed).toContainText('Task Queue')
+  await expect(allRevealed).not.toContainText('Flink')
 
   // Empty canvas must keep Checks badge at 0 (no 11-item spoiler Missing cards) & show non-spoiling Capability Readiness
   await expect(page.getByTestId('coach-tab-checks').locator('.sd-tab-badge')).toHaveCount(0)
@@ -744,9 +795,12 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
 
   // Clicking Build Flow in Bank constructs an Undo-able end-to-end flow on canvas
   await page.getByTestId('build-path-flow-btn').first().click()
+  await expect(page.getByTestId('coach-action-preview-modal')).toBeVisible()
+  await page.getByTestId('confirm-coach-action-btn').click()
   await expect(page.getByTestId('canvas-node-web_client')).toBeVisible()
+  await openStudioMore()
   await expect(page.getByTestId('studio-undo-btn')).toBeEnabled()
-  await page.getByTestId('studio-undo-btn').click()
+  await clickStudioMoreItem('studio-undo-btn')
   await expect(page.getByTestId('canvas-node-web_client')).toHaveCount(0)
 
   // Verify Reqs Scale Math, Bank Study Notes, and External Coach workflow while sidebar is open
@@ -760,31 +814,98 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('toggle-external-coach-btn').click()
   await page.getByTestId('copy-external-coach-initial-btn').click()
   await expect(page.getByTestId('frontier-coach-prompt-preview')).toHaveValue(/External System Design Studio Coach/)
-  await page.getByTestId('external-coach-action-input').fill('{"blocks":[{"type_id":"load_balancer","label":"Load Balancer"}],"edges":[]}')
+  await page.getByTestId('external-coach-action-input').fill(
+    JSON.stringify({
+      blocks: [
+        { type_id: 'api_gateway', label: 'API Gateway' },
+        { type_id: 'app_service', label: 'Application Service' },
+      ],
+      edges: [
+        {
+          source_type_id: 'api_gateway',
+          source_label: 'API Gateway',
+          target_type_id: 'app_service',
+          target_label: 'Application Service',
+          label: 'request',
+          delivery_mode: 'sync',
+        },
+      ],
+    })
+  )
   await page.getByTestId('apply-external-coach-action-btn').click()
-  await expect(page.getByTestId('canvas-node-load_balancer')).toBeVisible()
-  await page.getByTestId('studio-undo-btn').click()
-  await expect(page.getByTestId('canvas-node-load_balancer')).toHaveCount(0)
+  await expect(page.getByTestId('coach-action-preview-modal')).toBeVisible()
+  await expect(page.getByTestId('coach-action-preview-modal')).toContainText('Not on canvas')
+  await page.getByTestId('confirm-coach-action-btn').click()
+  await expect(page.getByTestId('canvas-node-api_gateway')).toBeVisible()
+  await expect(page.getByTestId('canvas-node-app_service')).toBeVisible()
+
+  const gatewayNodeId = await page
+    .locator('.vue-flow__node')
+    .filter({ has: page.getByTestId('canvas-node-api_gateway') })
+    .getAttribute('data-id')
+  const edgeId = await page.locator('.vue-flow__edge').first().getAttribute('data-id')
+  await page.getByTestId('external-coach-action-input').fill(
+    JSON.stringify({
+      node_updates: [{ node_id: gatewayNodeId, changes: { tech_stack: 'Reviewed API Engine' } }],
+      edge_updates: [
+        {
+          edge_id: edgeId,
+          changes: { delivery_mode: 'async', protocol: 'Kafka', label: 'enqueue request' },
+        },
+      ],
+    })
+  )
+  await page.getByTestId('apply-external-coach-action-btn').click()
+  const editPreview = page.getByTestId('coach-action-preview-modal')
+  await expect(editPreview).toContainText('Before')
+  await expect(editPreview).toContainText('Technology: Not set')
+  await expect(editPreview).toContainText('Technology: Reviewed API Engine')
+  await expect(editPreview).toContainText('Delivery: sync')
+  await expect(editPreview).toContainText('Delivery: async')
+  await page.getByTestId('confirm-coach-action-btn').click()
+
+  await page.getByTestId('canvas-node-api_gateway').click()
+  await expect(page.getByTestId('inspector-node-tech')).toHaveValue('Reviewed API Engine')
+  await page.getByTestId('node-popover').getByRole('button', { name: 'Done' }).click()
+  await page.locator('.vue-flow__edge-textwrapper').first().click()
+  await expect(page.getByTestId('edge-label-input')).toHaveValue('enqueue request')
+  await expect(page.getByTestId('edge-async-checkbox')).toBeChecked()
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+
+  await clickStudioMoreItem('studio-undo-btn')
+  await page.getByTestId('canvas-node-api_gateway').click()
+  await expect(page.getByTestId('inspector-node-tech')).toHaveValue('')
+  await page.getByTestId('node-popover').getByRole('button', { name: 'Done' }).click()
+  await page.locator('.vue-flow__edge-textwrapper').first().click()
+  await expect(page.getByTestId('edge-label-input')).toHaveValue('request')
+  await expect(page.getByTestId('edge-async-checkbox')).not.toBeChecked()
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+  await clickStudioMoreItem('studio-undo-btn')
+  await expect(page.getByTestId('canvas-node-api_gateway')).toHaveCount(0)
+  await expect(page.getByTestId('canvas-node-app_service')).toHaveCount(0)
   await page.getByTestId('coach-tab-bank').click()
 
-  // Collapse sidebar on mobile (or test desktop collapse/reopen cycle) before canvas interactions
-  await page.getByTestId('collapse-studio-sidebar-btn').click()
-  await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
-  await expect(page.getByTestId('toggle-coach-drawer-btn')).toBeVisible()
-  if (!testInfo.project.name.includes('mobile')) {
-    await page.getByTestId('toggle-coach-drawer-btn').click()
-    await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
-    await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
-  }
+  // Assistant remains available while using the canvas and More actions.
+  await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+  await openStudioMore()
+  await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
+  await page.getByTestId('studio-more-btn').click()
 
-  // Inspect ? explanation popover: Client actor (.first()) stays cloud-agnostic; cloud infra shows Cross-Cloud Equivalents
-  await page.getByTestId('hint-info-btn').first().click()
-  await expect(page.getByTestId('hint-info-popover')).toBeVisible()
-  await expect(page.getByTestId('hint-cloud-equivalents')).toHaveCount(0)
-  await page.getByRole('button', { name: /Explain (CDN|Load Balancer|API Gateway|Distributed Cache)/i }).first().click()
-  await expect(page.getByTestId('hint-info-popover')).toBeVisible()
-  await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('AWS:')
-  await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('Azure:')
+  // The featured item stays out of the revealed list; infrastructure items retain cloud equivalents.
+  const revealedBank = page.getByTestId('all-revealed-components')
+  await revealedBank.locator(':scope > summary').click()
+  const featuredBlock = page.getByTestId('guided-next-component')
+  await expect(featuredBlock).toContainText('Web / Browser Client')
+  await expect(featuredBlock.getByTestId('hint-cloud-equivalents')).toHaveCount(0)
+  const infrastructureHint = revealedBank
+    .getByTestId('guided-component-details')
+    .filter({ hasText: /CDN|Load Balancer|API Gateway|Distributed Cache/i })
+    .first()
+  await infrastructureHint.locator(':scope > summary').click()
+  const cloudEquivalents = infrastructureHint.getByTestId('hint-cloud-equivalents')
+  await cloudEquivalents.locator(':scope > summary').click()
+  await expect(cloudEquivalents).toContainText('AWS:')
+  await expect(cloudEquivalents).toContainText('Azure:')
 
   // Switch Cloud Provider Lens -> AWS, verify client actors stay cloud-agnostic while static_hosting + cache translate live
   await page.getByTestId('cloud-provider-select').selectOption('aws')
@@ -802,12 +923,14 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('canvas-node-distributed_cache')).toContainText('Amazon ElastiCache (Redis)')
   await expect(page.getByTestId('node-cloud-badge-distributed_cache')).toHaveText('AWS')
 
-  // Collapse Left Palette -> usable Icon Rail allows placing API Gateway while collapsed
-  await page.getByTestId('palette-collapse-btn').click()
-  await expect(page.getByTestId('palette-collapsed-rail')).toBeVisible()
-  await page.getByTestId('palette-rail-block-api_gateway').click()
+  // Component palette stays open and available while placing blocks.
+  const apiGatewayPaletteItem = page.getByTestId('palette-block-api_gateway')
+  const apiGatewayCategory = page.locator('.sd-palette-category-details').filter({ has: apiGatewayPaletteItem })
+  await apiGatewayCategory.locator('summary').click()
+  await expect(apiGatewayPaletteItem).toBeVisible()
+  await apiGatewayPaletteItem.click()
   await expect(page.getByTestId('canvas-node-api_gateway')).toContainText('Amazon API Gateway')
-  await page.getByTestId('palette-collapse-btn').click()
+  await expect(page.getByTestId('all-revealed-components')).toContainText('On canvas')
 
   // Local helper to drag/tap handle-to-handle directly on the canvas
   async function wireCanvasNodes(srcTypeId, dstTypeId) {
@@ -842,6 +965,11 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
 
   // Place Primary Relational DB & wire -> Redis to trigger live Wire Warning diagnostic
+  await page
+    .locator('.sd-palette-category-details')
+    .filter({ hasText: 'Databases & Storage' })
+    .locator('summary')
+    .click()
   await page.getByTestId('palette-block-relational_db').click()
   await wireCanvasNodes('relational_db', 'distributed_cache')
   await expect(page.getByTestId('edge-popover')).toBeVisible()
@@ -862,9 +990,13 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('node-popover').getByRole('button', { name: 'Done' }).click()
 
   await page.getByTestId('open-custom-block-btn').click()
+  const customBlockDialog = page.getByTestId('custom-block-form')
+  await expect(customBlockDialog).toBeVisible()
+  await expect(customBlockDialog).toHaveAttribute('aria-modal', 'true')
   await page.getByTestId('custom-block-name-input').fill('Base62 Key Ring')
   await page.getByTestId('custom-block-tech-input').fill('Go + Etcd Lease')
   await page.getByTestId('add-custom-block-btn').click()
+  await expect(page.getByTestId('custom-block-modal')).toHaveCount(0)
 
   await expect(page.getByTestId('canvas-node-distributed_cache')).toBeVisible()
   await expect(page.getByTestId('canvas-node-api_gateway')).toBeVisible()
@@ -893,10 +1025,7 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('flow-json-preview')).toContainText('"nodes"')
   await page.getByTestId('studio-flow-json-modal').getByRole('button', { name: 'Close' }).click()
 
-  // Open sidebar (on mobile) -> Checks tab & verify live Verified Connections, Wire Warnings & Check Topology
-  if (testInfo.project.name.includes('mobile')) {
-    await page.getByTestId('toggle-coach-drawer-btn').click()
-  }
+  // Checks remain available in the persistent Assistant on every viewport.
   await page.getByTestId('coach-tab-checks').click()
   await expect(page.getByTestId('verified-connections-checklist')).toContainText('Correct connection')
   await expect(page.getByTestId('live-wire-warnings')).toContainText('Check wire')
@@ -921,6 +1050,9 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   // Proceed through Stage 4 Defence (also exercising External Defence Sparring) to Stage 5 Evaluation
   await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()
   await page.getByTestId('toggle-stage4-external-defence-btn').click()
+  await expect(
+    page.getByRole('dialog', { name: 'Spar in External AI (ChatGPT/Claude)' })
+  ).toBeVisible()
   await page.getByTestId('copy-frontier-defence-prompt-btn').click()
   await expect(page.getByTestId('frontier-defence-prompt-preview')).toHaveValue(/External Stage 4 Architecture Defence/)
   await page.getByTestId('import-frontier-defence-textarea').fill('Defended Redis LRU + Read Replica cache-aside fallback under 50ms p99.')
@@ -934,4 +1066,173 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('eval-xp-badge')).toContainText('+100 XP')
 
   expect(errors).toEqual([])
+})
+
+test('keeps System Design Lab stages viewport-fitted in Midnight and Daylight', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'))
+  test.slow()
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/chat?mode=system_design')
+  await page.getByTestId('challenge-card-url-shortener').getByTestId('start-challenge-btn').click()
+  await expect(page.getByTestId('req-chat-input')).toBeVisible()
+
+  async function setTheme(theme) {
+    await page.evaluate((selectedTheme) => {
+      document.documentElement.classList.toggle('daylight', selectedTheme === 'Daylight')
+    }, theme)
+    if (theme === 'Daylight') {
+      await expect(page.locator('html')).toHaveClass(/daylight/)
+    } else {
+      await expect(page.locator('html')).not.toHaveClass(/daylight/)
+    }
+  }
+
+  async function captureLayout(stage, selector) {
+    await expect(page.locator('.toast-container')).toHaveCount(0)
+    for (const theme of ['Midnight', 'Daylight']) {
+      await setTheme(theme)
+      for (const [width, height] of [
+        [1440, 900],
+        [1280, 720],
+      ]) {
+        await page.setViewportSize({ width, height })
+        await expect(page.locator(selector)).toBeVisible()
+        await page.locator('.sd-embedded-container, .sd-studio-page').first().evaluate(async (root) => {
+          await Promise.all(root.getAnimations().map((animation) => animation.finished.catch(() => {})))
+        })
+        const layout = await page.evaluate(() => {
+          const root = document.querySelector('.sd-embedded-container, .sd-studio-page')
+          const queueWidget = document.querySelector('.floating-queue-widget')
+          const queueWidgetRect = queueWidget?.getBoundingClientRect()
+          const visiblePrimaryButtons = [...document.querySelectorAll('.sd-embedded-container .btn-primary')]
+            .map((button) => ({ button, rect: button.getBoundingClientRect() }))
+            .filter(({ button, rect }) =>
+              getComputedStyle(button).display !== 'none' &&
+              rect.width > 0 &&
+              rect.height > 0
+            )
+          const panelSelectors = [
+            '.sd-chat-panel',
+            '.sd-ledger-panel',
+            '.sd-studio-launch-card',
+            '.sd-upload-card',
+            '.sd-review-column',
+            '.sd-defence-sidebar',
+            '.sd-studio-palette',
+            '.sd-flow-stage',
+            '.sd-studio-sidebar',
+            '.sd-evaluation-content',
+            '.sd-eval-highlights',
+            '.sd-eval-rubric-panel',
+            '.sd-rubric-list',
+          ]
+          return {
+            documentHeight: document.documentElement.scrollHeight,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportHeight: window.innerHeight,
+            viewportWidth: window.innerWidth,
+            queueWidget: queueWidgetRect
+              ? {
+                  top: queueWidgetRect.top,
+                  bottom: queueWidgetRect.bottom,
+                  left: queueWidgetRect.left,
+                  right: queueWidgetRect.right,
+                }
+              : null,
+            primaryButtons: visiblePrimaryButtons.map(({ button, rect }) => {
+              return {
+                label: button.textContent.trim(),
+                top: rect.top,
+                bottom: rect.bottom,
+                left: rect.left,
+                right: rect.right,
+              }
+            }),
+            panels: panelSelectors.flatMap((panelSelector) =>
+              [...document.querySelectorAll(panelSelector)].map((panel) => {
+                const rect = panel.getBoundingClientRect()
+                const rootRect = root.getBoundingClientRect()
+                return {
+                  selector: panelSelector,
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  left: rect.left,
+                  right: rect.right,
+                  rootTop: rootRect.top,
+                  rootBottom: rootRect.bottom,
+                  rootLeft: rootRect.left,
+                  rootRight: rootRect.right,
+                }
+              })
+            ),
+          }
+        })
+
+        expect(layout.documentHeight).toBeLessThanOrEqual(layout.viewportHeight + 1)
+        expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth + 1)
+        if (layout.queueWidget) {
+          expect(layout.queueWidget.bottom).toBeGreaterThan(layout.viewportHeight - 80)
+          expect(layout.queueWidget.right).toBeGreaterThan(layout.viewportWidth - 80)
+          for (const button of layout.primaryButtons) {
+            const overlaps =
+              layout.queueWidget.left < button.right &&
+              layout.queueWidget.right > button.left &&
+              layout.queueWidget.top < button.bottom &&
+              layout.queueWidget.bottom > button.top
+            expect(
+              overlaps,
+              `${stage} floating alert overlaps ${button.label}: ${JSON.stringify({ button, widget: layout.queueWidget })}`
+            ).toBe(false)
+          }
+        }
+        for (const panel of layout.panels) {
+          expect(panel.top, `${stage} ${panel.selector} top`).toBeGreaterThanOrEqual(panel.rootTop - 1)
+          expect(panel.bottom, `${stage} ${panel.selector} bottom`).toBeLessThanOrEqual(panel.rootBottom + 1)
+          expect(panel.left, `${stage} ${panel.selector} left`).toBeGreaterThanOrEqual(panel.rootLeft - 1)
+          expect(panel.right, `${stage} ${panel.selector} right`).toBeLessThanOrEqual(panel.rootRight + 1)
+          if (layout.queueWidget && panel.selector === '.sd-rubric-list') {
+            const overlaps =
+              layout.queueWidget.left < panel.right &&
+              layout.queueWidget.right > panel.left &&
+              layout.queueWidget.top < panel.bottom &&
+              layout.queueWidget.bottom > panel.top
+            expect(overlaps, `${stage} floating alert overlaps evaluation rubric content`).toBe(false)
+          }
+        }
+        await page.screenshot({
+          path: `/tmp/system-design-${stage}-${theme.toLowerCase()}-${width}x${height}.png`,
+        })
+      }
+    }
+  }
+
+  await captureLayout('requirements', '[data-testid="req-chat-input"]')
+  await page.getByTestId('lock-requirements-btn').click()
+  await expect(page.getByTestId('design-studio-page')).toBeVisible()
+  await captureLayout('studio', '[data-testid="diagram-canvas-builder"]')
+  await page.getByTestId('studio-back-btn').click()
+  await expect(page.getByTestId('open-design-studio-btn')).toBeVisible()
+  await captureLayout('diagram', '[data-testid="open-design-studio-btn"]')
+
+  await page.locator('.diagram-file-input').setInputFiles({
+    name: 'url-shortener-layout.png',
+    mimeType: 'image/png',
+    buffer: SAMPLE_PNG_BUFFER,
+  })
+  await page.getByRole('button', { name: 'Upload Diagram Revision' }).click()
+  await page.getByRole('button', { name: /Analyze Architecture \(v1\)/ }).click()
+  await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
+  await captureLayout('review', '[data-testid="revise-in-studio-btn"]')
+
+  await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()
+  await expect(page.getByTestId('defence-chat-input')).toBeVisible()
+  await captureLayout('defence', '[data-testid="defence-chat-input"]')
+  await page.getByTestId('defence-chat-input').fill('The read replica absorbs fallback traffic when the cache is unavailable.')
+  await page.getByTestId('defence-send-btn').click()
+  await page.getByTestId('evaluate-session-btn').click()
+  await expect(page.locator('.eval-score-value')).toBeVisible()
+  await captureLayout('evaluation', '.eval-score-value')
 })

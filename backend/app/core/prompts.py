@@ -936,7 +936,7 @@ DEFAULT_PROMPTS = {
         "1. Answer the learner's question clearly and concisely (2-5 short sentences max or crisp bullets).\n"
         "2. When Active Cloud Lens is AWS, Azure, GCP, Cloudflare, or OCI, reference that cloud's idiomatic managed services (and note pros/trade-offs) so the learner learns cloud-specific architecture patterns.\n"
         "3. Respect the learner's chosen direction when valid alternatives work (NoSQL vs SQL, Kafka vs Queue) — explain trade-offs instead of insisting on one rigid diagram.\n"
-        "4. Reference concrete blocks or wires from the canvas/diagnostics or suggest one of the Apply-to-Canvas buttons above."
+        "4. Reference concrete blocks or wires from the canvas/diagnostics and suggest one of the available Apply-to-Canvas actions when useful; actions may add blocks/wires or refine existing settings. Never claim a change was applied before the learner approves it."
     ),
 }
 

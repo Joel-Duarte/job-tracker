@@ -1185,7 +1185,7 @@ function getScoreBadgeClass(score) {
     <!-- Main Workspace Area -->
     <div class="chat-main">
       <!-- Mode Switcher Top Header -->
-      <div class="chat-header">
+      <div class="chat-header" :class="{ 'chat-header-compact': activeMode === 'system_design' }">
         <div class="header-content-inner">
           <div class="header-left">
             <button
@@ -1816,7 +1816,7 @@ function getScoreBadgeClass(score) {
 <style scoped>
 .chat-page-container {
   display: flex;
-  height: calc(100vh - var(--navbar-height));
+  height: calc(100dvh - var(--navbar-height));
   width: 100%;
   background-color: var(--bg-app);
   position: relative;
@@ -2101,8 +2101,42 @@ function getScoreBadgeClass(score) {
 .sd-embedded-container {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   background-color: var(--bg-app);
+}
+
+.chat-header-compact {
+  height: 52px;
+  min-height: 52px;
+  padding: 0 16px;
+}
+
+.chat-header-compact .header-content-inner,
+.chat-header-compact .header-left {
+  min-height: 0;
+  height: 100%;
+}
+
+.chat-header-compact .mode-switcher-pill {
+  gap: 2px;
+  padding: 2px;
+}
+
+.chat-header-compact .mode-btn {
+  min-height: 40px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+:global(.app-layout:has(.sd-embedded-container)) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:global(.app-layout:has(.sd-embedded-container) .main-content) {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .mode-switcher-pill {
@@ -3562,6 +3596,16 @@ function getScoreBadgeClass(score) {
     min-height: 56px;
   }
 
+  .chat-header-compact {
+    height: 52px;
+    min-height: 52px;
+    padding: 0 10px;
+  }
+
+  .chat-header-compact .header-content-inner {
+    padding-right: 120px;
+  }
+
   .mode-switcher-pill {
     padding: 2px;
     gap: 2px;
@@ -3577,6 +3621,11 @@ function getScoreBadgeClass(score) {
     min-height: 36px;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .chat-header-compact .mode-btn {
+    min-height: 40px;
+    padding: 4px 10px;
   }
 
   .mode-btn span {

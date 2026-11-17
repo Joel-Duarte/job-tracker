@@ -9,10 +9,75 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.main import app
 from app.services.diagram_catalog import (
+    build_coach_canvas_actions,
     evaluate_canvas_topology,
     match_component_to_catalog,
     resolve_challenge_blueprint,
 )
+
+
+def test_coach_canvas_actions_propose_edits_to_existing_elements():
+    blueprint = {
+        "required_components": [],
+        "expected_paths": [
+            {
+                "id": "write_path",
+                "title": "Write Path",
+                "steps": [
+                    {
+                        "source_type_id": "api_gateway",
+                        "target_type_id": "app_service",
+                        "source_label": "API Gateway",
+                        "target_label": "Application Service",
+                        "suggested_label": "enqueue job",
+                        "delivery_mode": "async",
+                    }
+                ],
+            }
+        ],
+    }
+    flow = {
+        "cloud_provider": "aws",
+        "nodes": [
+            {"id": "gateway-1", "type_id": "api_gateway", "label": "API Gateway"},
+            {
+                "id": "service-1",
+                "type_id": "app_service",
+                "label": "Application Service",
+            },
+        ],
+        "edges": [
+            {
+                "id": "flow-1",
+                "source": "gateway-1",
+                "target": "service-1",
+                "delivery_mode": "sync",
+            }
+        ],
+    }
+
+    actions = build_coach_canvas_actions(
+        blueprint,
+        flow,
+        user_message="Please refine the existing flow.",
+    )
+    refine_action = next(
+        action for action in actions if action["id"] == "refine_existing_elements"
+    )
+
+    assert [update["node_id"] for update in refine_action["node_updates"]] == [
+        "gateway-1",
+        "service-1",
+    ]
+    assert all(
+        update["changes"]["tech_stack"] for update in refine_action["node_updates"]
+    )
+    assert refine_action["edge_updates"] == [
+        {
+            "edge_id": "flow-1",
+            "changes": {"delivery_mode": "async", "label": "enqueue job"},
+        }
+    ]
 
 
 @pytest.mark.asyncio

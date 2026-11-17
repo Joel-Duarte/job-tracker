@@ -18,8 +18,6 @@ import {
   Loader2,
   MessageSquare,
   MoreHorizontal,
-  PanelRightClose,
-  PanelRightOpen,
   Save,
   Send,
   Sparkles,
@@ -28,14 +26,16 @@ import {
   Wand2,
   X,
 } from 'lucide-vue-next'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiagramCanvasBuilder from '../components/system-design/DiagramCanvasBuilder.vue'
 import {
   DEFAULT_CLOUD_PROVIDERS,
   DEFAULT_DIAGRAM_BLOCKS,
   evaluateDrawnWireFeedback,
+  getBlockEquivalents,
   resolveBlockCloudDisplay,
+  resolveDiagramIcon,
 } from '../utils/diagramCatalog'
 import { renderChatMarkdown } from '../utils/markdownRenderer'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
@@ -52,7 +52,6 @@ const loadedFlow = ref(null)
 const activeRevisionVersion = ref(null)
 const flowSnapshot = ref({ nodes: [], edges: [], notes: '' })
 
-const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 960 : true)
 const activeSidebarTab = ref('reqs')
 const showMoreMenu = ref(false)
 const showFlowJsonModal = ref(false)
@@ -67,6 +66,15 @@ const showExternalCoach = ref(false)
 const externalActionJsonInput = ref('')
 const externalPromptCopied = ref(false)
 const moreMenuRef = ref(null)
+const pendingCoachAction = ref(null)
+const coachActionTrigger = ref(null)
+const coachActionApplyButton = ref(null)
+
+const coachActionPreviewRows = computed(() => buildCoachActionPreview(pendingCoachAction.value))
+
+watch(pendingCoachAction, (action) => {
+  if (action) nextTick(() => coachActionApplyButton.value?.focus())
+})
 
 const sessionId = computed(() => Number(route.params.sessionId))
 const session = computed(() => store.activeSession)
@@ -278,6 +286,61 @@ const metCapabilitiesCount = computed(
   () => liveCapabilityChecks.value.filter((c) => c.status === 'met').length
 )
 
+const revealedComponents = computed(
+  () => session.value?.diagram_guidance?.revealed_components || []
+)
+const nextReferenceStep = computed(() =>
+  normalizedExpectedPaths.value.flatMap((path) => path.steps).find((step) => !step.satisfied)
+)
+const nextGuidanceMode = computed(() => {
+  if (!normalizedExpectedPaths.value.length) return 'next_component'
+  if (!nextReferenceStep.value) return 'check_topology'
+  return nextReferenceStep.value.placedBoth ? 'next_connection' : 'next_component'
+})
+const nextGuidanceLabel = computed(() =>
+  nextGuidanceMode.value === 'check_topology' ? 'Run Topology Check' : 'Reveal Next Step'
+)
+const featuredGuidedComponent = computed(
+  () =>
+    revealedComponents.value.find((item) => !isGuidedComponentPlaced(item)) || null
+)
+const otherRevealedComponents = computed(() =>
+  revealedComponents.value.filter((item) => item !== featuredGuidedComponent.value)
+)
+const placedGuidedComponentCount = computed(
+  () => revealedComponents.value.filter((item) => isGuidedComponentPlaced(item)).length
+)
+const pendingReviewFixCount = computed(
+  () => store.reviewFixChecklist.filter((item) => !checkedFixIds.value[item.id]).length
+)
+
+function isGuidedComponentPlaced(item) {
+  const targetName = String(item?.name || item?.label || '').toLowerCase()
+  const targetType = String(item?.type_id || '')
+  return (flowSnapshot.value?.nodes || []).some((node) => {
+    const nodeType = String(node.type_id || node.data?.type_id || '')
+    if (targetType && targetType !== 'custom' && nodeType === targetType) return true
+    const combined = `${node.label || node.data?.label || ''} ${node.tech_stack || node.data?.tech_stack || ''}`.toLowerCase()
+    return targetName && combined.includes(targetName)
+  })
+}
+
+function getGuidedComponentMeta(item) {
+  const blocks = store.diagramCatalog?.blocks || DEFAULT_DIAGRAM_BLOCKS
+  const providers = store.diagramCatalog?.providers || DEFAULT_CLOUD_PROVIDERS
+  return resolveBlockCloudDisplay(
+    item,
+    flowSnapshot.value?.cloud_provider || 'generic',
+    blocks,
+    providers
+  )
+}
+
+function getGuidedComponentEquivalents(item) {
+  const blocks = store.diagramCatalog?.blocks || DEFAULT_DIAGRAM_BLOCKS
+  return getBlockEquivalents(item?.type_id, blocks)
+}
+
 function handleWireFeedback(verdict) {
   if (!verdict) return
   if (verdict.status === 'correct') {
@@ -360,10 +423,8 @@ async function handleRequestHint(hintMode) {
   if (store.loadingDiagramHint) return
   if (hintMode === 'reveal_all' || hintMode === 'next_connection' || hintMode === 'next_component') {
     activeSidebarTab.value = 'bank'
-    sidebarOpen.value = true
   } else if (hintMode === 'check_topology') {
     activeSidebarTab.value = 'checks'
-    sidebarOpen.value = true
   }
   try {
     const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
@@ -382,6 +443,10 @@ async function handleRequestHint(hintMode) {
   }
 }
 
+function handleRevealNextStep() {
+  return handleRequestHint(nextGuidanceMode.value)
+}
+
 async function handleSendCoachChat(overridePrompt = null) {
   const msg = String(overridePrompt ?? coachChatInput.value).trim()
   if (!msg || store.sendingCoachChat) return
@@ -398,14 +463,120 @@ async function handleSendCoachChat(overridePrompt = null) {
   }
 }
 
+function formatCoachPreviewFields(item, fields) {
+  return fields
+    .map(([key, label]) => {
+      const value = String(item?.[key] || '').trim() || (key === 'delivery_mode' ? 'sync' : 'Not set')
+      return `${label}: ${value}`
+    })
+    .join(' · ')
+}
+
+function buildCoachActionPreview(action) {
+  if (!action) return []
+  const nodes = canvasBuilderRef.value?.getCurrentNodes?.() || []
+  const edges = canvasBuilderRef.value?.getCurrentEdges?.() || []
+  const nodesById = new Map(nodes.map((node) => [String(node.id), node]))
+  const rows = []
+
+  for (const block of Array.isArray(action.blocks) ? action.blocks : []) {
+    if (!block || typeof block !== 'object') continue
+    const typeId = String(block.type_id || '')
+    const label = String(block.label || block.name || '').trim()
+    const alreadyPlaced = nodes.some(
+      (node) =>
+        (typeId && typeId !== 'custom' && node.type_id === typeId) ||
+        (label && String(node.label || '').toLowerCase().includes(label.toLowerCase()))
+    )
+    if (alreadyPlaced) continue
+    rows.push({
+      target: 'Block',
+      name: label || 'New block',
+      before: 'Not on canvas',
+      after: [label, block.tech_stack].filter(Boolean).join(' · ') || 'Add block',
+    })
+  }
+
+  for (const edge of Array.isArray(action.edges) ? action.edges : []) {
+    if (!edge || typeof edge !== 'object') continue
+    const source = nodes.find((node) => node.type_id === edge.source_type_id)
+    const target = nodes.find((node) => node.type_id === edge.target_type_id)
+    if (!source || !target) continue
+    const alreadyConnected = edges.some(
+      (current) => current.source === source.id && current.target === target.id
+    )
+    if (alreadyConnected) continue
+    rows.push({
+      target: 'Connection',
+      name: `${edge.source_label || source.label} → ${edge.target_label || target.label}`,
+      before: 'Not connected',
+      after: [edge.label, edge.delivery_mode].filter(Boolean).join(' · ') || 'Add connection',
+    })
+  }
+
+  for (const update of Array.isArray(action.node_updates) ? action.node_updates : []) {
+    const node = nodesById.get(String(update.node_id || ''))
+    if (!node || !update.changes || typeof update.changes !== 'object') continue
+    const fields = Object.entries(update.changes).filter(([key]) =>
+      ['label', 'tech_stack'].includes(key)
+    )
+    if (!fields.length) continue
+    const labels = fields.map(([key]) => [key, key === 'tech_stack' ? 'Technology' : 'Label'])
+    rows.push({
+      target: 'Block',
+      name: node.label || node.generic_label || node.type_id || 'Existing block',
+      before: formatCoachPreviewFields(node, labels),
+      after: formatCoachPreviewFields({ ...node, ...update.changes }, labels),
+    })
+  }
+
+  for (const update of Array.isArray(action.edge_updates) ? action.edge_updates : []) {
+    const edge = edges.find((item) => item.id === String(update.edge_id || ''))
+    if (!edge || !update.changes || typeof update.changes !== 'object') continue
+    const fields = Object.entries(update.changes).filter(([key]) =>
+      ['label', 'protocol', 'delivery_mode'].includes(key)
+    )
+    if (!fields.length) continue
+    const labels = fields.map(([key]) => [
+      key,
+      key === 'delivery_mode' ? 'Delivery' : key === 'protocol' ? 'Protocol' : 'Label',
+    ])
+    const source = nodesById.get(String(edge.source))
+    const target = nodesById.get(String(edge.target))
+    rows.push({
+      target: 'Connection',
+      name: `${source?.label || 'Block'} → ${target?.label || 'Block'}`,
+      before: formatCoachPreviewFields(edge, labels),
+      after: formatCoachPreviewFields({ ...edge, ...update.changes }, labels),
+    })
+  }
+
+  return rows
+}
+
 function handleApplyCoachAction(action) {
-  const actionName = action?.title || action?.label || 'Coach Suggestion'
+  if (!action || pendingCoachAction.value) return
+  coachActionTrigger.value = typeof document === 'undefined' ? null : document.activeElement
+  pendingCoachAction.value = action
+}
+
+function closeCoachActionPreview() {
+  pendingCoachAction.value = null
+  nextTick(() => coachActionTrigger.value?.focus?.())
+}
+
+function confirmCoachAction() {
+  const action = pendingCoachAction.value
+  if (!action) return
+  pendingCoachAction.value = null
   const applied = canvasBuilderRef.value?.applyCoachAction?.(action)
+  const actionName = action.title || action.label || 'Coach suggestion'
   if (applied) {
     uiStore.showToast(`Applied "${actionName}" to canvas (Undo available).`, 'success')
   } else {
-    uiStore.showToast(`"${actionName}" components and wires are already on your canvas.`, 'info')
+    uiStore.showToast(`"${actionName}" no longer has applicable canvas changes.`, 'info')
   }
+  nextTick(() => coachActionTrigger.value?.focus?.())
 }
 
 function buildActionFromPaths(actionTitle, pathItems) {
@@ -537,7 +708,13 @@ function handleApplyExternalActionJson() {
   for (const cand of candidates) {
     try {
       const obj = JSON.parse(cand)
-      if (obj && typeof obj === 'object' && (Array.isArray(obj.blocks) || Array.isArray(obj.edges))) {
+      const actionKeys = ['blocks', 'edges', 'node_updates', 'edge_updates']
+      if (
+        obj &&
+        typeof obj === 'object' &&
+        actionKeys.some((key) => Array.isArray(obj[key])) &&
+        actionKeys.every((key) => obj[key] === undefined || Array.isArray(obj[key]))
+      ) {
         parsed = obj
         break
       }
@@ -546,7 +723,10 @@ function handleApplyExternalActionJson() {
     }
   }
   if (!parsed) {
-    uiStore.showToast('Paste a valid JSON object containing "blocks" and/or "edges".', 'error')
+    uiStore.showToast(
+      'Paste a valid JSON object containing blocks, edges, node_updates, or edge_updates.',
+      'error'
+    )
     return
   }
   handleApplyCoachAction(parsed)
@@ -662,7 +842,6 @@ watch(
     }
     if (String(route.query?.fixReview || '') === '1' && store.reviewFixChecklist?.length) {
       activeSidebarTab.value = 'checks'
-      sidebarOpen.value = true
     }
   },
   { immediate: true }
@@ -693,12 +872,13 @@ onUnmounted(() => {
       <div class="sd-studio-header-left">
         <button
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn btn-secondary btn-sm sd-studio-back-btn"
           data-testid="studio-back-btn"
+          aria-label="Back"
+          title="Back"
           @click="returnToSession('DESIGN')"
         >
           <ArrowLeft :size="14" />
-          <span>Back</span>
         </button>
 
         <div class="sd-studio-title-wrap">
@@ -718,65 +898,50 @@ onUnmounted(() => {
           </span>
         </div>
 
-        <div v-if="canvasRevisions.length" class="sd-studio-rev-group">
-          <select
-            :value="activeRevisionVersion || ''"
-            class="form-select sd-rev-select"
-            aria-label="Load canvas revision"
-            @change="$event.target.value ? handleSelectRevision($event.target.value) : handleStartBlankCanvas()"
-          >
-            <option value="">+ New Canvas</option>
-            <option
-              v-for="rev in canvasRevisions"
-              :key="rev.version"
-              :value="rev.version"
-            >
-              v{{ rev.version }} ({{ rev.node_count || 0 }} blocks)
-            </option>
-          </select>
-        </div>
       </div>
 
       <div class="sd-studio-header-right">
-        <button
-          v-if="canUndoCanvas"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="studio-undo-btn"
-          title="Undo last block, wire, or coach action"
-          @click="handleUndoCanvas"
-        >
-          <Undo2 :size="14" />
-          <span>Undo</span>
-        </button>
-
-        <button
-          v-if="!sidebarOpen"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="toggle-coach-drawer-btn"
-          title="Expand Studio Assistant & Requirements panel"
-          @click="sidebarOpen = true"
-        >
-          <PanelRightOpen :size="14" />
-          <span>Studio Panel</span>
-          <span v-if="coachBadgeCount > 0" class="sd-coach-count-pill">
-            {{ coachBadgeCount }}
-          </span>
-        </button>
-
         <div ref="moreMenuRef" class="sd-more-menu-wrap">
           <button
             type="button"
             class="btn btn-secondary btn-sm"
             data-testid="studio-more-btn"
-            aria-expanded="showMoreMenu"
+            aria-label="More actions"
+            title="More actions"
+            :aria-expanded="showMoreMenu"
             @click.stop="showMoreMenu = !showMoreMenu"
           >
             <MoreHorizontal :size="14" />
-            <span>More</span>
           </button>
           <div v-if="showMoreMenu" class="sd-more-dropdown" data-testid="studio-more-dropdown">
+            <label v-if="canvasRevisions.length" class="sd-more-revision">
+              <span>Load canvas revision</span>
+              <select
+                :value="activeRevisionVersion || ''"
+                class="form-select sd-rev-select"
+                aria-label="Load canvas revision"
+                @change="$event.target.value ? handleSelectRevision($event.target.value) : handleStartBlankCanvas()"
+              >
+                <option value="">+ New Canvas</option>
+                <option
+                  v-for="rev in canvasRevisions"
+                  :key="rev.version"
+                  :value="rev.version"
+                >
+                  v{{ rev.version }} ({{ rev.node_count || 0 }} blocks)
+                </option>
+              </select>
+            </label>
+            <button
+              v-if="canUndoCanvas"
+              type="button"
+              class="sd-more-item"
+              data-testid="studio-undo-btn"
+              @click="showMoreMenu = false; handleUndoCanvas()"
+            >
+              <Undo2 :size="14" />
+              <span>Undo</span>
+            </button>
             <button
               type="button"
               class="sd-more-item"
@@ -847,26 +1012,12 @@ onUnmounted(() => {
       />
 
       <!-- Docked 4-Tab Studio Assistant Sidebar (Reqs | Coach | Bank | Checks) -->
-      <aside
-        v-if="sidebarOpen"
-        class="sd-studio-sidebar"
-        data-testid="learning-coach-drawer"
-      >
+      <aside class="sd-studio-sidebar" data-testid="learning-coach-drawer">
         <div class="sd-drawer-head">
           <h3>
             <Compass :size="15" />
             <span>Studio Assistant</span>
           </h3>
-          <button
-            type="button"
-            class="sd-icon-close"
-            data-testid="collapse-studio-sidebar-btn"
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-            @click="sidebarOpen = false"
-          >
-            <PanelRightClose :size="16" />
-          </button>
         </div>
 
         <div class="sd-coach-tabs" role="tablist">
@@ -926,6 +1077,10 @@ onUnmounted(() => {
           >
             <summary class="sd-scale-math-head">
               <strong>Back-of-the-Envelope</strong>
+              <span class="sd-scale-ratio-chip">
+                {{ scaleMathSummary.items.find((item) => /read.?write/i.test(item.label))?.value || '10:1' }}
+                read/write
+              </span>
               <span class="sd-scale-summary-preview">
                 {{
                   [
@@ -1040,9 +1195,13 @@ onUnmounted(() => {
               class="sd-starter-chip"
               data-testid="coach-starter-guide"
               :disabled="store.sendingCoachChat"
-              @click="handleSendCoachChat('Guide me step-by-step from where I am now.')"
+              @click="
+                handleSendCoachChat(
+                  'Using my current canvas and reference path, explain the next missing block or connection, why it is next, and offer one small change I can review and apply.'
+                )
+              "
             >
-              Guide me step-by-step
+              Guide my next step
             </button>
             <button
               type="button"
@@ -1101,7 +1260,7 @@ onUnmounted(() => {
                 type="text"
                 class="form-input"
                 data-testid="external-coach-action-input"
-                placeholder='Optional: paste AI {"blocks": [...], "edges": [...]} JSON'
+                placeholder="Optional: paste a canvas action with additions or element updates"
               />
               <button
                 type="button"
@@ -1110,7 +1269,7 @@ onUnmounted(() => {
                 :disabled="!externalActionJsonInput.trim()"
                 @click="handleApplyExternalActionJson"
               >
-                Apply JSON
+                Review JSON
               </button>
             </div>
           </section>
@@ -1119,7 +1278,7 @@ onUnmounted(() => {
             <div v-if="!store.coachMessages.length" class="sd-coach-welcome">
               <strong>Ask your Coach anything</strong>
               <p>
-                Get targeted feedback on your live canvas, explore alternative architectures, or apply suggested path increments directly onto your canvas.
+                The Coach sees your canvas and reference path, explains the next step, and can propose blocks or wires. Changes wait for your approval and can be undone.
               </p>
             </div>
             <div
@@ -1195,21 +1354,22 @@ onUnmounted(() => {
           <p class="sd-reference-framing" data-testid="reference-blueprint-framing">
             <strong>Reference Blueprint</strong> — 1 valid end-to-end architecture (alternatives that meet Capabilities are welcomed).
           </p>
-          <div class="sd-coach-toolbar">
+          <div class="sd-coach-toolbar sd-guided-actions">
             <button
               type="button"
-              class="btn btn-secondary btn-sm"
-              data-testid="hint-next-component-btn"
+              class="btn btn-primary btn-sm"
+              data-testid="reveal-next-step-btn"
               :disabled="store.loadingDiagramHint"
-              @click="handleRequestHint('next_component')"
+              @click="handleRevealNextStep"
             >
               <Loader2 v-if="store.loadingDiagramHint" :size="13" class="spin" />
+              <Compass v-else-if="nextGuidanceMode === 'check_topology'" :size="13" />
               <Lightbulb v-else :size="13" />
-              <span>Hint Next Block</span>
+              <span>{{ nextGuidanceLabel }}</span>
             </button>
             <button
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn btn-secondary btn-xs"
               data-testid="reveal-bank-btn"
               :disabled="store.loadingDiagramHint"
               @click="handleRequestHint('reveal_all')"
@@ -1217,17 +1377,117 @@ onUnmounted(() => {
               <Layers :size="13" />
               <span>Reveal All Required</span>
             </button>
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              data-testid="build-full-reference-btn"
-              :disabled="store.loadingDiagramHint"
-              @click="handleBuildFullReference"
-            >
-              <Wand2 :size="13" />
-              <span>Build Full Reference</span>
-            </button>
           </div>
+
+          <section
+            v-if="featuredGuidedComponent"
+            class="sd-guided-next-block"
+            data-testid="guided-next-component"
+          >
+            <div class="sd-guided-next-header">
+              <component
+                :is="resolveDiagramIcon(featuredGuidedComponent.icon)"
+                :size="16"
+                class="sd-guided-next-icon"
+              />
+              <div class="sd-guided-next-title">
+                <span>Suggested next block</span>
+                <strong>{{ getGuidedComponentMeta(featuredGuidedComponent).displayTitle }}</strong>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="place-guided-next-btn"
+                @click="canvasBuilderRef?.addBlockToCanvas(featuredGuidedComponent)"
+              >
+                <span>Place</span>
+              </button>
+            </div>
+            <p class="sd-guided-next-reason">
+              {{ featuredGuidedComponent.why_required || featuredGuidedComponent.hint_role }}
+            </p>
+            <details
+              v-if="featuredGuidedComponent.config_checklist?.length"
+              class="sd-guided-checklist"
+            >
+              <summary>Configuration checklist ({{ featuredGuidedComponent.config_checklist.length }})</summary>
+              <ul>
+                <li v-for="checkItem in featuredGuidedComponent.config_checklist" :key="checkItem">
+                  {{ checkItem }}
+                </li>
+              </ul>
+            </details>
+          </section>
+          <p
+            v-else-if="revealedComponents.length"
+            class="sd-guided-complete-note"
+            data-testid="guided-bank-complete"
+          >
+            All revealed blocks are on the canvas. Reveal the next step to continue the reference path.
+          </p>
+          <p v-else class="sd-muted sd-coach-empty" data-testid="guided-bank-empty">
+            Reveal the next step to see the recommended block, why it belongs, and how to configure it.
+          </p>
+
+          <details
+            v-if="otherRevealedComponents.length"
+            class="sd-revealed-components"
+            data-testid="all-revealed-components"
+          >
+            <summary>
+              <span>{{ featuredGuidedComponent ? 'Other revealed blocks' : 'Revealed blocks' }}</span>
+              <span class="sd-guided-count">{{ otherRevealedComponents.length }}</span>
+              <span class="sd-muted">{{ placedGuidedComponentCount }} placed</span>
+            </summary>
+            <div class="sd-revealed-component-list">
+              <details
+                v-for="item in otherRevealedComponents"
+                :key="`${item.name}-${item.type_id}`"
+                class="sd-revealed-component"
+                data-testid="guided-component-details"
+              >
+                <summary>
+                  <component :is="resolveDiagramIcon(item.icon)" :size="14" />
+                  <span>{{ getGuidedComponentMeta(item).displayTitle }}</span>
+                  <span v-if="isGuidedComponentPlaced(item)" class="sd-guided-count">On canvas</span>
+                </summary>
+                <p class="sd-guided-component-reason">
+                  {{ item.why_required || item.hint_role }}
+                </p>
+                <details v-if="item.config_checklist?.length" class="sd-guided-checklist">
+                  <summary>Configuration checklist ({{ item.config_checklist.length }})</summary>
+                  <ul>
+                    <li v-for="checkItem in item.config_checklist" :key="checkItem">
+                      {{ checkItem }}
+                    </li>
+                  </ul>
+                </details>
+                <details
+                  v-if="getGuidedComponentEquivalents(item).length"
+                  class="sd-guided-equivalents"
+                  data-testid="hint-cloud-equivalents"
+                >
+                  <summary>Cloud equivalents</summary>
+                  <div class="sd-cloud-eq-grid">
+                    <div
+                      v-for="equivalent in getGuidedComponentEquivalents(item)"
+                      :key="equivalent.id"
+                      class="sd-cloud-eq-chip"
+                    >
+                      <strong>{{ equivalent.shortLabel }}:</strong> {{ equivalent.serviceName }}
+                    </div>
+                  </div>
+                </details>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  @click="canvasBuilderRef?.addBlockToCanvas(item)"
+                >
+                  <span>Place block</span>
+                </button>
+              </details>
+            </div>
+          </details>
 
           <section class="sd-coach-section" data-testid="path-milestones-section">
             <div class="sd-coach-section-head">
@@ -1235,15 +1495,6 @@ onUnmounted(() => {
                 <GitBranch :size="13" />
                 <span>Reference Path Milestones</span>
               </strong>
-              <button
-                type="button"
-                class="btn btn-secondary btn-xs"
-                data-testid="next-connection-btn"
-                :disabled="store.loadingDiagramHint"
-                @click="handleRequestHint('next_connection')"
-              >
-                <span>Next Wire</span>
-              </button>
             </div>
 
             <div
@@ -1303,9 +1554,23 @@ onUnmounted(() => {
               </div>
             </div>
             <p v-else class="sd-muted sd-coach-empty">
-              Click <strong>Reveal All Required</strong> or <strong>Next Wire</strong> to inspect the reference flow checklist. (Alternative valid architectures are welcomed during Analyze.)
+              Reveal the next step to inspect the reference flow checklist. (Alternative valid architectures are welcomed during Analyze.)
             </p>
           </section>
+
+          <details class="sd-bank-more-actions">
+            <summary>More reference actions</summary>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="build-full-reference-btn"
+              :disabled="store.loadingDiagramHint"
+              @click="handleBuildFullReference"
+            >
+              <Wand2 :size="13" />
+              <span>Build Full Reference</span>
+            </button>
+          </details>
 
           <details
             v-if="hasStudyNotes"
@@ -1351,6 +1616,34 @@ onUnmounted(() => {
               <span>Run Topology Check</span>
             </button>
           </div>
+
+          <section
+            v-if="store.reviewFixChecklist.length"
+            class="sd-coach-section sd-review-fixes"
+            data-testid="review-fix-checklist"
+          >
+            <div class="sd-coach-section-head">
+              <strong>Review Fixes ({{ pendingReviewFixCount }} open)</strong>
+            </div>
+            <div class="sd-fix-list">
+              <label
+                v-for="item in store.reviewFixChecklist"
+                :key="item.id"
+                class="sd-fix-item"
+                :class="{ done: checkedFixIds[item.id] }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="Boolean(checkedFixIds[item.id])"
+                  @change="toggleFixChecklistItem(item.id)"
+                />
+                <div>
+                  <span class="sd-fix-cat">{{ item.category }}</span>
+                  <p>{{ item.text }}</p>
+                </div>
+              </label>
+            </div>
+          </section>
 
           <section
             v-if="verifiedConnections.length"
@@ -1435,34 +1728,6 @@ onUnmounted(() => {
           </section>
 
           <section
-            v-if="store.reviewFixChecklist.length"
-            class="sd-coach-section"
-            data-testid="review-fix-checklist"
-          >
-            <div class="sd-coach-section-head">
-              <strong>Stage 3 Fix Checklist ({{ store.reviewFixChecklist.length }})</strong>
-            </div>
-            <div class="sd-fix-list">
-              <label
-                v-for="item in store.reviewFixChecklist"
-                :key="item.id"
-                class="sd-fix-item"
-                :class="{ done: checkedFixIds[item.id] }"
-              >
-                <input
-                  type="checkbox"
-                  :checked="Boolean(checkedFixIds[item.id])"
-                  @change="toggleFixChecklistItem(item.id)"
-                />
-                <div>
-                  <span class="sd-fix-cat">{{ item.category }}</span>
-                  <p>{{ item.text }}</p>
-                </div>
-              </label>
-            </div>
-          </section>
-
-          <section
             v-if="store.lastTopologyFeedback"
             class="sd-coach-section"
             data-testid="topology-diagnostics-section"
@@ -1501,6 +1766,71 @@ onUnmounted(() => {
           </p>
         </div>
       </aside>
+    </div>
+
+    <div
+      v-if="pendingCoachAction"
+      class="sd-studio-modal-backdrop"
+      data-testid="coach-action-preview-modal"
+      @click.self="closeCoachActionPreview"
+      @keydown.esc.stop.prevent="closeCoachActionPreview"
+    >
+      <section
+        class="sd-studio-modal sd-coach-action-preview"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coach-action-preview-title"
+        aria-describedby="coach-action-preview-description"
+      >
+        <div class="sd-drawer-head">
+          <h3 id="coach-action-preview-title">Review proposed canvas changes</h3>
+        </div>
+        <p id="coach-action-preview-description" class="sd-muted">
+          {{ pendingCoachAction.description || 'Review the before-and-after changes before applying them.' }}
+        </p>
+        <div v-if="coachActionPreviewRows.length" class="sd-action-preview-list">
+          <article
+            v-for="(row, index) in coachActionPreviewRows"
+            :key="`${row.target}-${row.name}-${index}`"
+            class="sd-action-preview-row"
+          >
+            <strong>{{ row.target }} · {{ row.name }}</strong>
+            <div class="sd-action-preview-columns">
+              <div>
+                <span>Before</span>
+                <p>{{ row.before }}</p>
+              </div>
+              <div>
+                <span>Proposed</span>
+                <p>{{ row.after }}</p>
+              </div>
+            </div>
+          </article>
+        </div>
+        <p v-else class="sd-muted" data-testid="coach-action-preview-empty">
+          These changes no longer apply to the current canvas.
+        </p>
+        <div class="sd-modal-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-testid="cancel-coach-action-btn"
+            @click="closeCoachActionPreview"
+          >
+            Cancel
+          </button>
+          <button
+            ref="coachActionApplyButton"
+            type="button"
+            class="btn btn-primary"
+            data-testid="confirm-coach-action-btn"
+            :disabled="!coachActionPreviewRows.length"
+            @click="confirmCoachAction"
+          >
+            Apply changes
+          </button>
+        </div>
+      </section>
     </div>
 
     <!-- Clean Flow JSON Inspection Modal (inside More menu) -->
@@ -1740,13 +2070,24 @@ onUnmounted(() => {
 }
 
 @media (max-width: 960px) {
+  .sd-studio-body {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .sd-studio-canvas-shell {
+    flex: 0 0 720px;
+    width: 100%;
+  }
+
   .sd-studio-sidebar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 35;
-    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.35);
+    position: static;
+    flex: 0 0 360px;
+    width: 100%;
+    max-width: none;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
   }
 }
 
@@ -1879,6 +2220,171 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.sd-guided-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-guided-actions > .btn {
+  min-width: 0;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.sd-guided-actions > .btn:first-child {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.sd-guided-next-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-elevated);
+}
+
+.sd-guided-next-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sd-guided-next-icon {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.sd-guided-next-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sd-guided-next-title > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sd-guided-next-title > strong {
+  overflow: hidden;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-guided-next-reason,
+.sd-guided-component-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.sd-guided-checklist > summary,
+.sd-revealed-components > summary,
+.sd-revealed-component > summary,
+.sd-bank-more-actions > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.sd-guided-checklist > ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.sd-guided-complete-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.sd-revealed-components {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-revealed-components > summary {
+  min-height: 44px;
+}
+
+.sd-revealed-components > summary > .sd-muted {
+  margin-left: auto;
+}
+
+.sd-guided-count {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sd-revealed-component-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sd-revealed-component {
+  padding: 0 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-revealed-component > summary {
+  min-height: 44px;
+}
+
+.sd-revealed-component > summary > span:nth-of-type(1) {
+  flex: 1;
+}
+
+.sd-guided-equivalents {
+  margin: 4px 0 8px;
+}
+
+.sd-guided-equivalents .sd-cloud-eq-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sd-guided-equivalents .sd-cloud-eq-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.sd-revealed-component > .btn {
+  margin: 0 0 8px;
+}
+
+.sd-bank-more-actions {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-bank-more-actions > .btn {
+  margin-bottom: 8px;
 }
 
 .sd-coach-starter-chips {
@@ -2242,11 +2748,9 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-elevated, #0f172a);
-  font-size: 0.77rem;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -2257,16 +2761,15 @@ onUnmounted(() => {
 
 .sd-fix-cat {
   display: inline-block;
-  font-size: 0.68rem;
+  font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
-  color: #fbbf24;
+  color: var(--text-muted);
   margin-bottom: 2px;
 }
 
 .sd-fix-item p {
   margin: 0;
-  color: var(--text-main, #f8fafc);
+  color: var(--text-main);
   line-height: 1.35;
 }
 
@@ -2291,6 +2794,54 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.sd-coach-action-preview {
+  width: 620px;
+  max-height: min(82dvh, 720px);
+  overflow: hidden;
+}
+
+.sd-action-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: min(48dvh, 420px);
+}
+
+.sd-action-preview-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-action-preview-row > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.sd-action-preview-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sd-action-preview-columns > div {
+  min-width: 0;
+}
+
+.sd-action-preview-columns span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.sd-action-preview-columns p {
+  margin: 3px 0 0;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
 }
 
 .sd-modal-preview-img {
@@ -2622,5 +3173,290 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+.sd-studio-page {
+  height: 100dvh;
+  width: 100%;
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.sd-studio-header {
+  min-height: 52px;
+  padding: 6px 12px;
+  flex-wrap: nowrap;
+  gap: 12px;
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.sd-studio-header-left,
+.sd-studio-header-right {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.sd-studio-header-left {
+  min-width: 0;
+  flex: 1;
+}
+
+.sd-studio-header-right {
+  flex-shrink: 0;
+}
+
+.sd-studio-back-btn,
+.sd-studio-header-right > .btn {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.sd-studio-back-btn {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.sd-studio-title-wrap {
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+.sd-studio-title {
+  max-width: min(45vw, 520px);
+  font-size: 18px;
+}
+
+.sd-assistance-pill {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.sd-assistance-pill.coached {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.sd-more-menu-wrap {
+  flex: 0 0 auto;
+}
+
+.sd-more-menu-wrap > .btn {
+  width: 40px;
+  min-height: 40px;
+  justify-content: center;
+  padding: 0;
+}
+
+.sd-more-dropdown {
+  max-height: min(70dvh, 560px);
+  overflow: auto;
+  border-color: var(--border-color);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.sd-more-item {
+  min-height: 40px;
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.sd-more-item:hover {
+  background: var(--primary-subtle);
+}
+
+.sd-more-revision {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.sd-more-revision .form-select {
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.sd-coach-count-pill {
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.sd-studio-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sd-studio-sidebar {
+  width: 344px;
+  padding: 8px 12px;
+  gap: 8px;
+  border-color: var(--border-subtle);
+  background: var(--bg-card);
+}
+
+.sd-drawer-head {
+  min-height: 32px;
+}
+
+.sd-drawer-head h3 {
+  font-size: 13px;
+}
+
+.sd-icon-close {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sd-coach-tabs {
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-elevated);
+  border-color: var(--border-subtle);
+}
+
+.sd-coach-tab {
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.sd-coach-tab.active {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: none;
+}
+
+.sd-coach-tab-body {
+  gap: 8px;
+  font-size: 14px;
+}
+
+.sd-reqs-tab-body {
+  overflow: hidden;
+}
+
+.sd-scale-math-card {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.sd-scale-math-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sd-scale-math-head::-webkit-details-marker,
+.sd-scale-math-head::marker {
+  display: none;
+  content: '';
+}
+
+.sd-scale-math-head strong {
+  flex: 0 0 auto;
+}
+
+.sd-scale-ratio-chip {
+  margin-left: auto;
+  padding: 3px 7px;
+  border-radius: var(--radius-full);
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sd-scale-summary-preview {
+  display: none;
+}
+
+.sd-scale-kv-list {
+  padding: 0 10px 8px;
+}
+
+.sd-notes-ledger-box {
+  flex: 0 1 auto;
+  max-height: 38%;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.sd-notes-ledger-box > strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.sd-ledger-ref-group {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sd-ledger-ref-label {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sd-field-label {
+  flex: 1;
+  min-height: 0;
+  font-size: 12.5px;
+}
+
+.sd-field-label textarea {
+  flex: 1;
+  min-height: 80px;
+  resize: none;
+  font-size: 14px;
+}
+
+.sd-coach-thread {
+  min-height: 0;
+}
+
+.sd-studio-page :is(button, summary, input, textarea, select):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 820px) {
+  .sd-studio-header {
+    flex-wrap: wrap;
+  }
+
+  .sd-studio-header-left,
+  .sd-studio-header-right {
+    flex-wrap: wrap;
+  }
+
+  .sd-studio-sidebar {
+    width: 100%;
+  }
 }
 </style>
