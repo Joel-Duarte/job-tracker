@@ -6,6 +6,21 @@ const SAMPLE_PNG_BUFFER = Buffer.from(
   'hex'
 )
 
+const SYSTEM_DESIGN_RUBRIC_DIMENSIONS = [
+  'Requirements Clarity',
+  'Scope & Prioritization',
+  'Back-of-the-Envelope Estimation',
+  'API & Interface Design',
+  'Data Model & Storage Choice',
+  'High-Level Architecture',
+  'Scalability & Partitioning',
+  'Reliability & Fault Tolerance',
+  'Caching & Latency Optimization',
+  'Right-Sizing & Simplicity (YAGNI)',
+  'Trade-off Justification',
+  'Defence Communication Under Pressure',
+]
+
 test('navigates via Agent System Design Lab tab, supports 3+ columns, custom/AI challenges, edit/delete/reset, and theme switching', async ({
   page,
   isMobile,
@@ -114,6 +129,7 @@ test('navigates via Agent System Design Lab tab, supports 3+ columns, custom/AI 
 test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, and frontier packet tab', async ({
   page,
 }) => {
+  test.slow()
   const errors = []
   page.on('pageerror', (err) => errors.push(err.message))
   page.on('console', (msg) => {
@@ -146,7 +162,7 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   const reqInput = page.getByTestId('req-chat-input')
   await reqInput.fill('What read/write ratio and p99 redirect latency should we target?')
   await page.getByTestId('req-send-btn').click()
-  await expect(page.getByText(/10:1 read-to-write traffic/)).toBeVisible()
+  await expect(page.getByText(/100:1 read-to-write ratio/)).toBeVisible()
 
   // Returning to lobby should show "Resume Session" + "+" fresh-session button and reopen the same session
   await page.getByTestId('back-to-challenges-btn').click()
@@ -154,7 +170,7 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await expect(urlCard.getByTestId('new-session-btn')).toBeVisible()
   await urlCard.getByTestId('start-challenge-btn').click()
   await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
-  await expect(page.getByText(/10:1 read-to-write traffic/)).toBeVisible()
+  await expect(page.getByText(/100:1 read-to-write ratio/)).toBeVisible()
 
   await page.getByTestId('req-hint-btn').click()
   await expect(page.locator('.sd-hint-tag').first()).toBeVisible()
@@ -227,13 +243,9 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await page.getByTestId('defence-send-btn').click()
   await expect(page.getByText(/\[Web-Grounded Context\]/)).toBeVisible()
   await expect(page.getByTestId('stage-step-COMPLETED')).toBeEnabled()
+  await page.getByTestId('stage-step-COMPLETED').click()
 
-  // Stage 5: Complete local AI evaluation first, then switch to Frontier Second Opinion tab
-  await page.getByTestId('evaluate-session-btn').click()
-  await expect(page.getByRole('heading', { name: 'Final Interview Scorecard' })).toBeVisible()
-  await expect(page.getByText('INTERVIEW READY')).toBeVisible()
-  await expect(page.getByTestId('frontier-packet-card')).toHaveCount(0)
-
+  // Stage 5: Export and import a complete formative Frontier scorecard.
   await page.getByTestId('toggle-frontier-panel-btn').click()
   await expect(page.getByTestId('frontier-packet-card')).toBeVisible()
   await page.getByTestId('prepare-frontier-packet-btn').click()
@@ -242,28 +254,39 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await expect(packetTextarea).toHaveValue(/ASSISTED \/ HINT REQUESTED/)
   await expect(packetTextarea).toHaveValue(/Requirements Clarity/)
 
+  await page.getByTestId('import-frontier-textarea').fill('{"overall_score":90,"rubric_scores":[]}')
+  await page.getByTestId('import-frontier-submit-btn').click()
+  await expect(page.getByText('The scorecard must include all 12 rubric dimensions.')).toBeVisible()
+
   await page.getByTestId('import-frontier-textarea').fill(`\`\`\`json
 {
-  "overall_score": 92,
-  "readiness_rating": "STRONG_HIRE",
+  "overall_score": 90,
   "executive_summary": "Frontier review confirms disciplined edge caching and circuit-breaker design.",
-  "rubric_scores": [
-    {
-      "dimension": "Right-Sizing & Simplicity (YAGNI)",
-      "score": 5,
-      "evidence": "Kept stateless API and Redis cache ahead of Postgres without premature microservices.",
-      "critique": "Clean balance of simplicity and failover resilience."
-    }
-  ],
+  "rubric_scores": ${JSON.stringify(
+    SYSTEM_DESIGN_RUBRIC_DIMENSIONS.map((dimension, index) => ({
+      dimension,
+      score: index < 6 ? 5 : 4,
+      evidence: `Observed ${dimension} evidence in the submitted practice session artifacts.`,
+      critique: `Compare one viable alternative for ${dimension} and state its operational trade-off.`,
+    }))
+  )},
   "key_strengths": ["Circuit-broken cache degradation"],
   "critical_gaps": ["Document multi-AZ replica failover RTO"],
   "recommended_next_steps": ["Add p99 tail latency budget alert thresholds"]
 }
 \`\`\``)
   await page.getByTestId('import-frontier-submit-btn').click()
-  await expect(page.getByText('STRONG HIRE')).toBeVisible()
-  await expect(page.locator('.eval-score-value')).toHaveText('92')
-  await expect(page.getByText('Right-Sizing & Simplicity (YAGNI)')).toBeVisible()
+  await expect(page.getByTestId('eval-score-label')).toHaveText('Formative practice score')
+  await expect(page.getByText('STRONG HIRE')).toHaveCount(0)
+  await expect(page.locator('.eval-score-value')).toHaveText('90')
+  await page.getByTestId('toggle-frontier-panel-btn').click()
+  await expect(page.getByTestId('completed-scorecard-notice')).toBeVisible()
+  await page.getByTestId('toggle-frontier-panel-btn').click()
+  await expect(page.getByText('Right-Sizing & Simplicity (YAGNI)', { exact: true })).toBeVisible()
+
+  await page.getByTestId('repeat-scenario-btn').click()
+  await expect(page.getByTestId('active-session-variant-badge')).toBeVisible()
+  await expect(page.getByTestId('previous-scenario-score-badge')).toContainText('90 / 100')
 
   expect(errors).toEqual([])
 })
@@ -444,7 +467,7 @@ test('supports seeded blind starts, explicit variant picker, sidebar seed displa
         result_json: {
           session_id: sid,
           overall_score: 91,
-          readiness_rating: 'STRONG_HIRE',
+          readiness_rating: 'FORMATIVE',
         },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -677,7 +700,7 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
   expect(errors).toEqual([])
 })
 
-test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, Undo, Reveal Requirements, and Solo/Coached XP', async ({
+test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, Undo, Reveal Requirements, and formative points', async ({
   page,
 }, testInfo) => {
   test.slow()
@@ -790,6 +813,8 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await expect(page.getByTestId('coach-tab-checks').locator('.sd-tab-badge')).toHaveCount(0)
   await page.getByTestId('coach-tab-checks').click()
   await expect(page.getByTestId('capability-readiness-section')).toBeVisible()
+  await expect(page.getByTestId('bonus-capability-readiness')).toBeVisible()
+  await expect(page.getByTestId('bonus-capability-readiness')).toContainText('analytics')
   await expect(page.getByTestId('topology-diagnostics-section')).not.toContainText('not yet on canvas')
   await page.getByTestId('coach-tab-bank').click()
 
@@ -806,6 +831,7 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   // Verify Reqs Scale Math, Bank Study Notes, and External Coach workflow while sidebar is open
   await page.getByTestId('studio-tab-reqs').click()
   await expect(page.getByTestId('studio-scale-math-card')).toBeVisible()
+  await expect(page.getByTestId('practice-progression')).toContainText('Build in stages')
 
   await page.getByTestId('coach-tab-bank').click()
   await expect(page.getByTestId('bank-study-notes')).toBeVisible()
@@ -883,6 +909,31 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await clickStudioMoreItem('studio-undo-btn')
   await expect(page.getByTestId('canvas-node-api_gateway')).toHaveCount(0)
   await expect(page.getByTestId('canvas-node-app_service')).toHaveCount(0)
+
+  // Service drill-down keeps internal components separate from the top-level diagram.
+  const appServicePaletteItem = page.getByTestId('palette-block-app_service')
+  const appServicePaletteCategory = page
+    .locator('.sd-palette-category-details')
+    .filter({ has: appServicePaletteItem })
+  if (!(await appServicePaletteCategory.evaluate((element) => element.open))) {
+    await appServicePaletteCategory.locator('summary').click()
+  }
+  await appServicePaletteItem.click()
+  await page.getByTestId('canvas-node-app_service').click()
+  await page.getByTestId('open-service-scope-btn').click()
+  await expect(page.getByTestId('service-scope-breadcrumb')).toContainText('System overview')
+  const authPaletteItem = page.getByTestId('palette-block-auth_service')
+  const authPaletteCategory = page
+    .locator('.sd-palette-category-details')
+    .filter({ has: authPaletteItem })
+  if (!(await authPaletteCategory.evaluate((element) => element.open))) {
+    await authPaletteCategory.locator('summary').click()
+  }
+  await authPaletteItem.click()
+  await expect(page.getByTestId('canvas-node-auth_service')).toBeVisible()
+  await page.getByTestId('service-scope-breadcrumb').getByRole('button', { name: 'System overview' }).click()
+  await expect(page.getByTestId('canvas-node-app_service')).toBeVisible()
+  await expect(page.getByTestId('canvas-node-auth_service')).toHaveCount(0)
   await page.getByTestId('coach-tab-bank').click()
 
   // Assistant remains available while using the canvas and More actions.
@@ -1023,6 +1074,7 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('open-flow-json-modal-btn').click()
   await expect(page.getByTestId('studio-flow-json-modal')).toBeVisible()
   await expect(page.getByTestId('flow-json-preview')).toContainText('"nodes"')
+  await expect(page.getByTestId('flow-json-preview')).toContainText('"parent_node_id"')
   await page.getByTestId('studio-flow-json-modal').getByRole('button', { name: 'Close' }).click()
 
   // Checks remain available in the persistent Assistant on every viewport.
@@ -1044,6 +1096,10 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('revise-in-studio-btn').click()
   await expect(page).toHaveURL(/\/system-design\/\d+\/design.*fixReview=1/)
   await expect(page.getByTestId('review-fix-checklist')).toBeVisible()
+  await page.getByTestId('canvas-node-app_service').click()
+  await page.getByTestId('open-service-scope-btn').click()
+  await expect(page.getByTestId('canvas-node-auth_service')).toBeVisible()
+  await page.getByTestId('service-scope-breadcrumb').getByRole('button', { name: 'System overview' }).click()
   await page.getByTestId('studio-back-btn').click()
   await page.getByTestId('stage-step-REVIEW').click()
 
@@ -1061,9 +1117,9 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('defence-send-btn').click()
   await page.getByTestId('evaluate-session-btn').click()
 
-  await expect(page.locator('.eval-score-value')).toHaveText('86')
-  await expect(page.getByTestId('eval-assistance-badge')).toContainText('Coached Run')
-  await expect(page.getByTestId('eval-xp-badge')).toContainText('+100 XP')
+  await expect(page.locator('.eval-score-value')).toHaveText('85')
+  await expect(page.getByTestId('eval-assistance-badge')).toContainText('Coached practice')
+  await expect(page.getByTestId('formative-score-notice')).toContainText('not a pass/fail, hiring, or mastery rating')
 
   expect(errors).toEqual([])
 })

@@ -538,8 +538,8 @@ flowchart TD
 
 ### System Design Lab (`backend/app/routers/system_design.py`, `backend/app/models/system_design.py`)
 - **`SystemDesignChallengeModel`**: Stores curated system design scenarios (`system_design_seed.py`, 24 blueprints) alongside hidden `interviewer_brief` criteria (excluded from candidate-facing schemas).
-- **`SystemDesignSessionModel`**: Persists authoritative session state (`requirements_transcript`, `requirements_ledger`, `diagrams_metadata`, `architecture_reviews`, `defence_transcript`, `final_evaluation`) while diagram image binaries are stored on disk under `backend/data/system_design/session_{id}/v{N}.{ext}`.
-- **`diagram_catalog.py`**: Manages diagram blueprint metadata and visual guidance.
+- **`SystemDesignSessionModel`**: Persists authoritative session state (`requirements_transcript`, `requirements_ledger`, `diagrams_metadata`, `architecture_reviews`, `defence_transcript`, `final_evaluation`) while diagram image binaries and structured flow JSON are stored on disk under `backend/data/system_design/session_{id}/v{N}.{ext}`. Structured flows can scope internal nodes to a top-level service. Completion records an immutable attempt, not mastery; the 0–100 formative score is derived from 12 evidence-backed 1–5 rubric dimensions, with deterministic robustness bonus points stored separately.
+- **`diagram_catalog.py`**: Resolves core and optional bonus capabilities, checks wired topology and expected flows, and validates nested service scopes without requiring microservice decomposition.
 
 ### Prompt Evals, Frontier Bridges & Email Tiebreaker
 - **`prompt_eval_service.py`**: Runs offline golden-dataset A/B prompt evaluations and concurrent multi-pipeline checks.

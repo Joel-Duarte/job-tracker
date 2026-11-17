@@ -36,17 +36,8 @@ def _build_full_rubric_scores(scores: list[int] | None = None) -> list[dict]:
 def _build_valid_eval_payload(scores: list[int] | None = None, **overrides) -> dict:
     rubric = _build_full_rubric_scores(scores)
     overall = round((sum(item["score"] for item in rubric) / 60.0) * 100.0, 1)
-    if overall >= 88.0:
-        rating = "STRONG_HIRE"
-    elif overall >= 70.0:
-        rating = "INTERVIEW_READY"
-    elif overall >= 50.0:
-        rating = "DEVELOPING"
-    else:
-        rating = "NEEDS_PRACTICE"
     payload = {
         "overall_score": overall,
-        "readiness_rating": rating,
         "executive_summary": "Cohesive Staff-level baseline with well-bounded trade-offs across diagram and defence.",
         "rubric_scores": rubric,
         "key_strengths": [
@@ -511,7 +502,7 @@ async def test_final_evaluation_stage_f_evidence_backed_rubric(
             assert eval_data["stage"] == "COMPLETED"
             assert eval_data["status"] == "COMPLETED"
             assert eval_data["overall_score"] == 83.3
-            assert eval_data["readiness_rating"] == "INTERVIEW_READY"
+            assert eval_data["readiness_rating"] == "FORMATIVE"
             assert eval_data["completed_at"] is not None
 
             final_eval = eval_data["final_evaluation"]
@@ -663,7 +654,7 @@ async def test_web_search_grounding_and_frontier_packet_round_trip(
             assert imported["stage"] == "COMPLETED"
             assert imported["status"] == "COMPLETED"
             assert imported["overall_score"] == 95.0
-            assert imported["readiness_rating"] == "STRONG_HIRE"
+            assert imported["readiness_rating"] == "FORMATIVE"
             assert len(imported["final_evaluation"]["rubric_scores"]) == 12
     finally:
         app.dependency_overrides.clear()

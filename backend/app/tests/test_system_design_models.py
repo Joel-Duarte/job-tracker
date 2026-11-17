@@ -48,6 +48,38 @@ FORBIDDEN_SECRET_KEYS = (
 )
 
 
+def test_curated_challenge_catalog_has_three_profiles_and_consistent_storage_math():
+    challenges = {challenge["slug"]: challenge for challenge in CURATED_CHALLENGES}
+    assert len(challenges) == 8
+    assert all(
+        len(challenge["interviewer_brief"]["variants"]) == 3
+        for challenge in challenges.values()
+    )
+
+    url_shortener = challenges["url-shortener"]["interviewer_brief"]
+    assert (
+        "150 GB raw mapping data"
+        in url_shortener["scale_estimates"]["payload_and_storage"]
+    )
+    assert "150 GB raw mapping data" in url_shortener["hidden_context"]["retention"]
+    assert "1.5 TB raw mapping data" not in str(url_shortener)
+
+    video = challenges["video-streaming"]["interviewer_brief"]
+    assert "~250 TB/day raw ingress" in video["scale_estimates"]["daily_uploads"]
+    assert (
+        "retention, rendition expansion, replication, and budget are open requirements"
+        in video["hidden_context"]["raw_ingress_baseline"]
+    )
+
+    chat = challenges["chat-system"]["interviewer_brief"]
+    assert "~4 TB/day raw text bodies" in chat["scale_estimates"]["daily_messages"]
+    assert "~1.46 PB/year" in chat["hidden_context"]["retention_and_storage"]
+    assert (
+        "retention and deletion policy are open requirements"
+        in chat["hidden_context"]["retention_and_storage"]
+    )
+
+
 def test_alembic_migration_metadata_integrity():
     """Verify the system design migration chain resolves cleanly to 7c9d1e3f5a2b as single head."""
     backend_dir = Path(__file__).resolve().parents[2]
@@ -247,7 +279,7 @@ async def test_session_lifecycle_jsonb_persistence(db_session: AsyncSession):
     )
     evaluation = FinalEvaluationSchema(
         overall_score=84.5,
-        readiness_rating="INTERVIEW_READY",
+        readiness_rating="FORMATIVE",
         executive_summary="Strong requirements clarity and justified caching design.",
         rubric_scores=[
             RubricDimensionScore(
@@ -295,7 +327,7 @@ async def test_session_lifecycle_jsonb_persistence(db_session: AsyncSession):
         "Label whether Redis stores eviction TTL policy."
     ]
     assert reloaded.final_evaluation is not None
-    assert reloaded.final_evaluation["readiness_rating"] == "INTERVIEW_READY"
+    assert reloaded.final_evaluation["readiness_rating"] == "FORMATIVE"
     assert reloaded.overall_score == pytest.approx(84.5)
 
 

@@ -45,6 +45,47 @@ const { fitView, screenToFlowCoordinate } = useVueFlow({ id: 'sd-canvas-builder'
 
 const nodes = ref([])
 const edges = ref([])
+const activeScopeId = ref(null)
+const scopedNodes = computed({
+  get: () =>
+    nodes.value.filter(
+      (node) => String(node.data?.parent_node_id || '') === String(activeScopeId.value || '')
+    ),
+  set: (nextNodes) => {
+    const visibleIds = new Set(scopedNodes.value.map((node) => node.id))
+    const nextById = new Map((nextNodes || []).map((node) => [node.id, node]))
+    nodes.value = [
+      ...nodes.value.flatMap((node) => {
+        if (!visibleIds.has(node.id)) return [node]
+        return nextById.has(node.id) ? [nextById.get(node.id)] : []
+      }),
+      ...(nextNodes || []).filter((node) => !visibleIds.has(node.id)),
+    ]
+  },
+})
+const scopedEdges = computed({
+  get: () => {
+    const visibleIds = new Set(scopedNodes.value.map((node) => node.id))
+    return edges.value.filter(
+      (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)
+    )
+  },
+  set: (nextEdges) => {
+    const visibleIds = new Set(scopedNodes.value.map((node) => node.id))
+    const currentScopeEdges = edges.value.filter(
+      (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)
+    )
+    const currentEdgeIds = new Set(currentScopeEdges.map((edge) => edge.id))
+    const nextById = new Map((nextEdges || []).map((edge) => [edge.id, edge]))
+    edges.value = [
+      ...edges.value.flatMap((edge) => {
+        if (!currentEdgeIds.has(edge.id)) return [edge]
+        return nextById.has(edge.id) ? [nextById.get(edge.id)] : []
+      }),
+      ...(nextEdges || []).filter((edge) => !currentEdgeIds.has(edge.id)),
+    ]
+  },
+})
 
 const cloudProvider = ref(props.session?.diagram_guidance?.cloud_provider || 'generic')
 const searchQuery = ref('')
@@ -151,6 +192,17 @@ const paletteGroups = computed(() =>
 const selectedNode = computed(
   () => nodes.value.find((n) => n.id === selectedNodeId.value) || null
 )
+const activeScopeNode = computed(
+  () => nodes.value.find((node) => node.id === activeScopeId.value) || null
+)
+const canOpenSelectedService = computed(
+  () =>
+    Boolean(selectedNode.value) &&
+    !selectedNode.value.data?.parent_node_id &&
+    ['app_service', 'microservice', 'serverless_fn', 'async_worker', 'llm_gateway', 'media_transcoder', 'realtime_gateway'].includes(
+      String(selectedNode.value.data?.type_id || '')
+    )
+)
 const selectedEdge = computed(
   () => edges.value.find((e) => e.id === selectedEdgeId.value) || null
 )
@@ -194,7 +246,7 @@ function computeAnchorFromEvent(nativeEvent) {
 }
 
 function nextPlacementPosition() {
-  const count = nodes.value.length
+  const count = scopedNodes.value.length
   const col = count % 3
   const row = Math.floor(count / 3)
   return { x: 90 + col * 245, y: 80 + row * 145 }
@@ -234,6 +286,7 @@ function addBlockToCanvas(block, explicitPos = null, skipUndo = false) {
       tech_stack: block.tech_stack || resolved.cloudService || '',
       notes: block.notes || '',
       is_custom: Boolean(block.is_custom || block.type_id === 'custom'),
+      parent_node_id: activeScopeId.value,
     },
   }
   nodes.value = [...nodes.value, newNode]
@@ -405,8 +458,16 @@ function removeSelectedNode() {
   if (!selectedNodeId.value) return
   pushUndoSnapshot()
   const id = selectedNodeId.value
-  nodes.value = nodes.value.filter((n) => n.id !== id)
-  edges.value = edges.value.filter((e) => e.source !== id && e.target !== id)
+  const removedIds = new Set([
+    id,
+    ...nodes.value
+      .filter((node) => node.data?.parent_node_id === id)
+      .map((node) => node.id),
+  ])
+  nodes.value = nodes.value.filter((node) => !removedIds.has(node.id))
+  edges.value = edges.value.filter(
+    (edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)
+  )
   closePopovers()
 }
 
@@ -417,14 +478,42 @@ function removeSelectedEdge() {
   closePopovers()
 }
 
-function clearCanvas() {
-  if (nodes.value.length || edges.value.length || props.notes) {
+function clearCanvas(clearAll = false) {
+  const scopeNodeIds = new Set(
+    (clearAll || !activeScopeId.value
+      ? nodes.value
+      : nodes.value.filter(
+          (node) =>
+            String(node.data?.parent_node_id || '') ===
+            String(activeScopeId.value || '')
+        )
+    ).map((node) => node.id)
+  )
+  if (scopeNodeIds.size || edges.value.length || props.notes) {
     pushUndoSnapshot()
   }
-  nodes.value = []
-  edges.value = []
-  emit('update:notes', '')
+  nodes.value = nodes.value.filter((node) => !scopeNodeIds.has(node.id))
+  edges.value = edges.value.filter(
+    (edge) => !scopeNodeIds.has(edge.source) && !scopeNodeIds.has(edge.target)
+  )
+  if (clearAll || !activeScopeId.value) {
+    emit('update:notes', '')
+  }
+  if (clearAll) activeScopeId.value = null
   closePopovers()
+}
+
+function openServiceScope(node = selectedNode.value) {
+  if (!node || node.data?.parent_node_id) return
+  activeScopeId.value = node.id
+  closePopovers()
+  nextTick(() => fitView({ padding: 0.2 }))
+}
+
+function closeServiceScope() {
+  activeScopeId.value = null
+  closePopovers()
+  nextTick(() => fitView({ padding: 0.2 }))
 }
 
 function _nodeMatchesActionSpec(node, typeId, label) {
@@ -558,6 +647,7 @@ function undoLastChange() {
 function hydrateFromFlow(flow, resetUndo = true) {
   if (resetUndo) {
     undoStack.value = []
+    activeScopeId.value = null
   }
   if (!flow || !Array.isArray(flow.nodes)) return
   if (flow.cloud_provider) {
@@ -580,6 +670,7 @@ function hydrateFromFlow(flow, resetUndo = true) {
       tech_stack: n.tech_stack || '',
       notes: n.notes || '',
       is_custom: Boolean(n.is_custom),
+      parent_node_id: n.parent_node_id || null,
     },
   }))
   edges.value = (flow.edges || []).map((e, idx) => {
@@ -757,10 +848,24 @@ defineExpose({
         @dragover.prevent
         @drop="handleCanvasDrop"
       >
-        <div v-if="!nodes.length" class="sd-canvas-empty-hint">
+        <div v-if="activeScopeId" class="sd-scope-breadcrumb" data-testid="service-scope-breadcrumb">
+          <button type="button" class="btn btn-secondary btn-sm" @click="closeServiceScope">
+            System overview
+          </button>
+          <span aria-hidden="true">/</span>
+          <strong>{{ activeScopeNode?.data?.label || 'Service internals' }}</strong>
+          <span class="sd-muted">Internal components stay scoped to this service.</span>
+        </div>
+        <div v-if="!scopedNodes.length" class="sd-canvas-empty-hint">
           <Layers :size="26" />
-          <h2>Start with your first block</h2>
-          <p>Drag a component from the left, or click one to drop it onto the canvas.</p>
+          <h2>{{ activeScopeId ? 'Design this service internally' : 'Start with your first block' }}</h2>
+          <p>
+            {{
+              activeScopeId
+                ? 'Add only the internals that clarify this service’s responsibilities and trade-offs.'
+                : 'Drag a component from the left, or click one to drop it onto the canvas.'
+            }}
+          </p>
           <ol class="sd-canvas-empty-steps">
             <li><span>1</span>Place blocks</li>
             <li><span>2</span>Wire dot to dot</li>
@@ -770,8 +875,8 @@ defineExpose({
 
         <VueFlow
           id="sd-canvas-builder"
-          v-model:nodes="nodes"
-          v-model:edges="edges"
+          v-model:nodes="scopedNodes"
+          v-model:edges="scopedEdges"
           class="sd-vue-flow"
           :connection-mode="ConnectionMode.Loose"
           :default-viewport="{ zoom: 1, x: 40, y: 40 }"
@@ -798,7 +903,7 @@ defineExpose({
             <ControlButton
               title="Clear canvas"
               aria-label="Clear canvas"
-              :disabled="!nodes.length"
+              :disabled="!scopedNodes.length"
               @click="clearCanvas"
             >
               <Trash2 :size="14" />
@@ -889,6 +994,16 @@ defineExpose({
               </div>
             </div>
           </div>
+          <button
+            v-if="canOpenSelectedService"
+            type="button"
+            class="btn btn-secondary btn-sm w-full"
+            data-testid="open-service-scope-btn"
+            @click="openServiceScope()"
+          >
+            <Layers :size="14" />
+            <span>Open service internals</span>
+          </button>
           <button type="button" class="btn btn-primary btn-sm w-full" @click="closePopovers">
             Done
           </button>
@@ -947,7 +1062,6 @@ defineExpose({
             />
             <span>Asynchronous / Queue / Event flow</span>
           </label>
-
           <button type="button" class="btn btn-primary btn-sm w-full" @click="closePopovers">
             Done
           </button>
@@ -1334,6 +1448,27 @@ defineExpose({
   border: 1px solid var(--border-subtle, #334155);
   background: var(--bg-elevated, #0f172a);
   overflow: hidden;
+}
+
+.sd-scope-breadcrumb {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-main);
+}
+
+.sd-scope-breadcrumb .sd-muted {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .sd-vue-flow {

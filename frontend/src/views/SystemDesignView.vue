@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Award,
   Bot,
   CheckCircle2,
   ClipboardCheck,
@@ -15,7 +14,6 @@ import {
   Eye,
   FileCode,
   FileImage,
-  Flame,
   Globe,
   HelpCircle,
   Layers,
@@ -375,16 +373,6 @@ function formatCategoryLabel(cat) {
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
-function formatReadinessLabel(rating) {
-  return String(rating || 'DEVELOPING').replace(/_/g, ' ')
-}
-
-function getReadinessBadgeClass(rating) {
-  if (rating === 'STRONG_HIRE' || rating === 'INTERVIEW_READY') return 'badge-offer'
-  if (rating === 'DEVELOPING') return 'badge-interview'
-  return 'badge-rejected'
-}
-
 function getDifficultyClass(difficulty) {
   const normalized = String(difficulty || 'MEDIUM').toUpperCase()
   if (normalized === 'EASY') return 'diff-easy'
@@ -416,6 +404,36 @@ const assistedTurnCount = computed(() => {
   const def = activeSession.value.defence_transcript || []
   return [...req, ...def].filter((t) => t.role === 'candidate' && t.assisted).length
 })
+
+const comparableAttempts = computed(() => {
+  const current = activeSession.value
+  if (!current) return []
+  return (store.sessions || [])
+    .filter(
+      (session) =>
+        session.id !== current.id &&
+        Number(session.challenge_id) === Number(current.challenge_id) &&
+        session.variant_id === current.variant_id &&
+        session.brief_seed === current.brief_seed &&
+        session.status === 'COMPLETED' &&
+        Number.isFinite(Number(session.final_evaluation?.overall_score))
+    )
+    .sort((a, b) =>
+      String(b.completed_at || b.updated_at || '').localeCompare(
+        String(a.completed_at || a.updated_at || '')
+      )
+    )
+})
+
+const previousScenarioAttempt = computed(() => comparableAttempts.value[0] || null)
+const scenarioAttemptNumber = computed(() => comparableAttempts.value.length + 1)
+
+const availableScenarioProfileCount = computed(() =>
+  (store.challenges || []).reduce(
+    (count, challenge) => count + Math.max(1, challenge.available_variants?.length || 0),
+    0
+  )
+)
 
 function isStageUnlocked(stageId) {
   if (!activeSession.value) return false
@@ -474,6 +492,28 @@ function onSeedChallengeChange() {
   seedForm.value.variantId = variants[0]?.variant_id || ''
   if (!variants.length && seedForm.value.selectionType === 'variant') {
     seedForm.value.selectionType = 'random'
+  }
+}
+
+async function handleRepeatScenario() {
+  const session = activeSession.value
+  if (!session) return
+  try {
+    const started = await store.startSession(
+      session.challenge_id,
+      session.mode || 'ADAPTIVE',
+      session.application_id || null,
+      {
+        ...(session.brief_seed ? { briefSeed: session.brief_seed } : {}),
+        ...(session.variant_id ? { variantId: session.variant_id } : {}),
+      }
+    )
+    activeStageTab.value = 'REQUIREMENTS'
+    evalSubTab.value = 'scorecard'
+    uiStore.showToast('Started a fresh attempt with the same scenario profile.', 'success')
+    return started
+  } catch (err) {
+    uiStore.showToast(err.message || 'Could not repeat this scenario.', 'error')
   }
 }
 
@@ -1163,17 +1203,18 @@ onUnmounted(() => {
         <div class="sd-section-header">
           <div class="sd-header-title-group">
             <h2>Interview Challenge Scenarios</h2>
-            <span class="sd-muted">{{ store.challenges.length }} scenarios available</span>
+            <span class="sd-muted">
+              {{ store.challenges.length }} challenges · {{ availableScenarioProfileCount }} scenario profiles
+            </span>
             <span
-              v-if="store.sessionGamificationStats.completedCount > 0"
-              class="sd-xp-lobby-pill"
-              data-testid="lobby-xp-stats"
+              v-if="store.practiceProgressStats.completedCount > 0"
+              class="sd-tag"
+              data-testid="practice-progress-stats"
             >
-              <Award :size="13" />
-              <span>{{ store.sessionGamificationStats.totalXp }} XP</span>
-              <span class="sd-dot">•</span>
-              <Flame :size="13" />
-              <span>{{ store.sessionGamificationStats.streakCount }} completed</span>
+              {{ store.practiceProgressStats.completedCount }} completed attempts
+              <span v-if="store.practiceProgressStats.averageScore !== null">
+                · average {{ store.practiceProgressStats.averageScore }} / 100 points
+              </span>
             </span>
           </div>
           <div class="sd-header-actions">
@@ -1866,7 +1907,15 @@ onUnmounted(() => {
                 :class="store.isActiveSessionCoached ? 'badge-applied' : 'badge-offer'"
                 data-testid="session-assistance-badge"
               >
-                {{ store.isActiveSessionCoached ? 'Coached Run · 100 XP' : 'Solo Run · 150 XP' }}
+                {{ store.isActiveSessionCoached ? 'Coached practice' : 'Solo practice' }}
+              </span>
+              <span
+                v-if="previousScenarioAttempt"
+                class="sd-tag"
+                data-testid="previous-scenario-score-badge"
+              >
+                Previous same-profile score:
+                {{ Math.round(previousScenarioAttempt.final_evaluation.overall_score) }} / 100
               </span>
             </div>
           </div>
@@ -2919,17 +2968,17 @@ onUnmounted(() => {
             <section class="sd-card sd-eval-hero">
               <div class="eval-score-box">
                 <span class="eval-score-value">{{ Math.round(store.activeFinalEvaluation.overall_score) }}</span>
-                <span class="eval-score-max">/ 100</span>
+                <span class="eval-score-max">/ 100 points</span>
               </div>
               <div class="eval-summary-block">
                 <div class="session-row-title-row">
                   <span
-                    class="badge"
-                    :class="getReadinessBadgeClass(store.activeFinalEvaluation.readiness_rating)"
+                    class="badge badge-applied"
+                    data-testid="eval-score-label"
                   >
-                    {{ formatReadinessLabel(store.activeFinalEvaluation.readiness_rating) }}
+                    Formative practice score
                   </span>
-                  <h2>Final Interview Scorecard</h2>
+                  <h2>Practice feedback</h2>
                   <span
                     class="badge"
                     :class="
@@ -2943,28 +2992,69 @@ onUnmounted(() => {
                     {{
                       (store.activeFinalEvaluation.assistance_mode ||
                         (store.isActiveSessionCoached ? 'COACHED' : 'SOLO')) === 'SOLO'
-                        ? 'Solo Run'
-                        : 'Coached Run'
+                        ? 'Solo practice'
+                        : 'Coached practice'
                     }}
-                  </span>
-                  <span class="sd-xp-earned-pill" data-testid="eval-xp-badge">
-                    <Award :size="13" />
-                    <span>
-                      +{{
-                        store.activeFinalEvaluation.xp_earned ??
-                        ((store.activeFinalEvaluation.assistance_mode ||
-                          (store.isActiveSessionCoached ? 'COACHED' : 'SOLO')) === 'SOLO'
-                          ? 150
-                          : 100)
-                      }}
-                      XP
-                    </span>
                   </span>
                   <span v-if="assistedTurnCount > 0" class="sd-tag">
                     {{ assistedTurnCount }} coaching prompt(s) used
                   </span>
                 </div>
                 <p>{{ store.activeFinalEvaluation.executive_summary }}</p>
+                <p class="sd-muted" data-testid="formative-score-notice">
+                  Points summarize this attempt’s evidence only. They are not a pass/fail, hiring, or mastery rating.
+                </p>
+                <section
+                  v-if="store.activeFinalEvaluation.robustness_bonus_available === true"
+                  class="sd-robustness-score"
+                  data-testid="robustness-bonus-score"
+                >
+                  <strong>
+                    Robustness bonuses:
+                    +{{ store.activeFinalEvaluation.robustness_bonus_points || 0 }}
+                    / {{ store.activeFinalEvaluation.robustness_bonus_max_points || 0 }}
+                    points
+                  </strong>
+                  <span>Separate from the 0–100 core practice score.</span>
+                  <ul>
+                    <li
+                      v-for="check in store.activeFinalEvaluation.bonus_capability_checks || []"
+                      :key="check.id"
+                      :class="{ 'bonus-earned': check.status === 'met' }"
+                    >
+                      {{ check.status === 'met' ? 'Earned' : 'Not demonstrated' }}:
+                      {{ check.title }} ({{ check.earned_points || 0 }}/{{ check.points }} points)
+                    </li>
+                  </ul>
+                </section>
+                <p
+                  v-else-if="store.activeFinalEvaluation.robustness_bonus_available === false"
+                  class="sd-muted"
+                  data-testid="robustness-bonus-unavailable"
+                >
+                  {{ store.activeFinalEvaluation.robustness_bonus_reason }}
+                </p>
+                <p class="sd-muted" data-testid="scenario-attempt-comparison">
+                  Attempt {{ scenarioAttemptNumber }}
+                  <template v-if="previousScenarioAttempt">
+                    · Previous same-profile attempt:
+                    {{ Math.round(previousScenarioAttempt.final_evaluation.overall_score) }} / 100 points
+                    · Change:
+                    {{ Math.round(store.activeFinalEvaluation.overall_score - previousScenarioAttempt.final_evaluation.overall_score) >= 0 ? '+' : '' }}{{ Math.round(store.activeFinalEvaluation.overall_score - previousScenarioAttempt.final_evaluation.overall_score) }}
+                  </template>
+                  <template v-else>· First scored attempt for this exact profile</template>
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  data-testid="repeat-scenario-btn"
+                  :disabled="store.startingSession"
+                  @click="handleRepeatScenario"
+                >
+                  <Loader2 v-if="store.startingSession" :size="14" class="spin" />
+                  <RotateCcw v-else :size="14" />
+                  <span>Practice this same scenario again</span>
+                </button>
               </div>
             </section>
 
@@ -3102,27 +3192,36 @@ onUnmounted(() => {
             </div>
 
             <div class="sd-form-stack">
-              <label class="sd-field">
-                <span>Import External Frontier Scorecard (paste raw JSON or Markdown response)</span>
-                <textarea
-                  v-model="importEvaluationText"
-                  class="form-textarea"
-                  rows="9"
-                  data-testid="import-frontier-textarea"
-                  placeholder='Paste the JSON block returned by Claude, ChatGPT, or Gemini (e.g., ```json { "overall_score": 88, ... } ```)'
-                />
-              </label>
-              <button
-                type="button"
-                class="btn btn-primary"
-                data-testid="import-frontier-submit-btn"
-                :disabled="store.importingEvaluation || !importEvaluationText.trim()"
-                @click="handleImportFrontierEvaluation"
+              <p
+                v-if="activeSession.status === 'COMPLETED'"
+                class="sd-muted"
+                data-testid="completed-scorecard-notice"
               >
-                <Loader2 v-if="store.importingEvaluation" :size="14" class="spin" />
-                <ClipboardCheck v-else :size="14" />
-                <span>Import Scorecard</span>
-              </button>
+                This attempt is saved and immutable. To record another scorecard, repeat the same scenario profile for a new attempt.
+              </p>
+              <template v-else>
+                <label class="sd-field">
+                  <span>Import External Frontier Scorecard (paste raw JSON or Markdown response)</span>
+                  <textarea
+                    v-model="importEvaluationText"
+                    class="form-textarea"
+                    rows="9"
+                    data-testid="import-frontier-textarea"
+                    placeholder='Paste the JSON block returned by Claude, ChatGPT, or Gemini (e.g., ```json { "overall_score": 88, ... } ```)'
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  data-testid="import-frontier-submit-btn"
+                  :disabled="store.importingEvaluation || !importEvaluationText.trim()"
+                  @click="handleImportFrontierEvaluation"
+                >
+                  <Loader2 v-if="store.importingEvaluation" :size="14" class="spin" />
+                  <ClipboardCheck v-else :size="14" />
+                  <span>Import Scorecard</span>
+                </button>
+              </template>
             </div>
           </div>
         </section>
@@ -4023,6 +4122,33 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   flex-wrap: wrap;
+}
+
+.sd-robustness-score {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.sd-robustness-score > strong {
+  color: var(--text-main);
+}
+
+.sd-robustness-score ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sd-robustness-score .bonus-earned {
+  color: var(--primary);
 }
 
 .eval-score-box {

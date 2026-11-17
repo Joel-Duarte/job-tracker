@@ -274,6 +274,7 @@ export function serializeFlowNodes(vueFlowNodes) {
     tech_stack: String(n.data?.tech_stack || ''),
     notes: String(n.data?.notes || ''),
     is_custom: Boolean(n.data?.is_custom),
+    parent_node_id: String(n.data?.parent_node_id || '') || null,
     position: {
       x: Math.round(Number(n.position?.x || 0) * 10) / 10,
       y: Math.round(Number(n.position?.y || 0) * 10) / 10,

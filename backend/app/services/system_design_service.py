@@ -60,6 +60,7 @@ from app.schemas.system_design import (
 from app.services.diagram_catalog import (
     BLOCKS_BY_TYPE_ID,
     CLOUD_PROVIDERS,
+    DEFAULT_BONUS_CAPABILITIES,
     build_coach_canvas_actions,
     compute_diagram_hint_penalty,
     evaluate_canvas_topology,
@@ -178,31 +179,22 @@ DEFAULT_RUBRIC_DIMENSIONS: list[str] = [
     "Defence Communication Under Pressure",
 ]
 
-VALID_READINESS_RATINGS = (
-    "NEEDS_PRACTICE",
-    "DEVELOPING",
-    "INTERVIEW_READY",
-    "STRONG_HIRE",
-)
-
-FINAL_EVALUATION_PROMPT = """You are producing the Stage F evidence-based final interview evaluation for System Design challenge: {challenge_title}.
+FINAL_EVALUATION_PROMPT = """You are producing the Stage F formative, evidence-based practice evaluation for System Design challenge: {challenge_title}.
 
 HIDDEN INTERVIEWER BRIEF (GROUND TRUTH RUBRIC):
 {hidden_brief_json}
 
 STRICT SCORING & OUTPUT RULES:
-1. Score the candidate ONLY on demonstrated evidence in their requirements conversation, locked requirements ledger, submitted diagram reviews, and defence responses below.
-2. SCALE: Every dimension `score` MUST be an integer in 1..5 ONLY (1=poor/missing, 2=weak, 3=acceptable, 4=strong, 5=exceptional Staff level). NEVER use a 1-10 scale and NEVER copy placeholder `3` for flawed areas.
+1. Score only evidence in the requirements conversation, locked ledger, submitted diagrams/reviews, and defence responses. Distinguish a design flaw from a choice that was simply not explained; identify evidence limits instead of inventing facts.
+2. SCALE: Every dimension `score` MUST be an integer in 1..5 ONLY (1=not demonstrated, 2=limited, 3=partial, 4=clear, 5=strong evidence). This is formative practice feedback, not a hiring, pass/fail, or mastery decision.
    - Anti-pattern / flaw calibration: If `architecture_reviews` or canvas evidence shows missing core tiers, single points of failure, synchronous bottlenecks violating latency SLAs, or shallow/dismissive defence answers, assign `1` or `2` to every affected dimension (do NOT grade-inflate broken designs to `3`-`4`). Conversely, honor valid alternative architectures (e.g. Managed API Gateway -> Serverless Functions, or Postgres-first YAGNI) with `4`-`5` when requirements and trade-offs are met.
-3. OVERALL SCORE: `overall_score` MUST be on a 0..100 scale and MUST match `round((sum(all 12 scores) / 60) * 100, 1)`.
-   - `STRONG_HIRE`: 88.0 - 100.0
-   - `INTERVIEW_READY`: 70.0 - 87.9
-   - `DEVELOPING`: 50.0 - 69.9
-   - `NEEDS_PRACTICE`: 0.0 - 49.9
+3. POINTS: `overall_score` MUST match `round((sum(all 12 scores) / 60) * 100, 1)`. It is a convenient practice score only; do not attach a readiness band or infer job performance from it.
 4. COMPLETENESS: You MUST include ALL 12 exact dimension names listed below (no omissions, no duplicates, no renamed dimensions):
 {dimensions_list}
-5. EVIDENCE & ADVICE: Every single rubric item MUST have concise, concrete `evidence` (>= 5 chars referencing session artifacts) AND actionable `critique` advice (>= 5 chars explaining improvement or strength).
-6. TOKEN EFFICIENCY: Output the complete JSON object immediately with concise strings (1-2 sentences per field). Do NOT output `<think>` reasoning or markdown fences.
+5. TRADE-OFFS: Evaluate outcomes and reasoning, not component-name matching. For consequential choices, explain at least one valid alternative and compare its relevant latency, consistency, cost, reliability, or operational burden. Do not prescribe microservices or specialized infrastructure without a requirement-driven reason.
+6. BASELINE VS. HARDENING: Do not penalize the learner for omitting optional robustness bonuses when the core design satisfies its requirements. The application calculates deterministic bonus points separately; do not fold them into `overall_score`.
+7. EVIDENCE & ADVICE: Every rubric item MUST include concise concrete `evidence` (>= 5 chars, tied to session artifacts) and actionable `critique` advice (>= 5 chars). Every recommended next step should be something the learner can revise or test.
+8. TOKEN EFFICIENCY: Output the complete JSON object immediately with concise strings (1-2 sentences per field). Do NOT output `<think>` reasoning or markdown fences.
 
 Respond ONLY with a single complete JSON object matching this exact schema (compute `rubric_scores` first so `overall_score` matches their exact sum):
 {{
@@ -215,7 +207,6 @@ Respond ONLY with a single complete JSON object matching this exact schema (comp
     }}
   ],
   "overall_score": 0,
-  "readiness_rating": "NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE",
   "executive_summary": "<2-3 sentence overall assessment>",
   "key_strengths": ["<evidence-backed strength>"],
   "critical_gaps": ["<evidence-backed gap>"],
@@ -259,12 +250,15 @@ CRITICAL RULES:
    - Variant 1 — SMALL / LEAN STARTUP MVP: Cost-constrained, modular simplicity, single region, ~10K–250K DAU, emphasizing YAGNI and avoiding premature microservice/Kafka sprawl.
    - Variant 2 — MEDIUM-LARGE / ENTERPRISE COMPLIANCE & HIGH-SLA: Strict multi-tenant isolation, auditability, privacy/compliance or 99.99% reliability SLA, ~1M–20M users or high transactional durability.
    - Variant 3 — HYPER-SCALE / GLOBAL BURST & REAL-TIME STRESS CASE: 50M+ DAU or 100K+ QPS, extreme read/write asymmetry, fan-out spikes, geo-distributed edges, or strict <30ms latency budgets.
+   - Teach incrementally: the required design is a coherent, interview-sized baseline. Optional hardening earns separate bonus points and must not be required for the baseline to work. Do not prescribe microservices or cloud products without a concrete reason.
 5. DIAGRAM SYSTEM, CANONICAL TYPE IDs & CUSTOM BLOCKS:
    - Prefer canonical component labels in `expected_components` and MUST use their exact `type_id`s inside `expected_paths` and `required_capabilities[*].accepted_type_groups`:
      `web_client` (Web / Browser Client), `mobile_client` (Mobile Client), `webhook_actor` (External System / Webhook), `static_hosting` (Static Web / SPA Host), `dns` (DNS / GeoDNS), `cdn` (CDN / Edge Cache), `waf_ddos` (WAF / DDoS Shield), `load_balancer` (Load Balancer), `api_gateway` (API Gateway), `rate_limiter` (Rate Limiter), `auth_service` (Auth / IAM Service), `realtime_gateway` (WebSocket / Push Gateway), `content_filter` (URL / Payload Safety Filter), `circuit_breaker` (Service Mesh / Circuit Breaker), `app_service` (Stateless App Service), `async_worker` (Background Worker Pool), `scheduler` (Scheduler / TTL Sweeper), `id_generator` (Unique ID / Key Generator), `ml_inference` (ML / Ranking Service), `llm_gateway` (LLM / AI Model Gateway), `media_transcoder` (Media / Document Processor), `distributed_cache` (Distributed Cache (Redis)), `local_cache` (Local / L1 In-Process Cache), `feature_store` (Feature / State Store), `bloom_filter` (Bloom Filter / Dedup Index), `relational_db` (Primary Relational DB), `read_replica` (DB Read Replica), `nosql_kv` (NoSQL / Wide-Column / KV DB), `object_storage` (Object / Blob Storage), `timeseries_db` (Time-Series DB), `vector_db` (Vector Index / DB), `geo_index` (Geospatial / Proximity Index), `consensus_store` (Coordination / Lease Store), `message_queue` (Task Queue), `event_stream` (Event Log / Kafka Stream), `pubsub_bus` (Pub/Sub Fan-out Bus), `stream_processor` (Stream Processor (Flink)), `dlq` (Dead-Letter Queue (DLQ)), `notification_hub` (Push / Email / SMS Gateway), `search_engine` (Full-Text / Geo Search), `olap_warehouse` (Analytics / OLAP Store), `cdc_connector` (Outbox / CDC Pipeline), `observability` (Metrics, Logs & Tracing).
    - ONLY add `diagram_palette_extensions` when the problem domain genuinely needs a specialized domain block not covered above (e.g., `DRM License Server`, `Stripe Idempotency Ledger`, `Telemetry Anomaly Scorer`).
    - Whenever you introduce a custom extension in `diagram_palette_extensions`, set a kebab-case `type_id`, clean `label`, valid `category` (`clients_edge | traffic_api | compute_services | caching_memory | databases_storage | messaging_streaming | search_analytics_ops`), valid `icon` (`box | server | database | bolt | git-commit-horizontal | network | brain | globe | search | shield | layers | compass | radio | clock`), concise `default_role`, AND include that exact `label` in the variant's `expected_components`.
-   - Include clean multi-hop `expected_paths` (2 concise flows per variant: e.g. Core Read/Query Path and Write/Async Ingestion Path) AND non-spoiling `required_capabilities` (3-4 capabilities per variant where `accepted_type_groups` lists multiple valid architectural options using exact canonical `type_id`s above, e.g. `[["relational_db"], ["nosql_kv"]]`) on ALL 3 VARIANTS. Keep each text field crisp (1 concise sentence) so the full 3-variant JSON completes cleanly without truncation.
+   - Include clean multi-hop `expected_paths` (at least 2 distinct flows per variant: a read/redirect/query path and a write/create/ingestion path where applicable; async side effects must not sit on a latency-critical response path) AND non-spoiling `required_capabilities` (3-4 baseline capabilities per variant where `accepted_type_groups` lists multiple valid architectural options using exact canonical `type_id`s above, e.g. `[["relational_db"], ["nosql_kv"]]`) on ALL 3 VARIANTS.
+   - Include 2-4 `bonus_capabilities` per variant, separate from `required_capabilities`. Each check must represent an optional, scenario-specific real-world hardening step (e.g. abuse controls, failure recovery/DLQ, observability/SLOs, privacy, or analytics durability); give it a stable kebab-case `id`, concise `title` and `goal`, one or more `accepted_type_groups` of canonical `type_id`s, integer `points` from 1-3, and a concrete `defence_tradeoff`. Do not award points for boxes already required by the baseline; optional checks must require connected components.
+   - Make each alternative combination in an `accepted_type_groups` group a coherent valid choice. Keep trade-offs measurable and grounded in the brief, not generic "scale more" advice. Keep text crisp so the full JSON completes cleanly without truncation.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
@@ -319,6 +313,24 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
             "goal": "Serve core read/write workflows cleanly via horizontally scalable compute and durable storage.",
             "accepted_type_groups": [["app_service", "relational_db"], ["app_service", "nosql_kv"], ["serverless_fn", "nosql_kv"]],
             "defence_tradeoff": "Defend schema/indexing choices and failure recovery."
+          }}
+        ],
+        "bonus_capabilities": [
+          {{
+            "id": "failure-recovery",
+            "title": "Recover failed asynchronous work",
+            "goal": "Add bounded retries and isolate poison events for replay without blocking the user-facing request.",
+            "accepted_type_groups": [["message_queue", "dlq"], ["event_stream", "dlq"]],
+            "points": 1,
+            "defence_tradeoff": "How do idempotency, retry bounds, and operator replay affect delivery guarantees?"
+          }},
+          {{
+            "id": "service-observability",
+            "title": "Measure the user-facing SLO",
+            "goal": "Collect service-level latency, availability, and dependency health signals with actionable alerts.",
+            "accepted_type_groups": [["observability"]],
+            "points": 1,
+            "defence_tradeoff": "Which signal detects user impact early without paging on harmless noise?"
           }}
         ],
         "diagram_palette_extensions": [
@@ -509,6 +521,7 @@ def _validate_generated_challenge_payload(parsed: dict[str, Any]) -> dict[str, A
                 raise ValueError(
                     f"Variant {idx} ('{var.get('title')}') must include expected_components/functional_requirements and defence_questions."
                 )
+            _validate_bonus_capabilities(var.get("bonus_capabilities"), idx)
     else:
         expected_components = _normalize_string_list(
             raw_brief.get("expected_components")
@@ -518,8 +531,53 @@ def _validate_generated_challenge_payload(parsed: dict[str, Any]) -> dict[str, A
             raise ValueError(
                 "Challenge interviewer_brief must include either 2+ structured variants or non-empty expected_components and defence_questions."
             )
+        _validate_bonus_capabilities(raw_brief.get("bonus_capabilities"), 1)
 
     return parsed
+
+
+def _validate_bonus_capabilities(raw_capabilities: Any, variant_index: int) -> None:
+    if raw_capabilities is None:
+        return
+    if not isinstance(raw_capabilities, list) or len(raw_capabilities) < 2:
+        raise ValueError(
+            f"Variant {variant_index} bonus_capabilities must contain at least 2 robustness checks."
+        )
+    seen_ids: set[str] = set()
+    for capability in raw_capabilities:
+        if not isinstance(capability, dict):
+            raise ValueError(
+                f"Variant {variant_index} bonus_capabilities entries must be objects."
+            )
+        capability_id = str(capability.get("id") or "").strip()
+        title = str(capability.get("title") or "").strip()
+        goal = str(capability.get("goal") or "").strip()
+        groups = capability.get("accepted_type_groups")
+        points = capability.get("points", 1)
+        if (
+            not capability_id
+            or capability_id in seen_ids
+            or not title
+            or not goal
+            or not isinstance(groups, list)
+            or not groups
+            or not isinstance(points, int)
+            or isinstance(points, bool)
+            or not 1 <= points <= 3
+        ):
+            raise ValueError(
+                f"Variant {variant_index} bonus checks need unique ids, titles, goals, non-empty accepted_type_groups, and 1-3 integer points."
+            )
+        seen_ids.add(capability_id)
+        if any(
+            not isinstance(group, list)
+            or not group
+            or any(not str(type_id or "").strip() for type_id in group)
+            for group in groups
+        ):
+            raise ValueError(
+                f"Variant {variant_index} bonus check '{capability_id}' has an invalid accepted_type_groups entry."
+            )
 
 
 _VARIANT_BRIEF_COPY_KEYS = (
@@ -534,6 +592,7 @@ _VARIANT_BRIEF_COPY_KEYS = (
     "expected_components",
     "expected_paths",
     "required_capabilities",
+    "bonus_capabilities",
     "diagram_palette_extensions",
     "common_bottlenecks_and_spofs",
     "over_engineering_traps",
@@ -621,23 +680,36 @@ def _normalize_variant_blueprint(variant: dict[str, Any]) -> None:
                 step["target_type_id"] = _resolve_blueprint_type_id(
                     str(step["target_type_id"]), ext_list
                 )
-    for cap in variant.get("required_capabilities") or []:
-        if not isinstance(cap, dict):
-            continue
-        raw_groups = cap.get("accepted_type_groups") or []
-        norm_groups: list[list[str]] = []
-        for grp in raw_groups:
-            if not isinstance(grp, list):
+    for key in ("required_capabilities", "bonus_capabilities"):
+        for cap in variant.get(key) or []:
+            if not isinstance(cap, dict):
                 continue
-            fixed = [
-                _resolve_blueprint_type_id(str(t), ext_list)
-                for t in grp
-                if str(t or "").strip()
-            ]
-            if fixed:
-                norm_groups.append(fixed)
-        if norm_groups:
-            cap["accepted_type_groups"] = norm_groups
+            raw_groups = cap.get("accepted_type_groups") or []
+            norm_groups: list[list[str]] = []
+            for grp in raw_groups:
+                if not isinstance(grp, list):
+                    continue
+                fixed = [
+                    _resolve_blueprint_type_id(str(t), ext_list)
+                    for t in grp
+                    if str(t or "").strip()
+                ]
+                if fixed:
+                    norm_groups.append(fixed)
+            if norm_groups:
+                cap["accepted_type_groups"] = norm_groups
+
+
+def _copy_default_bonus_capabilities() -> list[dict[str, Any]]:
+    return [
+        {
+            **capability,
+            "accepted_type_groups": [
+                list(group) for group in capability["accepted_type_groups"]
+            ],
+        }
+        for capability in DEFAULT_BONUS_CAPABILITIES
+    ]
 
 
 def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
@@ -648,6 +720,7 @@ def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
         },
         "expected_components": ["API Gateway", "Core Service", "Primary Storage"],
         "over_engineering_traps": [],
+        "bonus_capabilities": _copy_default_bonus_capabilities(),
         "defence_questions": [
             "How does your design degrade gracefully when downstream storage slows down?"
         ],
@@ -658,11 +731,28 @@ def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
     variants = _extract_brief_variants(brief)
     if variants:
         top_exts = brief.get("diagram_palette_extensions")
+        top_bonus = brief.get("bonus_capabilities")
         if isinstance(top_exts, list) and top_exts:
             for v in variants:
                 if not v.get("diagram_palette_extensions"):
                     v["diagram_palette_extensions"] = list(top_exts)
         for v in variants:
+            if not v.get("bonus_capabilities"):
+                v["bonus_capabilities"] = (
+                    [
+                        {
+                            **capability,
+                            "accepted_type_groups": [
+                                list(group)
+                                for group in capability.get("accepted_type_groups", [])
+                            ],
+                        }
+                        for capability in top_bonus
+                        if isinstance(capability, dict)
+                    ]
+                    if isinstance(top_bonus, list) and top_bonus
+                    else _copy_default_bonus_capabilities()
+                )
             _normalize_variant_blueprint(v)
         brief["variants"] = variants
         primary = variants[0]
@@ -670,6 +760,8 @@ def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
             if key in primary and key not in brief:
                 brief[key] = primary[key]
     else:
+        if not brief.get("bonus_capabilities"):
+            brief["bonus_capabilities"] = _copy_default_bonus_capabilities()
         _normalize_variant_blueprint(brief)
     return brief
 
@@ -1117,12 +1209,6 @@ def _normalize_scale_dict(value: Any) -> dict[str, str]:
 
 
 _PLACEHOLDER_STRINGS = {"n/a", "na", "none", "tbd", "todo", "null", "-", "..."}
-_RATING_TIERS = {
-    "NEEDS_PRACTICE": 0,
-    "DEVELOPING": 1,
-    "INTERVIEW_READY": 2,
-    "STRONG_HIRE": 3,
-}
 
 
 def _compact_guidance_summary(raw_guidance: dict[str, Any] | None) -> dict[str, Any]:
@@ -1157,16 +1243,6 @@ def _compact_guidance_summary(raw_guidance: dict[str, Any] | None) -> dict[str, 
     }
 
 
-def _derive_readiness_rating(overall_score: float) -> str:
-    if overall_score >= 88.0:
-        return "STRONG_HIRE"
-    if overall_score >= 70.0:
-        return "INTERVIEW_READY"
-    if overall_score >= 50.0:
-        return "DEVELOPING"
-    return "NEEDS_PRACTICE"
-
-
 def _is_session_coached(session: SystemDesignSessionModel | None) -> bool:
     """Return True when the learner used Reveal Requirements, Hints, Required Bank, or Coach."""
     if not session:
@@ -1188,12 +1264,12 @@ def _is_session_coached(session: SystemDesignSessionModel | None) -> bool:
     return False
 
 
-def _apply_guidance_penalty(
+def _normalize_formative_evaluation(
     eval_dict: dict[str, Any],
     diagram_guidance: dict[str, Any] | None,
     session: SystemDesignSessionModel | None = None,
 ) -> dict[str, Any]:
-    """Attach unpenalized rubric score, Solo/Coached status, and Mastery XP."""
+    """Keep practice points transparent and record whether guidance was used."""
     updated = dict(eval_dict)
     raw_val = (
         updated.get("raw_score")
@@ -1213,11 +1289,9 @@ def _apply_guidance_penalty(
         )
     )
     updated["raw_score"] = raw_score
-    updated["guidance_penalty"] = 0.0
     updated["overall_score"] = raw_score
-    updated["readiness_rating"] = _derive_readiness_rating(raw_score)
+    updated["readiness_rating"] = "FORMATIVE"
     updated["assistance_mode"] = "COACHED" if is_coached else "SOLO"
-    updated["xp_earned"] = 100 if is_coached else 150
     return updated
 
 
@@ -1306,27 +1380,10 @@ def _validate_final_evaluation_payload(raw_data: dict[str, Any]) -> dict[str, An
         numeric_overall = float(raw_overall)
         if numeric_overall < 0.0 or numeric_overall > 100.0:
             raise ValueError(f"overall_score {numeric_overall} violates 0..100 range.")
-        raw_overall_tier = _RATING_TIERS[_derive_readiness_rating(numeric_overall)]
-        computed_tier = _RATING_TIERS[_derive_readiness_rating(computed_overall)]
-        if abs(numeric_overall - computed_overall) > 35.0 or (
-            abs(numeric_overall - computed_overall) > 15.0
-            and abs(raw_overall_tier - computed_tier) >= 2
-        ):
+        if abs(numeric_overall - computed_overall) > 0.1:
             raise ValueError(
-                f"Contradictory overall_score ({numeric_overall}) vs rubric dimensions average "
-                f"({computed_overall} computed from 12 dimensions)."
-            )
-
-    derived_rating = _derive_readiness_rating(computed_overall)
-    raw_rating = str(raw_data.get("readiness_rating") or "").strip().upper()
-    if raw_rating:
-        if raw_rating not in VALID_READINESS_RATINGS:
-            raise ValueError(
-                f"Invalid readiness_rating '{raw_rating}'; expected one of {VALID_READINESS_RATINGS}."
-            )
-        if abs(_RATING_TIERS[raw_rating] - _RATING_TIERS[derived_rating]) >= 2:
-            raise ValueError(
-                f"Contradictory readiness_rating '{raw_rating}' for deterministic score {computed_overall}/100 ({derived_rating})."
+                f"overall_score {numeric_overall} must match {computed_overall}, "
+                "computed from the 12 rubric dimensions."
             )
 
     executive_summary = str(raw_data.get("executive_summary") or "").strip()
@@ -1351,7 +1408,7 @@ def _validate_final_evaluation_payload(raw_data: dict[str, Any]) -> dict[str, An
 
     validated = FinalEvaluationSchema(
         overall_score=computed_overall,
-        readiness_rating=derived_rating,  # type: ignore[arg-type]
+        readiness_rating="FORMATIVE",
         executive_summary=executive_summary,
         rubric_scores=ordered_scores,
         key_strengths=key_strengths,
@@ -3358,7 +3415,10 @@ class SystemDesignService:
 
     @staticmethod
     def _collect_canvas_flow_summaries(
-        session_id: int, diagrams: list[dict[str, Any]]
+        session_id: int,
+        diagrams: list[dict[str, Any]],
+        brief: dict[str, Any] | None = None,
+        locked_ledger: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Read saved Flow JSON files for canvas revisions without failing if missing."""
         session_dir = (_get_storage_root() / f"session_{session_id}").resolve()
@@ -3384,14 +3444,30 @@ class SystemDesignService:
                 continue
             try:
                 payload = json.loads(fpath.read_text(encoding="utf-8"))
-                summaries.append(
-                    {
-                        "version": int(entry.get("version", 0)),
-                        "notes": str(entry.get("notes") or ""),
-                        "flow_summary": payload.get("flow_summary")
-                        or summarize_diagram_flow(payload),
+                summary = {
+                    "version": int(entry.get("version", 0)),
+                    "notes": str(entry.get("notes") or ""),
+                    "flow_summary": payload.get("flow_summary")
+                    or summarize_diagram_flow(payload),
+                }
+                if brief is not None:
+                    blueprint = resolve_challenge_blueprint(brief, locked_ledger)
+                    topology = evaluate_canvas_topology(payload, blueprint, brief)
+                    summary["robustness_bonus"] = {
+                        "points": topology.get("robustness_bonus_points", 0),
+                        "max_points": topology.get("robustness_bonus_max_points", 0),
+                        "checks": [
+                            {
+                                "id": check["id"],
+                                "title": check["title"],
+                                "status": check["status"],
+                                "points": check["earned_points"],
+                                "max_points": check["points"],
+                            }
+                            for check in topology.get("bonus_capability_checks", [])
+                        ],
                     }
-                )
+                summaries.append(summary)
             except Exception as exc:
                 logger.warning(
                     "Unable to read canvas flow JSON %s for session %s: %s",
@@ -3400,6 +3476,67 @@ class SystemDesignService:
                     exc,
                 )
         return summaries
+
+    @staticmethod
+    def _get_session_bonus_evaluation(
+        session: SystemDesignSessionModel,
+    ) -> dict[str, Any]:
+        """Attach separately-scored robustness points from the latest structured canvas."""
+        diagrams = list(session.diagrams_metadata or [])
+        if not diagrams:
+            return {
+                "robustness_bonus_available": False,
+                "robustness_bonus_points": None,
+                "robustness_bonus_max_points": None,
+                "bonus_capability_checks": [],
+                "robustness_bonus_reason": "No structured canvas diagram is available for topology-based bonus scoring.",
+            }
+        latest = max(diagrams, key=lambda item: int(item.get("version", 0)))
+        kind = str(
+            latest.get("diagram_kind")
+            or ("canvas" if latest.get("mime_type") == "application/json" else "image")
+        )
+        if kind != "canvas":
+            return {
+                "robustness_bonus_available": False,
+                "robustness_bonus_points": None,
+                "robustness_bonus_max_points": None,
+                "bonus_capability_checks": [],
+                "robustness_bonus_reason": "The latest diagram is image-only; bonus checks still receive qualitative review.",
+            }
+
+        brief = SystemDesignService._get_session_brief(session)
+        summaries = SystemDesignService._collect_canvas_flow_summaries(
+            int(session.id),
+            [latest],
+            brief,
+            session.requirements_ledger or {},
+        )
+        bonus = summaries[0].get("robustness_bonus") if summaries else None
+        if not isinstance(bonus, dict):
+            return {
+                "robustness_bonus_available": False,
+                "robustness_bonus_points": None,
+                "robustness_bonus_max_points": None,
+                "bonus_capability_checks": [],
+                "robustness_bonus_reason": "The latest canvas could not be loaded, so topology bonus points were not calculated.",
+            }
+        return {
+            "robustness_bonus_available": True,
+            "robustness_bonus_points": int(bonus.get("points") or 0),
+            "robustness_bonus_max_points": int(bonus.get("max_points") or 0),
+            "bonus_capability_checks": [
+                {
+                    "id": check["id"],
+                    "title": check["title"],
+                    "status": check["status"],
+                    "earned_points": check["points"],
+                    "points": check["max_points"],
+                }
+                for check in bonus.get("checks", [])
+            ],
+            "robustness_bonus_reason": "",
+        }
 
     @staticmethod
     async def get_diagram_file(
@@ -3949,7 +4086,10 @@ class SystemDesignService:
 
         diagrams_meta = list(session.diagrams_metadata or [])
         canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
-            session_id, diagrams_meta
+            session_id,
+            diagrams_meta,
+            SystemDesignService._get_session_brief(session),
+            session.requirements_ledger or {},
         )
         compact_guidance = _compact_guidance_summary(session.diagram_guidance)
 
@@ -4083,9 +4223,10 @@ class SystemDesignService:
                 f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
             )
 
-        adjusted_eval = _apply_guidance_penalty(
+        adjusted_eval = _normalize_formative_evaluation(
             eval_dict, session.diagram_guidance, session=session
         )
+        adjusted_eval.update(SystemDesignService._get_session_bonus_evaluation(session))
         now = datetime.now(UTC)
         session.final_evaluation = adjusted_eval
         session.overall_score = float(adjusted_eval["overall_score"])
@@ -4364,7 +4505,10 @@ class SystemDesignService:
         session_brief = SystemDesignService._get_session_brief(session)
         latest_review = (session.architecture_reviews or [])[-1]
         canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
-            session.id, list(session.diagrams_metadata or [])
+            session.id,
+            list(session.diagrams_metadata or []),
+            session_brief,
+            session.requirements_ledger or {},
         )
         sections = [
             f"# External Stage 4 Architecture Defence — {challenge.title}",
@@ -4543,6 +4687,8 @@ class SystemDesignService:
         canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
             session.id, diagrams
         )
+        frontier_brief = SystemDesignService._get_session_brief(session)
+        frontier_brief.pop("bonus_capabilities", None)
         compact_guidance = _compact_guidance_summary(session.diagram_guidance)
         latest_version = int(diagrams[-1]["version"]) if diagrams else None
         dimensions_md = "\n".join(f"- `{dim}`" for dim in DEFAULT_RUBRIC_DIMENSIONS)
@@ -4550,8 +4696,7 @@ class SystemDesignService:
         json_template = json.dumps(
             {
                 "overall_score": 0,
-                "readiness_rating": "NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE",
-                "executive_summary": "<2-4 sentence overall Staff-level assessment>",
+                "executive_summary": "<2-4 sentence formative assessment>",
                 "rubric_scores": [
                     {
                         "dimension": dim,
@@ -4565,7 +4710,7 @@ class SystemDesignService:
                 "critical_gaps": ["<evidence-backed gap>"],
                 "recommended_next_steps": ["<concrete practice or revision action>"],
             },
-            indent=2,
+            indent=1,
         )
 
         packet_sections = [
@@ -4575,7 +4720,7 @@ class SystemDesignService:
             "> 1. If the candidate uploaded their architecture diagram image alongside this prompt, inspect the image visually FIRST (check component boxes, arrows, stores, queues, replication, failure boundaries) before relying on local review summaries.",
             "> 2. Score strictly on demonstrated evidence in the attached diagram, locked requirements ledger, requirements discovery transcript, and defence answers. Honor valid alternative architectures when capabilities and SLAs are met.",
             f"> 3. Note coaching telemetry: **{independent_count} independent** candidate turn(s) vs **{assisted_count} assisted/hint-requested** turn(s).",
-            "> 4. Respond with a rigorous critique AND include ONE valid JSON code block matching the schema at the bottom so the candidate can import your scorecard directly back into Job Tracker.",
+            "> 4. Return a rigorous critique and one valid JSON code block matching the schema below; Job Tracker scores topology bonuses separately.",
             "",
             "## 1. Challenge Brief & Hidden Ground Truth",
             f"- **Title**: {challenge.title}",
@@ -4584,7 +4729,7 @@ class SystemDesignService:
             f"- **Initial Prompt**: {challenge.initial_prompt}",
             "",
             "```json",
-            json.dumps(SystemDesignService._get_session_brief(session), indent=2),
+            json.dumps(frontier_brief, indent=2),
             "```",
             "",
             "## 2. Requirements Discovery Transcript (Stage B)",
@@ -4643,9 +4788,10 @@ class SystemDesignService:
 
         parsed = _parse_strict_json_object(raw_response)
         eval_dict = _validate_final_evaluation_payload(parsed)
-        adjusted_eval = _apply_guidance_penalty(
+        adjusted_eval = _normalize_formative_evaluation(
             eval_dict, session.diagram_guidance, session=session
         )
+        adjusted_eval.update(SystemDesignService._get_session_bonus_evaluation(session))
         now = datetime.now(UTC)
         session.final_evaluation = adjusted_eval
         session.overall_score = float(adjusted_eval["overall_score"])

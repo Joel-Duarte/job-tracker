@@ -64,7 +64,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                 "dau": "20M daily active users (DAU)",
                 "daily_creation_volume": "~3.3M new shortened URLs created per day (~100M/month; ~40 writes/s average, ~120 writes/s peak)",
                 "daily_redirect_volume": "~330M redirects/day (~4,000 redirect QPS average, ~12,000 peak QPS; 100:1 read-to-write ratio)",
-                "payload_and_storage": "~500 bytes per URL mapping record; 7-char Base62 short codes; ~300M active records over 5 years (~1.5 TB raw mapping data)",
+                "payload_and_storage": "~500 bytes per URL mapping record; 7-char Base62 short codes; ~300M active records over 5 years (~150 GB raw mapping data before indexes and replicas)",
             },
             "functional_requirements": [
                 "Create a unique 7-character Base62 short URL from a valid long URL",
@@ -81,6 +81,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             ],
             "constraints": [
                 "Global user base: reads served globally at low latency; writes can terminate in regional primaries",
+                "Treat POST /links creation and GET /{short_code} redirection as distinct traffic flows with independent latency and capacity concerns; they may remain handlers in one service until scale justifies separation",
                 "Default retention is 5 years unless an explicit shorter TTL is provided; expired links return HTTP 410/404",
                 "No authentication required on redirect path; malicious/phishing destination URLs must be rejected",
             ],
@@ -99,7 +100,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                 "dau": "80M MAU; 20M daily active users; ~3.3M new URLs/day (~100M/month)",
                 "read_write_ratio": "100:1 read-heavy (~330M redirects/day; ~4,000 redirect QPS average, ~12,000 peak QPS; ~40 writes/s average, ~120 peak)",
                 "payload_size": "~500 bytes per URL mapping record; short code length 7 chars (Base62)",
-                "retention": "Default 5-year retention (~300M total records over 5 years, ~1.5 TB raw mapping data) plus optional user-specified TTL",
+                "retention": "Default 5-year retention (~300M total records over 5 years, ~150 GB raw mapping data before indexes and replicas) plus optional user-specified TTL",
                 "privacy_and_security": "Public links by default (no login to redirect); non-sequential/non-predictable short codes; HTTPS + URL blocklist",
                 "analytics": "Asynchronous eventual consistency (1-5 min lag acceptable; decoupled from redirect latency)",
                 "latency_sla": "p99 redirect latency < 30ms; link creation < 200ms",
@@ -2749,7 +2750,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             "scale_estimates": {
                 "dau": "100M DAU",
                 "daily_views": "~500M video views/day (~6,000/sec avg, ~25,000/sec peak)",
-                "daily_uploads": "~500,000 uploads/day (~5-10/sec avg; 500 MB avg, up to 5 GB 4K)",
+                "daily_uploads": "~500,000 uploads/day (~5-10/sec avg; 500 MB avg, up to 5 GB 4K), or ~250 TB/day raw ingress (~91 PB/year) before renditions, replication, or retention",
             },
             "functional_requirements": [
                 "Resumable chunked large video uploads directly to object storage",
@@ -2776,6 +2777,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             "hidden_context": {
                 "dau": "100M DAU; ~500M video views/day (~6,000 views/sec average, 25k/sec peak)",
                 "upload_volume": "~500,000 video uploads/day (~5-10 uploads/sec average); average raw upload 500 MB (up to 4K 5 GB)",
+                "raw_ingress_baseline": "~250 TB/day (~91 PB/year) at the stated upload count and average size; retention, rendition expansion, replication, and budget are open requirements to clarify",
                 "latency_sla": "Playback start < 500ms; video transcoding ready within minutes (not real-time); resumable uploads",
                 "availability_target": "99.99% playback availability; 99.9% upload availability",
                 "geographic_distribution": "Global CDN playback; multi-region upload edge acceleration",
@@ -3223,7 +3225,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             },
             "scale_estimates": {
                 "dau": "50M DAU",
-                "daily_messages": "~20B messages/day (~230k/sec average, ~700k/sec peak; ~200 bytes avg text)",
+                "daily_messages": "~20B messages/day (~230k/sec average, ~700k/sec peak; ~200 bytes avg text; ~4 TB/day raw text bodies before metadata, indexes, or replicas)",
                 "group_and_devices": "Typical groups 5-50 members (max 500); up to 5 devices/user",
             },
             "functional_requirements": [
@@ -3249,9 +3251,10 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                 "End-to-end voice/video calling and enterprise eDiscovery compliance export",
             ],
             "hidden_context": {
-                "dau": "50M DAU; ~20B messages/day (~230k messages/sec average, 700k/sec peak)",
+                "dau": "50M DAU; ~20B messages/day (~230k messages/sec average, 700k/sec peak; ~4 TB/day raw text bodies before metadata, indexes, or replicas)",
                 "group_size": "Typical groups 5-50 members; max group size capped at 500 members",
                 "message_size": "Text messages average 200 bytes; media attachments stored via object storage + URL reference",
+                "retention_and_storage": "~4 TB/day raw text bodies (~1.46 PB/year) before metadata, indexes, replication, or media; retention and deletion policy are open requirements to clarify",
                 "devices_per_user": "Up to 5 synced devices per user (phone, web, desktop)",
                 "latency_sla": "Message delivery to online recipient < 150ms p99",
                 "availability_target": "99.99% availability; strict per-conversation causal/monotonic ordering; encrypted in transit and stored reliably",
@@ -3265,7 +3268,7 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             ],
             "expected_non_functional_requirements": [
                 "Low-latency bidirectional delivery over WebSockets",
-                "Massive write-heavy message storage partitioned by `channel_id` / `conversation_id` + monotonically increasing `message_id`",
+                "Write-heavy message storage partitioned by `conversation_id`; preserve ordering within each conversation without requiring a global message sequence",
                 "Debounced/throttled presence updates to avoid connection storm cascading failures",
             ],
             "expected_components": [
@@ -4151,6 +4154,7 @@ _BRIEF_VARIANT_KEYS = (
     "expected_components",
     "expected_paths",
     "required_capabilities",
+    "bonus_capabilities",
     "diagram_palette_extensions",
     "common_bottlenecks_and_spofs",
     "over_engineering_traps",
@@ -4180,6 +4184,247 @@ def _materialize_challenge_variants() -> None:
 
 
 _materialize_challenge_variants()
+
+
+def _bonus(
+    capability_id: str,
+    title: str,
+    goal: str,
+    groups: list[list[str]],
+    tradeoff: str,
+    points: int = 1,
+) -> dict[str, Any]:
+    return {
+        "id": capability_id,
+        "title": title,
+        "goal": goal,
+        "accepted_type_groups": groups,
+        "points": points,
+        "defence_tradeoff": tradeoff,
+    }
+
+
+_CURATED_BONUS_CAPABILITIES: dict[str, list[dict[str, Any]]] = {
+    "url-shortener": [
+        _bonus(
+            "creator_abuse_controls",
+            "Protect link creation from abuse",
+            "Apply quotas or edge controls to creation without making public redirects depend on authentication.",
+            [["rate_limiter"], ["waf_ddos"]],
+            "Where are quotas enforced, and how do you avoid throttling legitimate redirects?",
+        ),
+        _bonus(
+            "creator_identity",
+            "Add ownership for account features",
+            "Use identity for custom aliases or account management only; keep anonymous redirects public.",
+            [["auth_service"]],
+            "Which operations require identity, and how does auth stay off the public redirect path?",
+        ),
+        _bonus(
+            "analytics_recovery",
+            "Recover analytics without slowing redirects",
+            "Keep click analytics asynchronous, preserve failed events for replay, and land aggregates in an analytical store.",
+            [
+                ["message_queue", "dlq", "olap_warehouse"],
+                ["event_stream", "dlq", "olap_warehouse"],
+            ],
+            "Explain delivery guarantees, idempotent aggregation, retention, and replay operations.",
+            points=2,
+        ),
+        _bonus(
+            "redirect_observability",
+            "Measure redirect health",
+            "Track redirect p99, cache hit rate, origin errors, and analytics lag with actionable alerts.",
+            [["observability"]],
+            "Which SLO alert detects user impact, and which signals diagnose cache or origin failure?",
+        ),
+    ],
+    "spotify-100k": [
+        _bonus(
+            "media_origin_resilience",
+            "Protect media origin capacity",
+            "Use edge delivery and durable media origins so popular audio does not overload application services.",
+            [["cdn", "object_storage"]],
+            "How do cache invalidation, rights restrictions, and origin failover affect cost and freshness?",
+        ),
+        _bonus(
+            "media_pipeline_recovery",
+            "Recover failed media processing",
+            "Bound retries and isolate poison ingestion or transcoding jobs for safe replay.",
+            [["message_queue", "dlq"], ["event_stream", "dlq"]],
+            "How are duplicate jobs made safe and failed tracks made visible to operators?",
+        ),
+        _bonus(
+            "media_observability",
+            "Observe playback quality",
+            "Correlate startup latency, rebuffering, CDN errors, and ingestion lag with user-facing SLOs.",
+            [["observability"]],
+            "Which client-side and server-side signals identify a regional playback incident?",
+        ),
+    ],
+    "realtime-notifications": [
+        _bonus(
+            "notification_delivery_recovery",
+            "Recover failed notification delivery",
+            "Use bounded retries and a dead-letter or replay path without duplicating user-visible alerts.",
+            [["message_queue", "dlq"], ["event_stream", "dlq"]],
+            "How do idempotency, provider limits, and poison messages affect delivery guarantees?",
+        ),
+        _bonus(
+            "notification_tenant_fairness",
+            "Protect tenants and providers from bursts",
+            "Enforce tenant-aware quotas or provider concurrency limits so one source cannot starve others.",
+            [["rate_limiter"], ["distributed_cache", "rate_limiter"]],
+            "How do quota keys, fairness windows, and limiter failures affect delivery?",
+        ),
+        _bonus(
+            "notification_observability",
+            "Track delivery SLOs",
+            "Measure end-to-end delivery latency, provider errors, queue age, and duplicate rates.",
+            [["observability"]],
+            "Which alert detects user-impacting delay before the queue becomes unrecoverable?",
+        ),
+    ],
+    "ride-sharing": [
+        _bonus(
+            "location_ingestion_recovery",
+            "Handle late or duplicated location events",
+            "Retain or replay location updates safely when consumers lag or a region briefly fails.",
+            [["event_stream", "object_storage"], ["message_queue", "dlq"]],
+            "How do event time, deduplication, and retention affect matching freshness and storage cost?",
+        ),
+        _bonus(
+            "ride_request_protection",
+            "Protect dispatch from request bursts",
+            "Apply admission control or tenant-aware limits while preserving urgent dispatch traffic.",
+            [["rate_limiter"], ["waf_ddos"]],
+            "What is shed first under overload, and how do you avoid rejecting high-priority rides?",
+        ),
+        _bonus(
+            "dispatch_observability",
+            "Observe dispatch health",
+            "Track match latency, location freshness, regional errors, and queue lag against explicit SLOs.",
+            [["observability"]],
+            "Which signals distinguish stale GPS data from a matching-service bottleneck?",
+        ),
+    ],
+    "distributed-job-queue": [
+        _bonus(
+            "poison_job_recovery",
+            "Isolate and replay poison jobs",
+            "Add bounded retries, a dead-letter path, and operator-controlled replay for permanently failing jobs.",
+            [["message_queue", "dlq"], ["event_stream", "dlq"]],
+            "How do idempotency, retry backoff, and replay prevent duplicate side effects?",
+        ),
+        _bonus(
+            "tenant_fairness",
+            "Prevent noisy-neighbor starvation",
+            "Enforce per-tenant concurrency or queue quotas with fair scheduling.",
+            [["rate_limiter"], ["distributed_cache", "rate_limiter"]],
+            "How do fairness and utilization trade off when one tenant has a large backlog?",
+        ),
+        _bonus(
+            "queue_observability",
+            "Make queue health actionable",
+            "Expose queue age, retry volume, consumer saturation, and dead-letter growth with alerts.",
+            [["observability"]],
+            "Which lag threshold predicts an SLA miss rather than harmless burst absorption?",
+        ),
+    ],
+    "video-streaming": [
+        _bonus(
+            "transcode_recovery",
+            "Recover failed transcodes",
+            "Make media jobs retryable and isolate corrupt inputs without blocking healthy playback.",
+            [["message_queue", "dlq"], ["event_stream", "dlq"]],
+            "How do you avoid duplicate renditions and detect a permanently invalid source asset?",
+        ),
+        _bonus(
+            "origin_protection",
+            "Shield origins during traffic spikes",
+            "Use cache hierarchy and durable object storage to protect media origins during hot releases.",
+            [["cdn", "object_storage"]],
+            "How do cache stampedes, invalidation, and regional origin failure change the design?",
+        ),
+        _bonus(
+            "playback_observability",
+            "Measure playback quality",
+            "Track startup time, rebuffer ratio, CDN cache hit rate, and regional playback failures.",
+            [["observability"]],
+            "Which user-side metric is the SLO and how does it map to server-side causes?",
+        ),
+    ],
+    "chat-system": [
+        _bonus(
+            "message_replay",
+            "Recover missed message processing",
+            "Retain replayable events or isolate failed deliveries while preserving message ordering guarantees.",
+            [["event_stream", "object_storage"], ["message_queue", "dlq"]],
+            "How do retention, replay, deduplication, and per-conversation ordering interact?",
+        ),
+        _bonus(
+            "chat_abuse_controls",
+            "Limit spam and connection abuse",
+            "Apply rate or edge controls to message sends and connection establishment without penalizing normal chat.",
+            [["rate_limiter"], ["waf_ddos"]],
+            "Which identity or conversation key is limited, and how do reconnect storms degrade?",
+        ),
+        _bonus(
+            "chat_observability",
+            "Observe real-time delivery",
+            "Measure message delivery latency, offline backlog, reconnect rates, and regional gateway health.",
+            [["observability"]],
+            "How do you detect delayed delivery without treating every disconnected client as an outage?",
+        ),
+    ],
+    "rate-limiter": [
+        _bonus(
+            "limiter_failure_policy",
+            "Define safe behavior during limiter failure",
+            "Protect critical downstreams during state-store or policy-service failures with an explicit fail-open or fail-closed strategy.",
+            [["circuit_breaker"], ["observability", "distributed_cache"]],
+            "Which routes fail open or closed, and how are stale policy and store outages surfaced?",
+        ),
+        _bonus(
+            "policy_change_recovery",
+            "Make policy changes recoverable",
+            "Version or replay policy updates so distributed enforcement converges after delayed or failed propagation.",
+            [
+                ["event_stream", "dlq"],
+                ["message_queue", "dlq"],
+                ["cdc_connector", "event_stream"],
+            ],
+            "How do propagation delay, ordering, and rollback affect temporary quota inconsistency?",
+        ),
+        _bonus(
+            "limiter_observability",
+            "Make quota decisions explainable",
+            "Monitor limiter latency, decision volume, backend errors, and false-positive signals.",
+            [["observability"]],
+            "How do you troubleshoot decisions without logging sensitive request data?",
+        ),
+    ],
+}
+
+
+def _attach_curated_bonus_capabilities() -> None:
+    for challenge in CURATED_CHALLENGES:
+        capabilities = _CURATED_BONUS_CAPABILITIES.get(challenge["slug"], [])
+        variants = (challenge.get("interviewer_brief") or {}).get("variants") or []
+        for variant in variants:
+            if not variant.get("bonus_capabilities"):
+                variant["bonus_capabilities"] = [
+                    {
+                        **capability,
+                        "accepted_type_groups": [
+                            list(group) for group in capability["accepted_type_groups"]
+                        ],
+                    }
+                    for capability in capabilities
+                ]
+
+
+_attach_curated_bonus_capabilities()
 
 
 async def seed_system_design_challenges(db: AsyncSession) -> int:

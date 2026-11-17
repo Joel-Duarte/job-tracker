@@ -767,10 +767,14 @@ The **System Design Lab** provides an interactive, 6-stage system design practic
 
 1. **Challenge Selection**: Browse curated system design scenarios (each with hidden `interviewer_brief` rubric criteria). You can also launch a session directly from Agent Chat via the `start_system_design` tool.
 2. **Requirements Discovery & Lockable Ledger**: Clarify functional and non-functional requirements, back-of-the-envelope estimates, and constraints in an editable, lockable requirements ledger.
-3. **Architecture Diagramming (`v1..vN`)**: Upload or paste architecture diagrams (stored on disk as versioned `v1..vN` revisions) or use the interactive diagramming canvas.
+3. **Architecture Diagramming (`v1..vN`)**: Upload or paste architecture diagrams (stored on disk as versioned `v1..vN` revisions) or use the interactive diagramming canvas. In the canvas, open a service to sketch its internals without cluttering or changing the top-level system view.
 4. **Multimodal Vision Review**: Queue-backed `SYSTEM_DESIGN_REVIEW` tasks evaluate your diagram against the locked requirements ledger.
 5. **Trade-Off Defence**: Defend architectural choices, bottlenecks, and failure modes in a multi-turn interactive defence.
 6. **Final Scorecard**: Evidence-based `SYSTEM_DESIGN_EVALUATION` rubric scoring across requirements, architecture, scalability, and trade-offs.
+
+The scorecard is formative practice feedback, not a hiring signal, pass/fail result, or validated measure of mastery. Its 0–100 core points are calculated from 12 rubric dimensions scored 1–5, with evidence and critique for each. Optional robustness checks award separate bonus points and never reduce that core score; they require connected components, not just named boxes. The completion state means a scorecard was saved; it does not mean the design passed. Solo and coached attempts are both recorded without a guidance penalty. Completed attempts are immutable: repeat the same scenario profile to create a new attempt and compare its score with the previous one.
+
+Work in stages: first make the required user flows correct and meet the discovered constraints; then add only justified hardening such as abuse controls, failure recovery, analytics durability, and observability; finally drill into a service only when its internal design clarifies a real bottleneck. For the URL shortener, explicitly design separate `POST /links` creation and `GET /{short_code}` redirect flows, while keeping them in one service unless scale or ownership makes a split worthwhile. Redirects stay public, creator authentication is optional, and click analytics should not block redirects; a queue, dead-letter recovery, and analytical store are robustness extensions. Built-in, AI-generated, and Frontier-imported challenges use the same baseline/bonus distinction. Scenario estimates are assumptions to interrogate, not universal facts; clarify workload shape, growth, retention, availability, latency, and cost targets before choosing an architecture.
 
 ## Prompt Eval Studio & Frontier Deliverable Bridges
 

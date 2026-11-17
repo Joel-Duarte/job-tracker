@@ -12,6 +12,7 @@ from app.services.diagram_catalog import (
     build_coach_canvas_actions,
     evaluate_canvas_topology,
     match_component_to_catalog,
+    normalize_flow_payload,
     resolve_challenge_blueprint,
 )
 
@@ -773,7 +774,7 @@ async def test_f02_backend_stage_enforcement_and_completed_immutability(
             eval_reply.content = json.dumps(
                 {
                     "overall_score": 80.0,
-                    "readiness_rating": "INTERVIEW_READY",
+                    "readiness_rating": "FORMATIVE",
                     "executive_summary": "Solid design with clear caching and persistence trade-offs.",
                     "rubric_scores": [
                         {
@@ -1828,7 +1829,7 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
                 json={
                     "functional_requirements": ["Create short URL", "301 Redirect"],
                     "non_functional_requirements": [
-                        "<50ms p99 redirect",
+                        "<30ms p99 redirect",
                         "99.99% availability",
                     ],
                     "scale_estimates": {"dau": "10M", "writes_per_sec": "116"},
@@ -2032,7 +2033,7 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             flag_modified(session_obj, "defence_transcript")
             await db_session.commit()
 
-            # 7) Import 90/100 scorecard -> net score must reflect -18.0 hint penalty (= 72.0 / INTERVIEW_READY)
+            # 7) Importing a scorecard keeps the rubric-derived practice points unchanged by hints.
             dimensions = [
                 "Requirements Clarity",
                 "Scope & Prioritization",
@@ -2076,11 +2077,11 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             assert import_res.status_code == 200
             final_data = import_res.json()
             assert final_data["overall_score"] == 90.0
-            assert final_data["readiness_rating"] == "STRONG_HIRE"
+            assert final_data["readiness_rating"] == "FORMATIVE"
             assert final_data["final_evaluation"]["raw_score"] == 90.0
-            assert final_data["final_evaluation"]["guidance_penalty"] == 0.0
             assert final_data["final_evaluation"]["assistance_mode"] == "COACHED"
-            assert final_data["final_evaluation"]["xp_earned"] == 100
+            assert "guidance_penalty" not in final_data["final_evaluation"]
+            assert "xp_earned" not in final_data["final_evaluation"]
     finally:
         app.dependency_overrides.clear()
 
@@ -2284,6 +2285,103 @@ def test_diagram_catalog_queue_vs_flink_and_blueprint_synthesis():
     assert "ID" in finding_titles
 
 
+def test_robustness_bonus_is_separate_and_requires_wired_non_core_components():
+    brief = {
+        "expected_components": ["Stateless App Service", "Primary Relational DB"],
+        "bonus_capabilities": [
+            {
+                "id": "observability",
+                "title": "Measure the user-facing SLO",
+                "goal": "Track latency and dependency failures.",
+                "accepted_type_groups": [["observability"]],
+                "points": 2,
+            },
+            {
+                "id": "recovery",
+                "title": "Recover failed work",
+                "goal": "Isolate failures for safe recovery.",
+                "accepted_type_groups": [["message_queue", "dlq"]],
+                "points": 1,
+            },
+        ],
+    }
+    blueprint = resolve_challenge_blueprint(brief)
+    baseline = {
+        "nodes": [
+            {"id": "app", "type_id": "app_service", "label": "Application"},
+            {"id": "db", "type_id": "relational_db", "label": "Primary DB"},
+            {"id": "observer", "type_id": "observability", "label": "Telemetry"},
+            {"id": "queue", "type_id": "message_queue", "label": "Queue"},
+            {"id": "dlq", "type_id": "dlq", "label": "DLQ"},
+        ],
+        "edges": [{"id": "core", "source": "app", "target": "db"}],
+    }
+    baseline_result = evaluate_canvas_topology(baseline, blueprint, brief)
+    assert baseline_result["robustness_bonus_points"] == 0
+    assert baseline_result["robustness_bonus_max_points"] == 3
+    assert {
+        check["id"]: check["status"]
+        for check in baseline_result["bonus_capability_checks"]
+    } == {"observability": "partial", "recovery": "partial"}
+
+    hardened = {
+        **baseline,
+        "edges": [
+            *baseline["edges"],
+            {"id": "obs", "source": "app", "target": "observer"},
+            {"id": "recovery", "source": "queue", "target": "dlq"},
+        ],
+    }
+    hardened_result = evaluate_canvas_topology(hardened, blueprint, brief)
+    assert hardened_result["robustness_bonus_points"] == 3
+    assert (
+        hardened_result["met_capabilities_count"]
+        == baseline_result["met_capabilities_count"]
+    )
+
+
+def test_nested_diagram_nodes_round_trip_and_reject_cross_scope_edges():
+    flow = normalize_flow_payload(
+        {
+            "nodes": [
+                {"id": "service", "type_id": "app_service", "label": "Shortener"},
+                {
+                    "id": "filter",
+                    "type_id": "content_filter",
+                    "label": "Safety Filter",
+                    "parent_node_id": "service",
+                },
+                {
+                    "id": "db",
+                    "type_id": "relational_db",
+                    "label": "URL Store",
+                    "parent_node_id": "service",
+                },
+            ],
+            "edges": [{"id": "internal", "source": "filter", "target": "db"}],
+        }
+    )
+    assert flow["nodes"][1]["parent_node_id"] == "service"
+    assert flow["edges"][0]["source"] == "filter"
+
+    with pytest.raises(ValueError, match="cannot cross service scopes"):
+        normalize_flow_payload(
+            {
+                "nodes": [
+                    {"id": "service", "type_id": "app_service", "label": "Shortener"},
+                    {
+                        "id": "filter",
+                        "type_id": "content_filter",
+                        "label": "Safety Filter",
+                        "parent_node_id": "service",
+                    },
+                    {"id": "client", "type_id": "web_client", "label": "Client"},
+                ],
+                "edges": [{"id": "invalid", "source": "client", "target": "filter"}],
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
     db_session: AsyncSession,
@@ -2423,7 +2521,7 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
                 f"/api/v1/system-design/sessions/{solo_id}/requirements/ledger",
                 json={
                     "functional_requirements": ["Shorten URLs"],
-                    "non_functional_requirements": ["<50ms p99"],
+                    "non_functional_requirements": ["<30ms p99 redirect"],
                     "is_locked": True,
                 },
             )
@@ -2515,8 +2613,8 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
             assert solo_eval.status_code == 200
             solo_data = solo_eval.json()
             assert solo_data["overall_score"] == 90.0
+            assert solo_data["readiness_rating"] == "FORMATIVE"
             assert solo_data["final_evaluation"]["assistance_mode"] == "SOLO"
-            assert solo_data["final_evaluation"]["xp_earned"] == 150
     finally:
         app.dependency_overrides.clear()
 
@@ -2732,6 +2830,11 @@ async def test_full_system_paths_zero_warning_checks_and_defendable_variance(
 
             # Non-spoiling capabilities_checklist exposed immediately on session without spoilers
             assert len(session_data["capabilities_checklist"]) >= 4
+            assert session_data["bonus_capabilities_checklist"]
+            assert all(
+                item["title"] and item["points"] > 0
+                for item in session_data["bonus_capabilities_checklist"]
+            )
             assert "interviewer_brief" not in session_data
             assert not session_data["diagram_guidance"].get("revealed_components")
 
@@ -2936,6 +3039,7 @@ async def test_24_blueprint_invariants_slim_packet_and_external_frontier_bridges
     for ch in CURATED_CHALLENGES:
         for variant in ch["interviewer_brief"]["variants"]:
             bp = resolve_challenge_blueprint(variant, None)
+            assert bp["bonus_capabilities"], f"No robustness checks in {ch['slug']}"
             steps = [s for p in bp["expected_paths"] for s in p["steps"]]
             node_types = list(
                 dict.fromkeys(
@@ -2968,6 +3072,9 @@ async def test_24_blueprint_invariants_slim_packet_and_external_frontier_bridges
             assert [
                 c["id"] for c in topo["capability_checks"] if c["status"] != "met"
             ] == [], f"Unmet capabilities in {vid}"
+            assert topo["robustness_bonus_max_points"] == sum(
+                capability["points"] for capability in bp["bonus_capabilities"]
+            )
             assert [
                 f["title"] for f in topo["findings"] if f.get("severity") != "info"
             ] == [], f"False warnings in {vid}"

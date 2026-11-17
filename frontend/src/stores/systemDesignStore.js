@@ -71,33 +71,21 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
         (s.defence_transcript || []).some((t) => t?.assisted)
     )
   })
-  const sessionGamificationStats = computed(() => {
-    const list = sessions.value || []
-    const completed = list.filter((s) => s.stage === 'COMPLETED')
-    let totalXp = 0
-    let soloCount = 0
-    for (const s of completed) {
-      const ev = s.final_evaluation || {}
-      const coached =
-        ev.assistance_mode === 'COACHED' ||
-        Boolean(
-          s.diagram_guidance?.is_coached ||
-            s.diagram_guidance?.revealed_all_bank ||
-            s.diagram_guidance?.requirements_revealed
-        )
-      if (!coached && ev.assistance_mode !== 'COACHED') soloCount += 1
-      totalXp += Number(ev.xp_earned ?? (coached ? 100 : 150))
-    }
-    const sortedCompleted = [...completed].sort((a, b) =>
-      String(b.updated_at || b.created_at || '').localeCompare(
-        String(a.updated_at || a.created_at || '')
-      )
+  const practiceProgressStats = computed(() => {
+    const completed = (sessions.value || []).filter(
+      (session) =>
+        session.status === 'COMPLETED' &&
+        Number.isFinite(Number(session.final_evaluation?.overall_score))
+    )
+    const totalPoints = completed.reduce(
+      (total, session) => total + Number(session.final_evaluation.overall_score),
+      0
     )
     return {
-      totalXp,
-      completedCount: sortedCompleted.length,
-      soloCount,
-      streakCount: sortedCompleted.length,
+      completedCount: completed.length,
+      averageScore: completed.length
+        ? Math.round((totalPoints / completed.length) * 10) / 10
+        : null,
     }
   })
   const reviewFixChecklist = computed(() => {
@@ -1027,7 +1015,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     activeReviews,
     activeFinalEvaluation,
     isActiveSessionCoached,
-    sessionGamificationStats,
+    practiceProgressStats,
     reviewFixChecklist,
     fetchDiagramCatalog,
     fetchChallenges,

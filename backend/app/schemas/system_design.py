@@ -181,6 +181,7 @@ class DiagramFlowNode(BaseModel):
     tech_stack: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=500)
     is_custom: bool = False
+    parent_node_id: str | None = Field(default=None, max_length=100)
     position: DiagramFlowPosition = Field(default_factory=DiagramFlowPosition)
 
 
@@ -425,16 +426,12 @@ class RubricDimensionScore(BaseModel):
 
 
 class FinalEvaluationSchema(BaseModel):
-    """Evidence-backed final scorecard and actionable next steps."""
+    """Formative evidence-backed scorecard and actionable next steps."""
 
     overall_score: float = Field(ge=0.0, le=100.0)
     raw_score: float | None = Field(default=None, ge=0.0, le=100.0)
-    guidance_penalty: float = Field(default=0.0, ge=0.0, le=100.0)
     assistance_mode: Literal["SOLO", "COACHED"] = "SOLO"
-    xp_earned: int = Field(default=100, ge=0)
-    readiness_rating: Literal[
-        "NEEDS_PRACTICE", "DEVELOPING", "INTERVIEW_READY", "STRONG_HIRE"
-    ]
+    readiness_rating: Literal["FORMATIVE"] = "FORMATIVE"
     executive_summary: str
     rubric_scores: list[RubricDimensionScore]
     key_strengths: list[str]
@@ -603,6 +600,7 @@ class SystemDesignSessionRead(BaseModel):
     diagram_guidance: dict[str, Any] = Field(default_factory=dict)
     palette_extensions: list[dict[str, Any]] = Field(default_factory=list)
     capabilities_checklist: list[dict[str, Any]] = Field(default_factory=list)
+    bonus_capabilities_checklist: list[dict[str, Any]] = Field(default_factory=list)
     study_notes: dict[str, Any] = Field(default_factory=dict)
     architecture_reviews: list[dict[str, Any]] = Field(default_factory=list)
     defence_transcript: list[dict[str, Any]] = Field(default_factory=list)
@@ -686,6 +684,9 @@ class SystemDesignSessionRead(BaseModel):
                 "requirements_ledger": dict(_get("requirements_ledger") or {}),
                 "diagrams_metadata": list(_get("diagrams_metadata") or []),
                 "diagram_guidance": dict(_get("diagram_guidance") or {}),
+                "bonus_capabilities_checklist": list(
+                    _get("bonus_capabilities_checklist") or []
+                ),
                 "architecture_reviews": list(_get("architecture_reviews") or []),
                 "defence_transcript": list(_get("defence_transcript") or []),
                 "final_evaluation": _get("final_evaluation"),
@@ -724,6 +725,18 @@ class SystemDesignSessionRead(BaseModel):
                 "defence_tradeoff": str(c.get("defence_tradeoff") or ""),
             }
             for c in (blueprint_for_caps.get("required_capabilities") or [])
+            if isinstance(c, dict)
+        ]
+        data["bonus_capabilities_checklist"] = [
+            {
+                "id": str(c.get("id") or ""),
+                "title": str(c.get("title") or ""),
+                "goal": str(c.get("goal") or ""),
+                "accepted_type_groups": list(c.get("accepted_type_groups") or []),
+                "points": int(c.get("points") or 1),
+                "defence_tradeoff": str(c.get("defence_tradeoff") or ""),
+            }
+            for c in (blueprint_for_caps.get("bonus_capabilities") or [])
             if isinstance(c, dict)
         ]
         guidance_dict = _get("diagram_guidance") or {}

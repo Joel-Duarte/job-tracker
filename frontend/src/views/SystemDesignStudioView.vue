@@ -234,9 +234,6 @@ const liveCapabilityChecks = computed(() => {
       : store.lastTopologyFeedback?.capability_checks || []
   const placedNodes = flowSnapshot.value?.nodes || []
   const edges = flowSnapshot.value?.edges || []
-  const placedTypeIds = new Set(
-    placedNodes.map((n) => String(n?.type_id || n?.data?.type_id || '')).filter(Boolean)
-  )
   const wiredNodeIds = new Set()
   for (const e of edges) {
     wiredNodeIds.add(String(e.source))
@@ -251,19 +248,33 @@ const liveCapabilityChecks = computed(() => {
     let matchedNodes = []
     for (const grp of groups) {
       const grpArr = Array.isArray(grp) ? grp : [grp]
-      if (grpArr.length && grpArr.every((tid) => placedTypeIds.has(tid))) {
-        matchedNodes = placedNodes.filter((n) =>
-          grpArr.includes(String(n?.type_id || n?.data?.type_id || ''))
+      const scopes = Array.from(
+        new Set(placedNodes.map((node) => String(node.parent_node_id || '')))
+      )
+      for (const scope of scopes) {
+        const scopeNodes = placedNodes.filter(
+          (node) => String(node.parent_node_id || '') === scope
         )
-        break
+        if (
+          grpArr.length &&
+          grpArr.every((typeId) =>
+            scopeNodes.some((node) => String(node.type_id || '') === String(typeId))
+          )
+        ) {
+          matchedNodes = scopeNodes.filter((node) =>
+            grpArr.includes(String(node.type_id || ''))
+          )
+          break
+        }
       }
+      if (matchedNodes.length) break
     }
     const backendItem = backendMap.get(cap.id)
     let status = 'pending'
     let satisfiedBy = ''
     if (matchedNodes.length) {
       const allWired =
-        placedNodes.length === 1 || matchedNodes.some((n) => wiredNodeIds.has(String(n.id)))
+        placedNodes.length === 1 || matchedNodes.every((n) => wiredNodeIds.has(String(n.id)))
       status = allWired ? 'met' : 'partial'
       satisfiedBy = Array.from(
         new Set(matchedNodes.map((n) => n?.label || n?.data?.label || n?.type_id))
@@ -284,6 +295,67 @@ const liveCapabilityChecks = computed(() => {
 
 const metCapabilitiesCount = computed(
   () => liveCapabilityChecks.value.filter((c) => c.status === 'met').length
+)
+
+const liveBonusChecks = computed(() => {
+  const source =
+    session.value?.bonus_capabilities_checklist?.length
+      ? session.value.bonus_capabilities_checklist
+      : store.lastTopologyFeedback?.bonus_capability_checks || []
+  const placedNodes = flowSnapshot.value?.nodes || []
+  const edges = flowSnapshot.value?.edges || []
+  const wiredNodeIds = new Set(
+    edges.flatMap((edge) => [String(edge.source), String(edge.target)])
+  )
+
+  return source.map((capability, index) => {
+    let matchedNodes = []
+    for (const rawGroup of capability.accepted_type_groups || []) {
+      const group = Array.isArray(rawGroup) ? rawGroup : [rawGroup]
+      const scopes = Array.from(
+        new Set(placedNodes.map((node) => String(node.parent_node_id || '')))
+      )
+      for (const scope of scopes) {
+        const scopeNodes = placedNodes.filter(
+          (node) => String(node.parent_node_id || '') === scope
+        )
+        if (
+          group.length &&
+          group.every((typeId) =>
+            scopeNodes.some((node) => String(node.type_id || '') === String(typeId))
+          )
+        ) {
+          matchedNodes = scopeNodes.filter((node) =>
+            group.includes(String(node.type_id || ''))
+          )
+          break
+        }
+      }
+      if (matchedNodes.length) break
+    }
+
+    const allWired =
+      matchedNodes.length > 0 &&
+      matchedNodes.every((node) => wiredNodeIds.has(String(node.id)))
+    const status = allWired ? 'met' : matchedNodes.length ? 'partial' : 'pending'
+    return {
+      id: capability.id || `bonus-${index}`,
+      title: capability.title,
+      goal: capability.goal,
+      status,
+      points: Number(capability.points || 1),
+      earned_points: allWired ? Number(capability.points || 1) : 0,
+      satisfied_by: Array.from(
+        new Set(matchedNodes.map((node) => node.label || node.type_id))
+      ).join(', '),
+    }
+  })
+})
+const earnedBonusPoints = computed(() =>
+  liveBonusChecks.value.reduce((sum, check) => sum + check.earned_points, 0)
+)
+const maximumBonusPoints = computed(() =>
+  liveBonusChecks.value.reduce((sum, check) => sum + check.points, 0)
 )
 
 const revealedComponents = computed(
@@ -392,7 +464,7 @@ async function handleSelectRevision(ver) {
 function handleStartBlankCanvas() {
   loadedFlow.value = null
   activeRevisionVersion.value = null
-  canvasBuilderRef.value?.clearCanvas()
+  canvasBuilderRef.value?.clearCanvas(true)
 }
 
 function toggleFixChecklistItem(id) {
@@ -1070,6 +1142,15 @@ onUnmounted(() => {
 
         <!-- TAB 1: Session Requirements & Architecture Notes -->
         <div v-if="activeSidebarTab === 'reqs'" class="sd-coach-tab-body sd-reqs-tab-body" data-testid="studio-reqs-panel">
+          <section class="sd-practice-progression" data-testid="practice-progression">
+            <strong>Build in stages</strong>
+            <ol>
+              <li><b>Baseline:</b> make the core user flow correct and measurable.</li>
+              <li><b>Harden:</b> add only the security, recovery, and observability controls the risks justify.</li>
+              <li><b>Explore:</b> open a service’s internals only when it clarifies a real bottleneck.</li>
+            </ol>
+            <span>Optional robustness checks earn separate points; they never reduce the core score.</span>
+          </section>
           <details
             v-if="scaleMathSummary.items.length || scaleMathSummary.latencyLine"
             class="sd-scale-math-card"
@@ -1764,6 +1845,40 @@ onUnmounted(() => {
           >
             Click <strong>Run Topology Check</strong> to inspect wiring, bottlenecks, and valid alternatives before running Analyze.
           </p>
+          <section
+            v-if="liveBonusChecks.length"
+            class="sd-coach-section"
+            data-testid="bonus-capability-readiness"
+          >
+            <details open>
+              <summary class="sd-coach-section-head sd-cap-summary-toggle">
+                <strong>
+                  Optional hardening bonuses ({{ earnedBonusPoints }}/{{ maximumBonusPoints }} points)
+                </strong>
+                <span class="sd-muted">Add only when justified</span>
+              </summary>
+              <div class="sd-cap-list">
+                <div
+                  v-for="check in liveBonusChecks"
+                  :key="check.id"
+                  class="sd-cap-item"
+                  :class="`cap-${check.status}`"
+                  data-testid="bonus-capability-item"
+                >
+                  <span class="sd-cap-status">
+                    <CheckCircle2 v-if="check.status === 'met'" :size="14" />
+                    <AlertTriangle v-else-if="check.status === 'partial'" :size="14" />
+                    <span v-else class="sd-cap-pending-dot" />
+                  </span>
+                  <span class="sd-cap-text">
+                    <strong>{{ check.title }} <small>+{{ check.points }}</small></strong>
+                    <span>{{ check.goal }}</span>
+                    <em v-if="check.satisfied_by">Wired: {{ check.satisfied_by }}</em>
+                  </span>
+                </div>
+              </div>
+            </details>
+          </section>
         </div>
       </aside>
     </div>
@@ -1831,6 +1946,7 @@ onUnmounted(() => {
           </button>
         </div>
       </section>
+
     </div>
 
     <!-- Clean Flow JSON Inspection Modal (inside More menu) -->
@@ -2563,6 +2679,36 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 7px;
   font-size: 0.76rem;
+}
+
+.sd-practice-progression {
+  display: grid;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.sd-practice-progression > strong {
+  color: var(--text-main);
+}
+
+.sd-practice-progression ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sd-practice-progression b {
+  color: var(--text-main);
+}
+
+.sd-practice-progression > span {
+  color: var(--text-muted);
 }
 
 .sd-ledger-ref-label {

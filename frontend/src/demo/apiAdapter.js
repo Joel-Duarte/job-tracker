@@ -140,6 +140,21 @@ function getDefaultDemoSystemDesignChallenges() {
   ]
 }
 
+const DEMO_SYSTEM_DESIGN_RUBRIC_DIMENSIONS = [
+  'Requirements Clarity',
+  'Scope & Prioritization',
+  'Back-of-the-Envelope Estimation',
+  'API & Interface Design',
+  'Data Model & Storage Choice',
+  'High-Level Architecture',
+  'Scalability & Partitioning',
+  'Reliability & Fault Tolerance',
+  'Caching & Latency Optimization',
+  'Right-Sizing & Simplicity (YAGNI)',
+  'Trade-off Justification',
+  'Defence Communication Under Pressure',
+]
+
 function ensureDemoSystemDesignData(db) {
   if (!Array.isArray(db.system_design_challenges)) {
     db.system_design_challenges = getDefaultDemoSystemDesignChallenges()
@@ -3285,6 +3300,98 @@ export async function handleDemoRequest(config) {
       return { expectedItems, expectedPaths }
     }
 
+    const demoExtractBonusCapabilities = (session) => {
+      const brief = session?.session_brief || session?.challenge?.interviewer_brief || {}
+      const variants = Array.isArray(brief.variants) ? brief.variants : []
+      const selectedVariant =
+        variants.find((variant) => variant?.variant_id === session?.variant_id) || variants[0]
+      const defaultCapabilities =
+        session?.challenge?.slug === 'url-shortener'
+          ? [
+              {
+                id: 'creator_abuse_controls',
+                title: 'Protect link creation from abuse',
+                goal: 'Apply quotas or edge controls to creation without making public redirects depend on authentication.',
+                accepted_type_groups: [['rate_limiter'], ['waf_ddos']],
+                points: 1,
+              },
+              {
+                id: 'creator_identity',
+                title: 'Add ownership for account features',
+                goal: 'Use identity for custom aliases or account management only; keep anonymous redirects public.',
+                accepted_type_groups: [['auth_service']],
+                points: 1,
+              },
+              {
+                id: 'analytics_recovery',
+                title: 'Recover analytics without slowing redirects',
+                goal: 'Keep click analytics asynchronous, preserve failed events for replay, and land aggregates in an analytical store.',
+                accepted_type_groups: [
+                  ['message_queue', 'dlq', 'olap_warehouse'],
+                  ['event_stream', 'dlq', 'olap_warehouse'],
+                ],
+                points: 2,
+              },
+              {
+                id: 'redirect_observability',
+                title: 'Measure redirect health',
+                goal: 'Track redirect p99, cache hit rate, origin errors, and analytics lag with actionable alerts.',
+                accepted_type_groups: [['observability']],
+                points: 1,
+              },
+            ]
+          : [
+          {
+            id: 'operational_visibility',
+            title: 'Make the service observable',
+            goal: 'Define useful service-level metrics, traces, logs, and alerts.',
+            accepted_type_groups: [['observability']],
+            points: 1,
+          },
+          {
+            id: 'failure_recovery',
+            title: 'Contain and recover from failures',
+            goal: 'Add a bounded failure-isolation or retry/recovery mechanism.',
+            accepted_type_groups: [['circuit_breaker'], ['dlq']],
+            points: 1,
+          },
+          {
+            id: 'abuse_protection',
+            title: 'Protect a public or high-risk entry point',
+            goal: 'Add an appropriate rate, edge, identity, or content-safety control.',
+            accepted_type_groups: [['rate_limiter'], ['waf_ddos'], ['content_filter']],
+            points: 1,
+          },
+          ]
+      const rawCapabilities =
+        (Array.isArray(selectedVariant?.bonus_capabilities) &&
+        selectedVariant.bonus_capabilities.length
+          ? selectedVariant.bonus_capabilities
+          : null) ||
+        (Array.isArray(brief.bonus_capabilities) && brief.bonus_capabilities.length
+          ? brief.bonus_capabilities
+          : null) ||
+        defaultCapabilities
+      const { expectedItems } = demoResolveExpectedBlueprint(session?.challenge, session)
+      const coreTypes = new Set(expectedItems.map((item) => String(item.type_id || '')))
+      return (Array.isArray(rawCapabilities) ? rawCapabilities : [])
+        .filter((capability) => capability && typeof capability === 'object')
+        .map((capability, index) => ({
+          id: String(capability.id || `bonus-${index + 1}`),
+          title: String(capability.title || 'Robustness improvement'),
+          goal: String(capability.goal || capability.title || ''),
+          accepted_type_groups: (capability.accepted_type_groups || [])
+            .map((group) => (Array.isArray(group) ? group.map(String) : []))
+            .filter(
+              (group) =>
+                group.length > 0 && group.some((typeId) => !coreTypes.has(typeId))
+            ),
+          points: Math.max(1, Math.min(Number(capability.points || 1), 3)),
+          defence_tradeoff: String(capability.defence_tradeoff || ''),
+        }))
+        .filter((capability) => capability.accepted_type_groups.length > 0)
+    }
+
     const DEMO_EQUIVALENT_ALTERNATIVES = {
       app_service: ['serverless_fn', 'microservice'],
       serverless_fn: ['app_service', 'microservice'],
@@ -3353,9 +3460,21 @@ export async function handleDemoRequest(config) {
       return caps
     }
 
-    const demoEvaluateTopology = (expectedItems, expectedPaths, currentNodes, currentEdges, currentNotes) => {
+    const demoEvaluateTopology = (
+      expectedItems,
+      expectedPaths,
+      currentNodes,
+      currentEdges,
+      currentNotes,
+      bonusCapabilities = []
+    ) => {
       const nodeById = new Map((currentNodes || []).map((n) => [String(n.id), n]))
       const placedTypes = new Set((currentNodes || []).map((n) => n.type_id))
+      const rootPlacedTypes = new Set(
+        (currentNodes || [])
+          .filter((node) => !node.parent_node_id)
+          .map((node) => node.type_id)
+      )
       const missingComponents = []
       const findings = []
       const alternativeNotes = []
@@ -3395,7 +3514,9 @@ export async function handleDemoRequest(config) {
         if (!src || !dst) continue
         outgoingCount.set(String(src.id), (outgoingCount.get(String(src.id)) || 0) + 1)
         incomingCount.set(String(dst.id), (incomingCount.get(String(dst.id)) || 0) + 1)
-        edgePairs.add(`${src.type_id}->${dst.type_id}`)
+        if (!src.parent_node_id && !dst.parent_node_id) {
+          edgePairs.add(`${src.type_id}->${dst.type_id}`)
+        }
         if (src.type_id === 'relational_db' && dst.type_id === 'distributed_cache') {
           findings.push({
             severity: 'error',
@@ -3433,10 +3554,17 @@ export async function handleDemoRequest(config) {
       const capabilityChecks = caps.map((cap) => {
         let matchedNodes = []
         for (const grp of cap.accepted_type_groups || []) {
-          if (grp.length && grp.every((tid) => placedTypes.has(tid))) {
-            matchedNodes = (currentNodes || []).filter((n) => grp.includes(n.type_id))
-            break
+          const scopes = [...new Set((currentNodes || []).map((node) => String(node.parent_node_id || '')))]
+          for (const scope of scopes) {
+            const scopeNodes = (currentNodes || []).filter(
+              (node) => String(node.parent_node_id || '') === scope
+            )
+            if (grp.length && grp.every((tid) => scopeNodes.some((node) => node.type_id === tid))) {
+              matchedNodes = scopeNodes.filter((node) => grp.includes(node.type_id))
+              break
+            }
           }
+          if (matchedNodes.length) break
         }
         if (!matchedNodes.length) {
           return {
@@ -3449,7 +3577,7 @@ export async function handleDemoRequest(config) {
         }
         const wired =
           (currentNodes || []).length === 1 ||
-          matchedNodes.some(
+          matchedNodes.every(
             (n) => (incomingCount.get(String(n.id)) || 0) > 0 || (outgoingCount.get(String(n.id)) || 0) > 0
           )
         const status = wired ? 'met' : 'partial'
@@ -3462,6 +3590,49 @@ export async function handleDemoRequest(config) {
           satisfied_by: [...new Set(matchedNodes.map((n) => n.label || n.type_id))].join(', '),
         }
       })
+
+      const bonusCapabilityChecks = (bonusCapabilities || []).map((capability) => {
+        let matchedNodes = []
+        for (const group of capability.accepted_type_groups || []) {
+          const scopes = [...new Set((currentNodes || []).map((node) => String(node.parent_node_id || '')))]
+          for (const scope of scopes) {
+            const scopeNodes = (currentNodes || []).filter(
+              (node) => String(node.parent_node_id || '') === scope
+            )
+            if (group.length && group.every((typeId) => scopeNodes.some((node) => node.type_id === typeId))) {
+              matchedNodes = scopeNodes.filter((node) => group.includes(node.type_id))
+              break
+            }
+          }
+          if (matchedNodes.length) break
+        }
+        const allWired =
+          matchedNodes.length > 0 &&
+          matchedNodes.every(
+            (node) =>
+              (incomingCount.get(String(node.id)) || 0) > 0 ||
+              (outgoingCount.get(String(node.id)) || 0) > 0
+          )
+        const status = allWired ? 'met' : matchedNodes.length ? 'partial' : 'pending'
+        return {
+          id: capability.id,
+          title: capability.title,
+          goal: capability.goal,
+          status,
+          satisfied_by: [...new Set(matchedNodes.map((node) => node.label || node.type_id))].join(', '),
+          points: capability.points,
+          earned_points: allWired ? capability.points : 0,
+          defence_tradeoff: capability.defence_tradeoff,
+        }
+      })
+      const robustnessBonusPoints = bonusCapabilityChecks.reduce(
+        (sum, capability) => sum + capability.earned_points,
+        0
+      )
+      const robustnessBonusMaxPoints = bonusCapabilityChecks.reduce(
+        (sum, capability) => sum + capability.points,
+        0
+      )
 
       const idNode = (currentNodes || []).find((n) => n.type_id === 'id_generator')
       if (idNode && !/replica|range|pre-alloc|ha|cluster|snowflake|multi/i.test(`${idNode.notes || ''} ${currentNotes || ''}`)) {
@@ -3479,8 +3650,8 @@ export async function handleDemoRequest(config) {
       let nextConnectionHint = null
 
       const matchesWithAlt = (typeId) =>
-        placedTypes.has(typeId) ||
-        (DEMO_EQUIVALENT_ALTERNATIVES[typeId] || []).some((alt) => placedTypes.has(alt))
+        rootPlacedTypes.has(typeId) ||
+        (DEMO_EQUIVALENT_ALTERNATIVES[typeId] || []).some((alt) => rootPlacedTypes.has(alt))
 
       const edgeExistsWithAlt = (srcType, tgtType) => {
         const srcs = [srcType, ...(DEMO_EQUIVALENT_ALTERNATIVES[srcType] || [])]
@@ -3538,12 +3709,55 @@ export async function handleDemoRequest(config) {
         summary,
         missing_components: missingComponents,
         capability_checks: capabilityChecks,
+        bonus_capability_checks: bonusCapabilityChecks,
+        robustness_bonus_points: robustnessBonusPoints,
+        robustness_bonus_max_points: robustnessBonusMaxPoints,
         met_capabilities_count: metCapabilitiesCount,
         total_capabilities_count: capabilityChecks.length,
         findings,
         satisfied_paths: satisfiedPaths,
         path_milestones: pathMilestones,
         next_connection_hint: nextConnectionHint,
+      }
+    }
+
+    const demoSessionRobustnessBonus = (session) => {
+      const diagrams = Array.isArray(session?.diagrams_metadata)
+        ? session.diagrams_metadata
+        : []
+      const latest = [...diagrams].sort(
+        (left, right) => Number(left.version || 0) - Number(right.version || 0)
+      ).at(-1)
+      if (!latest || latest.diagram_kind !== 'canvas' || !latest.flow_payload) {
+        return {
+          robustness_bonus_available: false,
+          robustness_bonus_points: null,
+          robustness_bonus_max_points: null,
+          bonus_capability_checks: [],
+          robustness_bonus_reason: !latest
+            ? 'No structured canvas diagram is available for topology-based bonus scoring.'
+            : 'The latest diagram is image-only; bonus checks still receive qualitative review.',
+        }
+      }
+
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(
+        session.challenge,
+        session
+      )
+      const topology = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        latest.flow_payload.nodes || [],
+        latest.flow_payload.edges || [],
+        latest.flow_payload.notes || '',
+        demoExtractBonusCapabilities(session)
+      )
+      return {
+        robustness_bonus_available: true,
+        robustness_bonus_points: topology.robustness_bonus_points,
+        robustness_bonus_max_points: topology.robustness_bonus_max_points,
+        bonus_capability_checks: topology.bonus_capability_checks,
+        robustness_bonus_reason: '',
       }
     }
 
@@ -3649,14 +3863,21 @@ export async function handleDemoRequest(config) {
       )
     }
 
-    const demoDeriveRating = (score) =>
-      score >= 88
-        ? 'STRONG_HIRE'
-        : score >= 70
-          ? 'INTERVIEW_READY'
-          : score >= 50
-            ? 'DEVELOPING'
-            : 'NEEDS_PRACTICE'
+    const demoSessionMutationError = (session) => {
+      if (
+        session.status === 'COMPLETED' ||
+        session.status === 'ABANDONED' ||
+        session.stage === 'COMPLETED'
+      ) {
+        return {
+          status: 409,
+          data: {
+            detail: `System design session ${session.id} is already ${session.status} and cannot be modified.`,
+          },
+        }
+      }
+      return null
+    }
 
     const demoExtractPaletteExtensions = (session, challengeObj) => {
       const brief = challengeObj?.interviewer_brief || session?.challenge?.interviewer_brief || {}
@@ -3694,12 +3915,14 @@ export async function handleDemoRequest(config) {
         const { expectedItems } = demoResolveExpectedBlueprint(session.challenge, session)
         caps = demoSynthesizeCapabilities(expectedItems)
       }
+      const bonusCaps = demoExtractBonusCapabilities(session)
       return {
         ...session,
         palette_extensions: existing.length
           ? existing
           : demoExtractPaletteExtensions(session, session.challenge),
         capabilities_checklist: caps,
+        bonus_capabilities_checklist: bonusCaps,
       }
     }
 
@@ -4154,7 +4377,7 @@ export async function handleDemoRequest(config) {
         application_id: data.application_id || null,
         mode: data.mode || 'ADAPTIVE',
         brief_seed: resolvedSeed,
-        variant_id: selectionMode === 'explicit' ? chosen?.variant_id || 'default' : null,
+        variant_id: chosen?.variant_id || 'default',
         variant_title: selectionMode === 'explicit' ? chosen?.title || null : null,
         variant_focus: selectionMode === 'explicit' ? chosen?.focus_summary || null : null,
         variant_selection_mode: selectionMode,
@@ -4229,7 +4452,7 @@ export async function handleDemoRequest(config) {
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdReqMsgMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/message$/)
@@ -4250,8 +4473,8 @@ export async function handleDemoRequest(config) {
         timestamp: nowIso,
       })
       const replyContent = assisted
-        ? 'Coaching Hint: Focus on bounding peak read vs. write QPS (~10:1 ratio, ~50M MAU), p99 latency SLAs (<50ms), and whether custom aliases or analytics are out of scope.'
-        : 'Assume roughly 10:1 read-to-write traffic (~50M monthly active readers), 99.95% availability, and under 50ms p99 redirect latency. What write QPS or durability constraints are you designing around?'
+        ? 'Coaching Hint: Focus on the 100:1 read-to-write ratio, ~12k peak redirects/sec, <30ms p99 redirect latency, 99.99% redirect availability, five-year retention, and asynchronous click analytics.'
+        : 'Assume 20M DAU, ~3.3M links created/day (~40 writes/sec average, ~120 peak), and ~330M redirects/day (~4k average, ~12k peak). Target <30ms p99 and 99.99% availability for redirects; click analytics may lag by 1-5 minutes. What storage, cache, or code-generation constraints should we clarify?'
       transcript.push({
         turn_index: transcript.length + 1,
         role: 'interviewer',
@@ -4276,12 +4499,14 @@ export async function handleDemoRequest(config) {
       }
       const patchFunctional = []
       const patchNfr = [
-        '99.95% availability target',
-        'p99 read latency under 50ms',
+        '99.99% redirect-path availability target',
+        'p99 redirect latency under 30ms',
       ]
       const patchScale = {
-        traffic_pattern: '10:1 read-to-write ratio',
-        monthly_active_users: '~50M MAU (demo baseline)',
+        traffic_pattern: '100:1 read-to-write ratio; ~4k average / ~12k peak redirects/sec',
+        monthly_active_users: '~80M MAU / ~20M DAU',
+        link_creation: '~3.3M/day (~40 writes/sec average, ~120 peak)',
+        storage_baseline: '~300M mappings x 500 bytes ~= 150 GB raw over five years before indexes/replicas',
       }
       const patchOutOfScope = []
       const patchAssumptions = []
@@ -4291,7 +4516,7 @@ export async function handleDemoRequest(config) {
         patchFunctional.push(`Core API & workflow for ${session.challenge?.title || 'system design'}`)
       }
       if (/scale|qps|dau|mau|traffic|read|write/i.test(msgText)) {
-        patchScale.peak_write_estimate = '~2k–5k writes/sec'
+        patchScale.peak_write_estimate = '~120 link creations/sec'
       }
       if (/latency|availability|sla|p99|durability/i.test(msgText)) {
         patchAssumptions.push('Reads can tolerate brief async replication lag unless strong consistency is specified')
@@ -4315,7 +4540,7 @@ export async function handleDemoRequest(config) {
       session.requirements_transcript = transcript
       session.updated_at = nowIso
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdReqExtractMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/extract$/)
@@ -4343,12 +4568,14 @@ export async function handleDemoRequest(config) {
           'Low-latency read/lookup path for active items',
         ]),
         non_functional_requirements: mergeUnique(existing.non_functional_requirements, [
-          '99.95% availability target',
-          'p99 read latency under 50ms',
+          '99.99% redirect-path availability target',
+          'p99 redirect latency under 30ms',
         ]),
         scale_estimates: {
-          traffic_pattern: '10:1 read-to-write ratio',
-          monthly_active_users: '~50M MAU (demo baseline)',
+          traffic_pattern: '100:1 read-to-write ratio; ~4k average / ~12k peak redirects/sec',
+          monthly_active_users: '~80M MAU / ~20M DAU',
+          link_creation: '~3.3M/day (~40 writes/sec average, ~120 peak)',
+          storage_baseline: '~300M mappings x 500 bytes ~= 150 GB raw over five years before indexes/replicas',
           ...(existing.scale_estimates || {}),
         },
         out_of_scope: mergeUnique(existing.out_of_scope, [
@@ -4361,7 +4588,7 @@ export async function handleDemoRequest(config) {
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdLedgerMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/ledger$/)
@@ -4386,7 +4613,7 @@ export async function handleDemoRequest(config) {
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdUploadMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams$/)
@@ -4505,11 +4732,15 @@ export async function handleDemoRequest(config) {
         non_functional_requirements:
           brief.non_functional_requirements?.length
             ? [...brief.non_functional_requirements]
-            : ['99.95% availability target', 'p99 latency under 50ms'],
+            : ['99.99% redirect-path availability target', 'p99 redirect latency under 30ms'],
         scale_estimates:
           brief.scale_estimates && Object.keys(brief.scale_estimates).length
             ? { ...brief.scale_estimates }
-            : { traffic_pattern: '10:1 read/write ratio', mau: '50M MAU' },
+            : {
+                traffic_pattern: '100:1 read-to-write ratio; ~4k average / ~12k peak redirects/sec',
+                mau: '~80M MAU / ~20M DAU',
+                storage_baseline: '~300M mappings x 500 bytes ~= 150 GB raw before indexes/replicas',
+              },
         out_of_scope: [...(brief.out_of_scope || ['Multi-region billing portal'])],
         assumptions: [
           ...(brief.constraints || brief.assumptions || existing.assumptions || []),
@@ -4529,7 +4760,7 @@ export async function handleDemoRequest(config) {
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdHintMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/hint$/)
@@ -4571,7 +4802,8 @@ export async function handleDemoRequest(config) {
         expectedPaths,
         currentNodes,
         currentEdges,
-        currentNotes
+        currentNotes,
+        demoExtractBonusCapabilities(session)
       )
       const pathMilestones = topologyFeedback.path_milestones || expectedPaths
       let nextConnectionHint = null
@@ -4685,7 +4917,8 @@ export async function handleDemoRequest(config) {
         expectedPaths,
         currentNodes,
         currentEdges,
-        currentNotes
+        currentNotes,
+        demoExtractBonusCapabilities(session)
       )
       const pathMilestones = topologyFeedback.path_milestones || expectedPaths
       const suggestedActions = demoBuildCoachActions(expectedItems, pathMilestones, msgText, cloudProvider)
@@ -4806,7 +5039,7 @@ export async function handleDemoRequest(config) {
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdDefenceMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/defence\/message$/)
@@ -4842,7 +5075,7 @@ export async function handleDemoRequest(config) {
       session.stage = 'DEFENCE'
       session.updated_at = nowIso
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdEvalMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/evaluate$/)
@@ -4850,35 +5083,34 @@ export async function handleDemoRequest(config) {
       const sid = Number(sdEvalMatch[1])
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const mutationError = demoSessionMutationError(session)
+      if (mutationError) return mutationError
       const lockedLabel = session.requirements_ledger?.is_locked ? 'locked' : 'unlocked'
       const diagramsCount = (session.diagrams_metadata || []).length
       const defTurns = (session.defence_transcript || []).filter((t) => t.role === 'candidate').length
       const dims = [
         ['Requirements Clarity', 4, `Candidate ran ${(session.requirements_transcript || []).length} discovery turns and curated a ${lockedLabel} requirements ledger.`, 'Strong clarifying focus on read/write ratio and SLA bounds.'],
         ['Scope & Prioritization', 4, 'Explicitly separated MVP endpoints from out-of-scope multi-region replication.', 'Pragmatic phasing aligns with interview time constraints.'],
-        ['Back-of-the-Envelope Estimation', 4, 'Captured MAU baseline and 10:1 read/write assumption inside scale_estimates.', 'Add explicit storage growth calculations over 5 years next time.'],
+        ['Back-of-the-Envelope Estimation', 4, 'Captured the 100:1 read/write assumption inside scale_estimates.', 'Add explicit storage growth calculations over 5 years next time.'],
         ['API & Interface Design', 4, 'Defined primary write ingestion and low-latency read paths in ledger notes.', 'Mention idempotency keys on mutating POST requests.'],
         ['Data Model & Storage Choice', 4, 'Diagram v' + Math.max(1, diagramsCount) + ' anchors durable state in a primary relational DB.', 'Sound indexing and schema discipline.'],
         ['High-Level Architecture', 5, `Submitted ${diagramsCount || 1} diagram revision(s) with clear gateway, service, and storage separation.`, 'Clean component boundaries easy to follow.'],
         ['Scalability & Partitioning', 4, 'Addressed read scaling through cache offloading before DB lookup.', 'Clarify sharding key choice once write QPS exceeds single primary.'],
         ['Reliability & Fault Tolerance', 4, 'Identified standby failover risk and discussed cache unavailability fallback.', 'Document active health-check thresholds and retry jitter.'],
-        ['Caching & Latency Optimization', 5, 'Placed Redis read cache directly ahead of storage to meet <50ms p99 SLA.', 'Effective hot-key mitigation mindset.'],
+        ['Caching & Latency Optimization', 5, 'Placed Redis read cache directly ahead of storage to meet the <30ms p99 redirect SLA.', 'Effective hot-key mitigation mindset.'],
         ['Right-Sizing & Simplicity (YAGNI)', 5, 'Avoided unnecessary Kafka/microservice sprawl for the initial scale target.', 'Zero speculative complexity.'],
         ['Trade-off Justification', 4, `Completed ${defTurns} defence response(s) explaining cache vs. DB consistency tradeoffs.`, 'Articulated trade-offs clearly under probing.'],
         ['Defence Communication Under Pressure', 4, 'Directly answered bottlenecks highlighted in the architecture review.', 'Concise and structured explanations.'],
       ]
-      const rawScore = 86
-      const penalty = 0
+      const rawScore =
+        Math.round((dims.reduce((sum, [, score]) => sum + score, 0) / 60) * 1000) / 10
       const netScore = rawScore
       const isCoached = demoIsSessionCoached(session)
-      const rating = demoDeriveRating(netScore)
       const finalEvaluation = {
         overall_score: netScore,
         raw_score: rawScore,
-        guidance_penalty: penalty,
         assistance_mode: isCoached ? 'COACHED' : 'SOLO',
-        xp_earned: isCoached ? 100 : 150,
-        readiness_rating: rating,
+        readiness_rating: 'FORMATIVE',
         executive_summary:
           `Demonstrated strong end-to-end systems thinking across ${diagramsCount || 1} diagram revision(s) and ${defTurns} defence turn(s), keeping the core read/write path clean and appropriately scaled.`,
         rubric_scores: dims.map(([dimension, score, evidence, critique]) => ({
@@ -4897,17 +5129,18 @@ export async function handleDemoRequest(config) {
         recommended_next_steps: [
           'Revise the architecture diagram showing standby replication and async dead-letter worker queues',
         ],
+        ...demoSessionRobustnessBonus(session),
       }
       const nowIso = new Date().toISOString()
       session.final_evaluation = finalEvaluation
       session.overall_score = netScore
-      session.readiness_rating = rating
+      session.readiness_rating = 'FORMATIVE'
       session.stage = 'COMPLETED'
       session.status = 'COMPLETED'
       session.completed_at = nowIso
       session.updated_at = nowIso
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdFrontierPacketMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/frontier-packet$/)
@@ -4949,8 +5182,8 @@ export async function handleDemoRequest(config) {
       const jsonTemplate = JSON.stringify(
         {
           overall_score: 0,
-          readiness_rating: 'NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE',
-          executive_summary: '<2-4 sentence assessment>',
+          readiness_rating: 'FORMATIVE',
+          executive_summary: '<2-4 sentence formative assessment>',
           rubric_scores: rubricDims.map((dimension) => ({
             dimension,
             score: 3,
@@ -5016,6 +5249,8 @@ export async function handleDemoRequest(config) {
       const sid = Number(sdImportEvalMatch[1])
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const mutationError = demoSessionMutationError(session)
+      if (mutationError) return mutationError
       const raw = String(data.raw_response || '').trim()
       let parsed = null
       const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
@@ -5039,49 +5274,107 @@ export async function handleDemoRequest(config) {
       if (!parsed) {
         return { status: 400, data: { detail: 'Could not extract a valid JSON scorecard object.' } }
       }
-      const rubricScores = Array.isArray(parsed.rubric_scores)
-        ? parsed.rubric_scores.map((r, idx) => ({
-            dimension: String(r.dimension || `Dimension ${idx + 1}`),
-            score: Math.max(1, Math.min(5, Number(r.score || 3))),
-            evidence:
-              String(r.evidence || '').trim().length >= 5
-                ? String(r.evidence).trim()
-                : `Session ${sid} external frontier review evidence.`,
-            critique: String(r.critique || 'Evaluated by external frontier model.').trim(),
-          }))
+      if (
+        !Array.isArray(parsed.rubric_scores) ||
+        parsed.rubric_scores.length !== DEMO_SYSTEM_DESIGN_RUBRIC_DIMENSIONS.length
+      ) {
+        return {
+          status: 400,
+          data: { detail: 'The scorecard must include all 12 rubric dimensions.' },
+        }
+      }
+      const scoresByDimension = new Map()
+      for (const [index, row] of parsed.rubric_scores.entries()) {
+        const dimension = String(row?.dimension || '').trim()
+        const canonical = DEMO_SYSTEM_DESIGN_RUBRIC_DIMENSIONS.find(
+          (item) => item.toLowerCase() === dimension.toLowerCase()
+        )
+        const score = row?.score
+        const evidence = String(row?.evidence || '').trim()
+        const critique = String(row?.critique || '').trim()
+        if (!canonical || scoresByDimension.has(canonical)) {
+          return {
+            status: 400,
+            data: { detail: `Invalid or duplicate rubric dimension at index ${index}.` },
+          }
+        }
+        if (!Number.isInteger(score) || score < 1 || score > 5) {
+          return {
+            status: 400,
+            data: { detail: `Score for ${canonical} must be an integer from 1 to 5.` },
+          }
+        }
+        if (evidence.length < 5 || critique.length < 5) {
+          return {
+            status: 400,
+            data: { detail: `Evidence and critique for ${canonical} must be specific.` },
+          }
+        }
+        scoresByDimension.set(canonical, { dimension: canonical, score, evidence, critique })
+      }
+      if (DEMO_SYSTEM_DESIGN_RUBRIC_DIMENSIONS.some((dimension) => !scoresByDimension.has(dimension))) {
+        return {
+          status: 400,
+          data: { detail: 'The scorecard is missing one or more rubric dimensions.' },
+        }
+      }
+      const rubricScores = DEMO_SYSTEM_DESIGN_RUBRIC_DIMENSIONS.map((dimension) =>
+        scoresByDimension.get(dimension)
+      )
+      const overallScore =
+        Math.round((rubricScores.reduce((sum, row) => sum + row.score, 0) / 60) * 1000) / 10
+      const rawScore = parsed.overall_score
+      if (
+        typeof rawScore !== 'number' ||
+        !Number.isFinite(rawScore) ||
+        rawScore < 0 ||
+        rawScore > 100 ||
+        Math.abs(rawScore - overallScore) > 0.1
+      ) {
+        return {
+          status: 400,
+          data: { detail: `overall_score must match the rubric total (${overallScore}).` },
+        }
+      }
+      const executiveSummary = String(parsed.executive_summary || '').trim()
+      const keyStrengths = Array.isArray(parsed.key_strengths)
+        ? parsed.key_strengths.map((item) => String(item).trim()).filter(Boolean)
         : []
-      const rawScore = Number(parsed.overall_score ?? 85)
-      const penalty = 0
-      const overallScore = Math.round(Math.max(0, rawScore) * 10) / 10
+      const criticalGaps = Array.isArray(parsed.critical_gaps)
+        ? parsed.critical_gaps.map((item) => String(item).trim()).filter(Boolean)
+        : []
+      const recommendedNextSteps = Array.isArray(parsed.recommended_next_steps)
+        ? parsed.recommended_next_steps.map((item) => String(item).trim()).filter(Boolean)
+        : []
+      if (executiveSummary.length < 10 || !keyStrengths.length || !recommendedNextSteps.length) {
+        return {
+          status: 400,
+          data: { detail: 'The scorecard needs a summary, strengths, and next steps.' },
+        }
+      }
       const isCoached = demoIsSessionCoached(session)
-      const rating = demoDeriveRating(overallScore)
       const normalized = {
         overall_score: overallScore,
-        raw_score: rawScore,
-        guidance_penalty: penalty,
+        raw_score: overallScore,
         assistance_mode: isCoached ? 'COACHED' : 'SOLO',
-        xp_earned: isCoached ? 100 : 150,
-        readiness_rating: rating,
-        executive_summary: String(
-          parsed.executive_summary || 'External frontier evaluation imported.'
-        ),
+        readiness_rating: 'FORMATIVE',
+        executive_summary: executiveSummary,
         rubric_scores: rubricScores,
-        key_strengths: Array.isArray(parsed.key_strengths) ? parsed.key_strengths : [],
-        critical_gaps: Array.isArray(parsed.critical_gaps) ? parsed.critical_gaps : [],
-        recommended_next_steps: Array.isArray(parsed.recommended_next_steps)
-          ? parsed.recommended_next_steps
-          : [],
+        key_strengths: keyStrengths,
+        critical_gaps: criticalGaps,
+        recommended_next_steps: recommendedNextSteps,
+        ...demoSessionRobustnessBonus(session),
       }
       const nowIso = new Date().toISOString()
       session.final_evaluation = normalized
       session.overall_score = overallScore
-      session.readiness_rating = rating
+      session.readiness_rating = 'FORMATIVE'
       session.stage = 'COMPLETED'
       session.status = 'COMPLETED'
       session.completed_at = nowIso
       session.updated_at = nowIso
       saveDemoDb(db)
-      return ok(session)
+      return ok(demoAttachPaletteExtensions(session))
     }
 
     const sdFrontierCoachMatch = urlPath.match(
@@ -5095,7 +5388,14 @@ export async function handleDemoRequest(config) {
       const nodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
       const edges = Array.isArray(data.current_edges) ? data.current_edges : []
       const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(session.challenge, session)
-      const topoFeedback = demoEvaluateTopology(expectedItems, expectedPaths, nodes, edges, data.current_notes || '')
+      const topoFeedback = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        nodes,
+        edges,
+        data.current_notes || '',
+        demoExtractBonusCapabilities(session)
+      )
       session.diagram_guidance = {
         ...(session.diagram_guidance || {}),
         is_coached: true,

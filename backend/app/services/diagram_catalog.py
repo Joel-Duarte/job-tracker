@@ -1075,11 +1075,34 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
                 "is_custom": bool(
                     node.get("is_custom", type_id not in BLOCKS_BY_TYPE_ID)
                 ),
+                "parent_node_id": str(node.get("parent_node_id") or "").strip() or None,
                 "position": {"x": round(x, 1), "y": round(y, 1)},
             }
         )
 
     valid_node_ids = {n["id"] for n in normalized_nodes}
+    nodes_by_id = {node["id"]: node for node in normalized_nodes}
+    drillable_types = {
+        "app_service",
+        "microservice",
+        "serverless_fn",
+        "async_worker",
+        "llm_gateway",
+        "media_transcoder",
+        "realtime_gateway",
+    }
+    for node in normalized_nodes:
+        parent_id = node["parent_node_id"]
+        if not parent_id:
+            continue
+        parent = nodes_by_id.get(parent_id)
+        if not parent:
+            raise ValueError(f"Diagram service scope '{parent_id}' does not exist.")
+        if parent["parent_node_id"] or parent["type_id"] not in drillable_types:
+            raise ValueError(
+                "Nested components must belong directly to a top-level service or worker."
+            )
+
     normalized_edges: list[dict[str, Any]] = []
     for idx, edge in enumerate(raw_edges, start=1):
         if not isinstance(edge, dict):
@@ -1093,6 +1116,11 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
             or target not in valid_node_ids
         ):
             continue
+        if (
+            nodes_by_id[source]["parent_node_id"]
+            != nodes_by_id[target]["parent_node_id"]
+        ):
+            raise ValueError("Diagram connections cannot cross service scopes.")
         mode = str(edge.get("delivery_mode") or "sync").strip().lower()
         if mode not in {"sync", "async"}:
             mode = "sync"
@@ -1940,6 +1968,94 @@ def _synthesize_expected_paths(
     return paths
 
 
+DEFAULT_BONUS_CAPABILITIES = [
+    {
+        "id": "operational_visibility",
+        "title": "Make the service observable",
+        "goal": "Define useful service-level metrics, traces, logs, and alerts without overwhelming operators.",
+        "accepted_type_groups": [["observability"]],
+        "points": 1,
+        "defence_tradeoff": "Which user-visible SLO and alert would detect a real incident without paging on noise?",
+    },
+    {
+        "id": "failure_recovery",
+        "title": "Contain and recover from failures",
+        "goal": "Add a bounded failure-isolation or retry/recovery mechanism suited to a critical dependency or async workflow.",
+        "accepted_type_groups": [["circuit_breaker"], ["dlq"]],
+        "points": 1,
+        "defence_tradeoff": "Explain retry bounds, idempotency, and how poisoned work or cascading failures are handled.",
+    },
+    {
+        "id": "abuse_protection",
+        "title": "Protect a public or high-risk entry point",
+        "goal": "Add an appropriate rate, edge, identity, or content-safety control where abuse could harm the system.",
+        "accepted_type_groups": [["rate_limiter"], ["waf_ddos"], ["content_filter"]],
+        "points": 1,
+        "defence_tradeoff": "Describe the abuse model and the false-positive, latency, or availability cost of the control.",
+    },
+]
+
+
+def synthesize_bonus_capabilities(
+    brief: dict[str, Any] | None,
+    required_components: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return candidate-safe robustness checks, excluding checks already required by the baseline."""
+    safe_brief = brief if isinstance(brief, dict) else {}
+    explicit = safe_brief.get("bonus_capabilities")
+    source = (
+        explicit
+        if isinstance(explicit, list) and explicit
+        else DEFAULT_BONUS_CAPABILITIES
+    )
+    core_type_ids = {
+        str(component.get("type_id") or "")
+        for component in required_components
+        if component.get("type_id")
+    }
+
+    capabilities: list[dict[str, Any]] = []
+    for index, item in enumerate(source):
+        if not isinstance(item, dict):
+            continue
+        groups = item.get("accepted_type_groups") or item.get("accepted_types") or []
+        normalized_groups: list[list[str]] = []
+        for group in groups:
+            values = (
+                group
+                if isinstance(group, list)
+                else [group]
+                if isinstance(group, str)
+                else []
+            )
+            normalized = list(
+                dict.fromkeys(
+                    str(value).strip() for value in values if str(value).strip()
+                )
+            )
+            if normalized and any(
+                type_id not in core_type_ids for type_id in normalized
+            ):
+                normalized_groups.append(normalized)
+        if not normalized_groups:
+            continue
+        try:
+            points = int(item.get("points", 1))
+        except (TypeError, ValueError):
+            points = 1
+        capabilities.append(
+            {
+                "id": str(item.get("id") or f"robustness-{index + 1}").strip(),
+                "title": str(item.get("title") or "Robustness improvement").strip(),
+                "goal": str(item.get("goal") or item.get("title") or "").strip(),
+                "accepted_type_groups": normalized_groups,
+                "points": max(1, min(points, 3)),
+                "defence_tradeoff": str(item.get("defence_tradeoff") or "").strip(),
+            }
+        )
+    return capabilities
+
+
 def resolve_challenge_blueprint(
     brief: dict[str, Any] | None,
     locked_ledger: dict[str, Any] | None = None,
@@ -2161,11 +2277,13 @@ def resolve_challenge_blueprint(
     required_capabilities = synthesize_required_capabilities(
         safe_brief, safe_ledger, required_components
     )
+    bonus_capabilities = synthesize_bonus_capabilities(safe_brief, required_components)
 
     return {
         "required_components": required_components,
         "expected_paths": expected_paths,
         "required_capabilities": required_capabilities,
+        "bonus_capabilities": bonus_capabilities,
         "out_of_scope_text": out_of_scope_text,
     }
 
@@ -2410,12 +2528,24 @@ def _edges_match_step(
         for n in nodes
         if isinstance(n, dict)
     }
+    node_scopes = {
+        str(n.get("id")): str(n.get("parent_node_id") or "")
+        for n in nodes
+        if isinstance(n, dict)
+    }
     for edge in edges:
         if not isinstance(edge, dict):
             continue
-        src_type = node_types.get(str(edge.get("source") or ""), "")
-        dst_type = node_types.get(str(edge.get("target") or ""), "")
-        if src_type == source_type_id and dst_type == target_type_id:
+        source_id = str(edge.get("source") or "")
+        target_id = str(edge.get("target") or "")
+        src_type = node_types.get(source_id, "")
+        dst_type = node_types.get(target_id, "")
+        if (
+            src_type == source_type_id
+            and dst_type == target_type_id
+            and not node_scopes.get(source_id)
+            and not node_scopes.get(target_id)
+        ):
             return True
     return False
 
@@ -2511,9 +2641,28 @@ def evaluate_canvas_topology(
         matched_nodes: list[dict[str, Any]] = []
         matched_group: list[str] = []
         for grp in groups:
-            if grp and all(tid in placed_type_ids for tid in grp):
-                matched_group = grp
-                matched_nodes = [n for n in nodes if str(n.get("type_id") or "") in grp]
+            if not grp:
+                continue
+            for scope_id in dict.fromkeys(
+                str(node.get("parent_node_id") or "") for node in nodes
+            ):
+                scope_nodes = [
+                    node
+                    for node in nodes
+                    if str(node.get("parent_node_id") or "") == scope_id
+                ]
+                scope_type_ids = {
+                    str(node.get("type_id") or "") for node in scope_nodes
+                }
+                if all(tid in scope_type_ids for tid in grp):
+                    matched_group = grp
+                    matched_nodes = [
+                        node
+                        for node in scope_nodes
+                        if str(node.get("type_id") or "") in grp
+                    ]
+                    break
+            if matched_nodes:
                 break
 
         if not matched_nodes:
@@ -2529,7 +2678,7 @@ def evaluate_canvas_topology(
             )
             continue
 
-        all_wired = len(nodes) == 1 or any(
+        all_wired = len(nodes) == 1 or all(
             incoming[str(n["id"])] > 0 or outgoing[str(n["id"])] > 0
             for n in matched_nodes
             if n.get("id")
@@ -2556,6 +2705,63 @@ def evaluate_canvas_topology(
             defence_probes.append(
                 f"{cap['title']} ({placed_labels}): {cap['defence_tradeoff']}"
             )
+
+    bonus_capability_checks: list[dict[str, Any]] = []
+    earned_bonus_points = 0
+    bonus_capabilities = list(resolved_blueprint.get("bonus_capabilities") or [])
+    for cap in bonus_capabilities:
+        matched_nodes: list[dict[str, Any]] = []
+        for group in cap.get("accepted_type_groups") or []:
+            for scope_id in dict.fromkeys(
+                str(node.get("parent_node_id") or "") for node in nodes
+            ):
+                scope_nodes = [
+                    node
+                    for node in nodes
+                    if str(node.get("parent_node_id") or "") == scope_id
+                ]
+                scope_type_ids = {
+                    str(node.get("type_id") or "") for node in scope_nodes
+                }
+                if group and all(type_id in scope_type_ids for type_id in group):
+                    matched_nodes = [
+                        node
+                        for node in scope_nodes
+                        if str(node.get("type_id") or "") in group
+                    ]
+                    break
+            if matched_nodes:
+                break
+
+        all_wired = bool(matched_nodes) and all(
+            node.get("id")
+            and (
+                incoming.get(str(node["id"]), 0) > 0
+                or outgoing.get(str(node["id"]), 0) > 0
+            )
+            for node in matched_nodes
+        )
+        status = "met" if all_wired else "partial" if matched_nodes else "pending"
+        points = int(cap.get("points") or 1)
+        if status == "met":
+            earned_bonus_points += points
+        bonus_capability_checks.append(
+            {
+                "id": cap["id"],
+                "title": cap["title"],
+                "goal": cap["goal"],
+                "status": status,
+                "satisfied_by": ", ".join(
+                    dict.fromkeys(
+                        str(node.get("label") or node.get("type_id") or "")
+                        for node in matched_nodes
+                    )
+                ),
+                "points": points,
+                "earned_points": points if status == "met" else 0,
+                "defence_tradeoff": cap.get("defence_tradeoff") or "",
+            }
+        )
 
     total_required = len(required_components)
     total_caps = len(capability_checks)
@@ -2801,6 +3007,11 @@ def evaluate_canvas_topology(
         "met_capabilities_count": met_capabilities,
         "total_capabilities_count": total_caps,
         "capability_checks": capability_checks,
+        "bonus_capability_checks": bonus_capability_checks,
+        "robustness_bonus_points": earned_bonus_points,
+        "robustness_bonus_max_points": sum(
+            int(cap.get("points") or 1) for cap in bonus_capabilities
+        ),
         "defence_probes": defence_probes[:6],
         "path_milestones": path_milestones,
         "findings": findings,
