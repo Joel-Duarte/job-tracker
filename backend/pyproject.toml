@@ -35,7 +35,7 @@ dependencies = [
     "ddgs>=9.0.0",
     "icalendar>=7.3.0",
     "python-dateutil>=3.0.0",
-    "langgraph-sdk>=0.4.6",
+    "langgraph-sdk>=0.4.14",
     "langchain-text-splitters>=1.1.3",
 ]
 
