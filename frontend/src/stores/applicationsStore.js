@@ -131,10 +131,10 @@ export const useApplicationsStore = defineStore('applications', () => {
   function getAppActivityDate(app) {
     if (!app) return null
     return (
-      app.latest_event?.email_received_at ||
       app.latest_event?.created_at ||
-      app.events?.[0]?.email_received_at ||
       app.events?.[0]?.created_at ||
+      app.latest_event?.email_received_at ||
+      app.events?.[0]?.email_received_at ||
       app.last_activity_at ||
       app.application_date ||
       app.applied_at ||

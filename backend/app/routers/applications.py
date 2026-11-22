@@ -89,6 +89,8 @@ _GENUINE_INTERVIEW_STAGE_LABELS = {
     "Final / Hiring Manager Round",
     "Task Completed / Awaiting Response",
 }
+
+
 _OFFER_EVENT_TYPES = {
     "OFFER",
     "OFFER_RECEIVED",
@@ -634,6 +636,26 @@ async def list_applications(
     offset_val = offset if isinstance(offset, int) else getattr(offset, "default", 0)
 
     sort_column = getattr(ApplicationModel, sort_by_val)
+    sort_expression = sort_column
+    if status_val == "ARCHIVED" and sort_by_val == "last_activity_at":
+        latest_timeline_event_at = (
+            select(ApplicationEventModel.created_at)
+            .where(
+                ApplicationEventModel.email_application_id == ApplicationModel.id,
+            )
+            .order_by(
+                ApplicationEventModel.created_at.desc(),
+                ApplicationEventModel.id.desc(),
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
+        sort_expression = func.coalesce(
+            latest_timeline_event_at,
+            ApplicationModel.last_activity_at,
+            ApplicationModel.application_date,
+            ApplicationModel.created_at,
+        )
     stmt = (
         base_stmt.options(
             joinedload(ApplicationModel.company),
@@ -641,7 +663,12 @@ async def list_applications(
             selectinload(ApplicationModel.action_items),
             selectinload(ApplicationModel.job_posting),
         )
-        .order_by(sort_column.desc() if order_val == "desc" else sort_column.asc())
+        .order_by(
+            sort_expression.desc().nullslast()
+            if order_val == "desc"
+            else sort_expression.asc().nullsfirst(),
+            ApplicationModel.id.desc(),
+        )
         .limit(limit_val)
         .offset(offset_val)
     )
@@ -694,7 +721,8 @@ async def list_applications(
         sorted_events = sorted(
             app.events or [],
             key=lambda e: (
-                _to_utc(e.email_received_at) or datetime.min.replace(tzinfo=UTC)
+                _to_utc(e.created_at) or datetime.min.replace(tzinfo=UTC),
+                e.id or 0,
             ),
             reverse=True,
         )
@@ -751,12 +779,7 @@ async def list_applications(
         )
 
         effective_activity_at = (
-            (
-                latest_evt.email_received_at
-                if latest_evt and latest_evt.email_received_at
-                else None
-            )
-            or (latest_evt.created_at if latest_evt else None)
+            (latest_evt.created_at if latest_evt else None)
             or app.last_activity_at
             or (
                 datetime.combine(app.application_date, datetime.min.time()).replace(
@@ -809,6 +832,7 @@ async def list_applications(
                 latest_event=EventSummary(
                     id=latest_evt.id,
                     email_event_type=latest_evt.email_event_type,
+                    created_at=latest_evt.created_at,
                     email_subject=latest_evt.email_subject,
                     email_action_required=latest_evt.email_action_required,
                     email_action=latest_evt.email_action,
@@ -909,7 +933,10 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 
     sorted_events = sorted(
         app.events or [],
-        key=lambda e: e.email_received_at or e.created_at,
+        key=lambda e: (
+            _to_utc(e.created_at) or datetime.min.replace(tzinfo=UTC),
+            e.id or 0,
+        ),
         reverse=True,
     )
     latest_evt = sorted_events[0] if sorted_events else None
@@ -1061,6 +1088,7 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         latest_event=EventSummary(
             id=latest_evt.id,
             email_event_type=latest_evt.email_event_type,
+            created_at=latest_evt.created_at,
             email_subject=latest_evt.email_subject,
             email_action_required=latest_evt.email_action_required,
             email_action=latest_evt.email_action,
@@ -1386,9 +1414,8 @@ async def transition_application(
         sorted_existing = sorted(
             app.events or [],
             key=lambda e: (
-                _to_utc(e.email_received_at)
-                or _to_utc(e.created_at)
-                or datetime.min.replace(tzinfo=UTC)
+                _to_utc(e.created_at) or datetime.min.replace(tzinfo=UTC),
+                e.id or 0,
             ),
             reverse=True,
         )

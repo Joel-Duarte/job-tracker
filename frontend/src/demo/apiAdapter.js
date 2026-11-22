@@ -407,6 +407,29 @@ export async function handleDemoRequest(config) {
         }
       })
     }
+    if ((params.status || '').toUpperCase() === 'ARCHIVED') {
+      const getLatestTimelineTimestamp = (app) => {
+        const events = app.events?.length
+          ? app.events
+          : app.latest_event
+            ? [app.latest_event]
+            : []
+        const latestEvent = events.reduce((latest, event) => {
+          if (!latest) return event
+          return new Date(event.created_at || 0).getTime() > new Date(latest.created_at || 0).getTime()
+            ? event
+            : latest
+        }, null)
+        return new Date(
+          latestEvent?.created_at || app.last_activity_at || app.application_date || app.created_at || 0
+        ).getTime()
+      }
+      items.sort((a, b) => {
+        const dateDelta = getLatestTimelineTimestamp(b) - getLatestTimelineTimestamp(a)
+        if (dateDelta !== 0) return dateDelta
+        return String(b.id).localeCompare(String(a.id), undefined, { numeric: true })
+      })
+    }
     const total = items.length
     const limit = Number(params.limit) || 1000
     const offset = Number(params.offset) || 0

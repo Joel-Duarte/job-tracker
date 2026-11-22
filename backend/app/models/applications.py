@@ -126,7 +126,10 @@ class ApplicationModel(Base):
     events: Mapped[list["ApplicationEventModel"]] = relationship(
         back_populates="application",
         cascade="all, delete-orphan",
-        order_by="desc(ApplicationEventModel.email_received_at)",
+        order_by=lambda: (
+            ApplicationEventModel.created_at.desc(),
+            ApplicationEventModel.id.desc(),
+        ),
     )
 
     embedding_record: Mapped[Optional["ApplicationEmbeddingModel"]] = relationship(

@@ -24,6 +24,7 @@ class CompanySummary(BaseModel):
 class EventSummary(BaseModel):
     id: int
     email_event_type: str
+    created_at: datetime
     email_subject: str | None = None
     email_action_required: bool
     email_action: str | None = None
