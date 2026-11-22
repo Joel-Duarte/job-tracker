@@ -1447,13 +1447,11 @@ async function confirmDelete() {
 
                 <td class="cell-stage-reached">
                   <span
-                    v-if="isGhostedOrArchived(app)"
                     class="stage-reached-pill"
                     :class="getPriorStageBadgeClass(getAppPriorStage(app))"
                   >
                     {{ formatPriorStageLabel(getAppPriorStage(app)) }}
                   </span>
-                  <span v-else class="stage-reached-dash">—</span>
                 </td>
 
                 <td class="cell-reason">
