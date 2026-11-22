@@ -1,7 +1,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from rapidfuzz import fuzz
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +15,9 @@ from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     JobPostingModel,
+    OtherEventModel,
 )
-from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.staging import (
     StagingBulkDismissRequest,
@@ -36,8 +37,6 @@ from app.services.domain_resolver import (
     extract_email_identity_signals,
     extract_organization_from_ats_url,
 )
-from app.services.evaluation_worker import process_evaluation_task
-from app.services.llm import async_enqueue_application_embedding
 from app.services.skill_normalizer import normalize_skills_list
 
 logger = logging.getLogger(__name__)
@@ -525,7 +524,6 @@ async def get_staging_item(
 async def resolve_staging_item(
     item_id: int,
     payload: StagingItemResolve,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Accepts user fixes, applies them to DB records, and marks the staged item PROCESSED."""
@@ -547,6 +545,8 @@ async def resolve_staging_item(
 
     try:
         application = None
+        created_application = False
+        previous_application_status = None
         effective_company = (
             payload.company_name or payload.company or "Unknown Company"
         ).strip()
@@ -599,6 +599,7 @@ async def resolve_staging_item(
                 )
                 db.add(application)
                 await db.flush()
+                created_application = True
             elif staged_item.email_received_at:
                 application.last_activity_at = staged_item.email_received_at
 
@@ -615,6 +616,9 @@ async def resolve_staging_item(
 
         # Update application status if modified, or advance forward-only from extracted stage
         if payload.status:
+            previous_application_status = (
+                None if created_application else application.status
+            )
             application.status = payload.status
         elif application.status in {"ASSESSMENT", "APPLIED", "ONLINE_ASSESSMENT"}:
             staged_stage_map = {
@@ -727,7 +731,11 @@ async def resolve_staging_item(
         application.updated_at = datetime.now(UTC)
 
         # Prepare raw_payload preserving scheduled_at and interview_stage for Application badges
-        event_raw_payload = dict(extracted) if isinstance(extracted, dict) else {}
+        event_raw_payload = (
+            {key: value for key, value in extracted.items() if not key.startswith("_")}
+            if isinstance(extracted, dict)
+            else {}
+        )
         if payload.due_date:
             from app.core.config_manager import get_system_settings_model
             from app.services.email_normalization import normalize_instant
@@ -751,25 +759,70 @@ async def resolve_staging_item(
         ):
             event_raw_payload["interview_stage"] = payload.event_type
 
-        event = ApplicationEventModel(
-            email_application_id=application.id,
-            email_message_id=staged_item.email_message_id,
-            email_conversation_id=staged_item.email_conversation_id
-            or f"stage-conv-{staged_item.id}",
-            email_sender=staged_item.email_sender,
-            email_sender_name=staged_item.email_sender_name,
-            email_subject=staged_item.email_subject,
-            email_received_at=event_time,
-            email_event_type=payload.event_type or "PRE_APPLICATION_ASSESSMENT",
-            email_status_after_event=application.status,
-            email_summary=summary_val,
-            email_action_required=payload.action_required,
-            email_action=payload.action,
-            email_raw_body=staged_item.email_raw_body,
-            raw_payload=event_raw_payload or None,
-            source_channel="STAGING",
+        extracted_meta = dict(extracted)
+        existing_event_id = extracted_meta.get("_application_event_id")
+        other_event_id = extracted_meta.get("_other_event_id")
+        if other_event_id:
+            other_event = await db.get(OtherEventModel, other_event_id)
+            if other_event:
+                await db.delete(other_event)
+        event = (
+            await db.get(ApplicationEventModel, existing_event_id)
+            if existing_event_id
+            else None
         )
-        db.add(event)
+        if event is None and staged_item.email_message_id:
+            event_res = await db.execute(
+                select(ApplicationEventModel).where(
+                    ApplicationEventModel.email_message_id
+                    == staged_item.email_message_id
+                )
+            )
+            event = event_res.scalar_one_or_none()
+
+        previous_application_status = (
+            extracted_meta.get("_previous_application_status")
+            if event is not None
+            else previous_application_status
+        )
+        if event is not None and event.email_application_id != application.id:
+            previous_app = await db.get(ApplicationModel, event.email_application_id)
+            if (
+                previous_app
+                and previous_application_status
+                and previous_app.status == event.email_status_after_event
+            ):
+                previous_app.status = previous_application_status
+            old_actions = await db.execute(
+                select(ActionItemModel).where(ActionItemModel.event_id == event.id)
+            )
+            for action_item in old_actions.scalars().all():
+                await db.delete(action_item)
+
+        event_values = {
+            "email_application_id": application.id,
+            "email_message_id": staged_item.email_message_id,
+            "email_conversation_id": staged_item.email_conversation_id
+            or f"stage-conv-{staged_item.id}",
+            "email_sender": staged_item.email_sender,
+            "email_sender_name": staged_item.email_sender_name,
+            "email_subject": staged_item.email_subject,
+            "email_received_at": event_time,
+            "email_event_type": payload.event_type or "PRE_APPLICATION_ASSESSMENT",
+            "email_status_after_event": application.status,
+            "email_summary": summary_val,
+            "email_action_required": payload.action_required,
+            "email_action": payload.action,
+            "email_raw_body": staged_item.email_raw_body,
+            "raw_payload": event_raw_payload or None,
+            "source_channel": "STAGING",
+        }
+        if event is None:
+            event = ApplicationEventModel(**event_values)
+            db.add(event)
+        else:
+            for key, value in event_values.items():
+                setattr(event, key, value)
         await db.flush()
 
         # Check if Action Item should be generated
@@ -852,44 +905,26 @@ async def resolve_staging_item(
         # Save IDs to variables before committing so we don't access expired ORM attributes
         target_app_id = application.id
 
+        extracted_meta["_application_id"] = target_app_id
+        extracted_meta["_application_event_id"] = event.id
+        extracted_meta["_previous_application_status"] = previous_application_status
+        staged_item.extracted_data = extracted_meta
+
         # Mark item as PROCESSED and save records to DB
         staged_item.status = "PROCESSED"
+        if staged_item.email_message_id:
+            processed_email = (
+                await db.execute(
+                    select(ProcessedEmailModel).where(
+                        ProcessedEmailModel.message_id == staged_item.email_message_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if processed_email:
+                processed_email.status = "ingested"
         await db.flush()
         target_event_id = event.id
         await db.commit()
-
-        # Enqueue background AI job evaluation task if URL or description was provided
-        if clean_job_url or desc_md:
-            try:
-                comp_display = effective_company
-                pos_display = payload.position
-                eval_task = IntakeEvaluationTaskModel(
-                    task_type="JOB_EVALUATION",
-                    job_url=clean_job_url,
-                    raw_text=desc_md,
-                    title_hint=f"Job Spec Analysis: {comp_display} - {pos_display}",
-                    status="QUEUED",
-                    stage="QUEUED",
-                    result_json={
-                        "target_application_id": target_app_id,
-                        "skip_cover_letter": True,
-                        "company": comp_display,
-                        "position": pos_display,
-                    },
-                )
-                db.add(eval_task)
-                await db.commit()
-                await db.refresh(eval_task)
-
-                import asyncio
-
-                asyncio.create_task(process_evaluation_task(task_id=eval_task.id))
-            except Exception as eval_err:
-                logger.warning(
-                    "Failed to enqueue background evaluation task for App %d: %s",
-                    target_app_id,
-                    eval_err,
-                )
 
     except Exception as e:
         logger.error("Failed to resolve staging item %d: %s", item_id, e, exc_info=True)
@@ -897,14 +932,6 @@ async def resolve_staging_item(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to resolve staging item: {e!s}",
-        )
-
-    # Enqueue non-blocking background embedding generation (only if embeddings enabled)
-    from app.core.config_manager import get_setting
-
-    if await get_setting("ENABLE_EMBEDDINGS", False, db=db):
-        background_tasks.add_task(
-            async_enqueue_application_embedding, target_app_id, skip_llm_summary=True
         )
 
     return {
@@ -980,6 +1007,16 @@ async def reopen_staging_item(
 
     staged_item.status = "PENDING"
     staged_item.match_reason = "REOPENED_FOR_TRIAGE"
+    if staged_item.email_message_id:
+        processed_email = (
+            await db.execute(
+                select(ProcessedEmailModel).where(
+                    ProcessedEmailModel.message_id == staged_item.email_message_id
+                )
+            )
+        ).scalar_one_or_none()
+        if processed_email:
+            processed_email.status = "staged"
     await db.commit()
     await db.refresh(staged_item)
 

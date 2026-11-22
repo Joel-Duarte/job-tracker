@@ -99,7 +99,7 @@ async def seed_demo_data(
 @router.delete(
     "/applications/{application_id}",
     status_code=status.HTTP_200_OK,
-    summary="Delete an application (Cascades to events & embeddings)",
+    summary="Delete an application (Cascades to events)",
 )
 async def delete_application(
     application_id: int,
@@ -112,20 +112,20 @@ async def delete_application(
             detail=f"Application with ID {application_id} not found.",
         )
 
-    # SQLAlchemy cascade will handle deleting associated events and embeddings
+    # SQLAlchemy cascade will handle deleting associated events.
     await db.delete(app_obj)
     await db.commit()
 
     return {
         "status": "success",
-        "message": f"Application {application_id} and all related events/embeddings deleted.",
+        "message": f"Application {application_id} and all related events deleted.",
     }
 
 
 @router.delete(
     "/events/{event_id}",
     status_code=status.HTTP_200_OK,
-    summary="Delete a single email event (Updates embedding if latest event was removed)",
+    summary="Delete a single email event",
 )
 async def delete_event(
     event_id: int,
@@ -151,58 +151,12 @@ async def delete_event(
             detail=f"Application event with ID {event_id} not found.",
         )
 
-    app_id = event.email_application_id
-
-    # Check if this event is currently the LATEST event for this application
-    latest_event_query = (
-        select(ApplicationEventModel.id)
-        .where(ApplicationEventModel.email_application_id == app_id)
-        .order_by(ApplicationEventModel.email_received_at.desc())
-        .limit(1)
-    )
-    latest_event_id = (await db.execute(latest_event_query)).scalar_one_or_none()
-
-    is_latest_event = latest_event_id == event_id
-
-    # Perform Event Delete
     await db.delete(event)
     await db.commit()
-
-    # Re-sync handling if latest event was wiped
-    embedding_reindexed = False
-    if is_latest_event:
-        # Fetch the NEW latest event after deletion
-        new_latest_query = (
-            select(ApplicationEventModel)
-            .where(ApplicationEventModel.email_application_id == app_id)
-            .order_by(ApplicationEventModel.email_received_at.desc())
-            .limit(1)
-        )
-        new_latest_event = (await db.execute(new_latest_query)).scalar_one_or_none()
-
-        if new_latest_event:
-            # TODO: Trigger re-indexing of the embedding for this application based on the new latest event
-            logger.info(
-                f"Latest event deleted for App {app_id}. Triggering re-indexing."
-            )
-            embedding_reindexed = True
-        else:
-            # If NO events remain for this application, drop its vector embedding
-            await db.execute(
-                text(
-                    "DELETE FROM email_application_embeddings WHERE email_application_id = :app_id"
-                ),
-                {"app_id": app_id},
-            )
-            await db.commit()
-            logger.info(
-                f"No events remaining for App {app_id}. Deleted embedding record."
-            )
 
     return {
         "status": "success",
         "message": f"Event {event_id} deleted.",
-        "embedding_resynced": embedding_reindexed,
     }
 
 

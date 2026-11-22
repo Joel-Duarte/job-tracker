@@ -19,7 +19,7 @@ from app.schemas.extension import ClipJobRequest, ClipUrlRequest, ExtensionClipR
 from app.schemas.intake import EmailPayload
 from app.services.company_resolver import resolve_or_create_company
 from app.services.intake import process_single_email_graph
-from app.services.llm import generate_and_save_application_embedding
+from app.services.llm import generate_and_save_application_embedding  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -245,14 +245,6 @@ async def clip_job_pre_extracted(
     await db.commit()
     await db.refresh(application)
     await db.refresh(event)
-
-    # Synthesize embedding
-    try:
-        await generate_and_save_application_embedding(db, application.id)
-    except Exception as err:
-        logger.warning(
-            "Embedding deferred for clipped application %s: %s", application.id, err
-        )
 
     return ExtensionClipResponse(
         status="success",

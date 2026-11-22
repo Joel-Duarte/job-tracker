@@ -4,9 +4,7 @@ import { useUIStore } from '../stores/uiStore'
 import { SearchAPI } from '../api/endpoints'
 import {
   Search,
-  Sparkles,
   Building2,
-  Calendar,
   ChevronRight,
   Loader2,
   Compass,
@@ -25,7 +23,7 @@ async function executeSearch() {
   hasSearched.value = true
 
   try {
-    const res = await SearchAPI.semantic(searchQuery.value.trim(), 15, 0.4)
+    const res = await SearchAPI.applications(searchQuery.value.trim(), 15)
     results.value = res.data || []
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -46,12 +44,12 @@ function handleKeyDown(e) {
     <!-- Search Banner -->
     <div class="search-hero">
       <div class="hero-badge">
-        <Sparkles :size="14" />
-        <span>768-dim pgvector Cosine Search</span>
+        <Search :size="14" />
+        <span>Application keyword search</span>
       </div>
-      <h1 class="hero-title">Semantic Vector Explorer</h1>
+      <h1 class="hero-title">Search Applications</h1>
       <p class="hero-subtitle">
-        Search applications by interview topics, skills, recruiters, or contextual milestones across all timelines.
+        Find applications by company, role, or status.
       </p>
 
       <div class="search-bar-box">
@@ -59,7 +57,7 @@ function handleKeyDown(e) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="e.g. 'roles where I had system design interviews with Staff engineers' or 'Rust and distributed systems'"
+          placeholder="Search company, role, or status"
           class="search-bar-input"
           @keydown="handleKeyDown"
         />
@@ -78,23 +76,23 @@ function handleKeyDown(e) {
     <div class="results-container">
       <div v-if="loading" class="loading-box">
         <Loader2 class="animate-spin" :size="28" />
-        <span>Synthesizing vector similarity...</span>
+        <span>Searching applications...</span>
       </div>
 
       <div v-else-if="hasSearched && results.length === 0" class="empty-results">
         <Compass :size="40" class="text-muted" />
         <h3>No matching applications found</h3>
-        <p>Try refining your query or lowering specificity.</p>
+        <p>Try a different company, role, or status keyword.</p>
       </div>
 
       <div v-else-if="results.length > 0" class="results-list">
         <div class="results-header">
-          Found {{ results.length }} semantically matching application snapshots
+          Found {{ results.length }} matching applications
         </div>
 
         <div
           v-for="item in results"
-          :key="item.id"
+          :key="item.application_id"
           class="result-card animate-fade-in"
           @click="uiStore.openDetail(item.application_id)"
         >
@@ -102,20 +100,19 @@ function handleKeyDown(e) {
             <div class="card-meta">
               <div class="company-tag">
                 <Building2 :size="14" class="text-primary" />
-                <span class="company-name">{{ item.company_name || 'Company' }}</span>
+              <span class="company-name">{{ item.company_name || 'Company' }}</span>
               </div>
               <span class="role-name">{{ item.position || 'Position Not Specified' }}</span>
             </div>
 
             <div class="narrative-summary">
-              {{ item.email_summary || 'Snapshot summary available in details.' }}
+              {{ item.status }}
             </div>
           </div>
 
           <div class="card-right">
             <div class="similarity-score-pill">
-              <Sparkles :size="12" />
-              <span>{{ (item.similarity_score || 0).toFixed(1) }}% Match</span>
+              <span>Keyword match</span>
             </div>
             <ChevronRight :size="16" class="arrow-icon" />
           </div>

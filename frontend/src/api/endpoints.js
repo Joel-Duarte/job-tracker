@@ -99,8 +99,8 @@ export const StagingAPI = {
 }
 
 export const SearchAPI = {
-  semantic: (query, limit = 10, threshold = 0.5) =>
-    apiClient.get('/search/semantic', { params: { query, limit, threshold } }),
+  applications: (query, limit = 15) =>
+    apiClient.get('/search/applications', { params: { q: query, limit } }),
   companies: (q = '') => apiClient.get('/search/companies', { params: { q } }),
 }
 
@@ -114,7 +114,6 @@ export const AIConfigAPI = {
   checkHealth: () => apiClient.get('/config/ai/health'),
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
-  reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),
   listProviders: () => apiClient.get('/ai/providers'),
   createProvider: (data) => apiClient.post('/ai/providers', data),
   updateProvider: (id, data) => apiClient.patch(`/ai/providers/${id}`, data),

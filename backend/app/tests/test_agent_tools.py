@@ -491,7 +491,6 @@ async def test_agent_tools_unit_handlers():
         db.execute.return_value = mock_search_res
         search_res = await execute_semantic_vector_search(db, query="Linear backend")
         assert len(search_res) == 1
-        assert search_res[0]["embeddings_enabled"] is False
         assert search_res[0]["search_mode"] == "keyword_search"
 
     # 22. Test LangChain Tool Factory Registration

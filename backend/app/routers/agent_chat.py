@@ -149,7 +149,7 @@ async def chat_with_agent(
     db: AsyncSession = Depends(get_db),
 ) -> AgentChatResponse:
     """
-    Conversational Agent Chat equipped with native semantic vector search and database query/mutation tools.
+    Conversational Agent Chat equipped with keyword search and database query/mutation tools.
     """
     system_prompt = await get_prompt_template(db, "agent_system")
 

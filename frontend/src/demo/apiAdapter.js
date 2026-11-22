@@ -2059,7 +2059,6 @@ export async function handleDemoRequest(config) {
       TIMEZONE_SOURCE: db.system_settings?.TIMEZONE_SOURCE || 'auto',
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
       ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
-      ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,
       ENABLE_AUTO_COVER_LETTER: db.system_settings?.enable_auto_cover_letter ?? true,
       COVER_LETTER_MATCH_THRESHOLD: db.system_settings?.cover_letter_match_threshold ?? 70,
       COVER_LETTER_LENGTH: db.system_settings?.cover_letter_length ?? 'standard',
@@ -2085,7 +2084,6 @@ export async function handleDemoRequest(config) {
       TIMEZONE_SOURCE: db.system_settings?.TIMEZONE_SOURCE || 'auto',
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
       ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
-      ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,
       ENABLE_AUTO_COVER_LETTER: db.system_settings?.enable_auto_cover_letter ?? true,
       COVER_LETTER_MATCH_THRESHOLD: db.system_settings?.cover_letter_match_threshold ?? 70,
       COVER_LETTER_LENGTH: db.system_settings?.cover_letter_length ?? 'standard',
@@ -2313,15 +2311,25 @@ export async function handleDemoRequest(config) {
     return ok({ status: 'ok', message: 'Analytics cache cleared and recalculated' })
   }
 
-  if (urlPath === '/search/semantic' && method === 'get') {
-    const query = (params.query || '').toLowerCase()
+  if (urlPath === '/search/applications' && method === 'get') {
+    const query = (params.q || '').toLowerCase().trim()
     const matches = (db.applications || []).filter(
       (a) =>
+        !query ||
         a.company_name?.toLowerCase().includes(query) ||
         a.position?.toLowerCase().includes(query) ||
-        a.description?.toLowerCase().includes(query)
+        a.status?.toLowerCase().includes(query)
     )
-    return ok({ results: matches })
+    return ok(matches.slice(0, Number(params.limit || 15)).map((a) => ({
+      application_id: a.id,
+      company_name: a.company_name || a.company?.name || 'Company',
+      position: a.position || 'Position Not Specified',
+      status: a.status || 'APPLIED',
+    })))
+  }
+
+  if (urlPath === '/search/semantic' && method === 'get') {
+    return { status: 410, data: { detail: 'Semantic vector search is disabled.' } }
   }
 
   if (urlPath === '/search/companies' && method === 'get') {

@@ -10,7 +10,6 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.applications import (
     ActionItemModel,
-    ApplicationEmbeddingModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -49,7 +48,7 @@ from app.schemas.agent_tools import (
 )
 from app.services.analytics import get_funnel_performance_metrics
 from app.services.interview_simulator_service import InterviewSimulatorService
-from app.services.llm import generate_and_save_application_embedding, generate_embedding
+from app.services.llm import generate_and_save_application_embedding  # noqa: F401
 from app.services.web_search import fetch_webpage_content, search_web
 
 logger = logging.getLogger(__name__)
@@ -274,6 +273,7 @@ async def execute_manage_intake_queue(
     if action_norm == "list":
         stmt = (
             select(IntakeEvaluationTaskModel)
+            .where(IntakeEvaluationTaskModel.task_type != "EMBEDDING")
             .order_by(IntakeEvaluationTaskModel.id.desc())
             .limit(limit)
         )
@@ -301,6 +301,9 @@ async def execute_manage_intake_queue(
     task = await db.get(IntakeEvaluationTaskModel, task_id)
     if not task:
         return {"error": f"Intake task #{task_id} not found."}
+
+    if task.task_type == "EMBEDDING":
+        return {"error": "Vector embedding tasks are disabled."}
 
     if action_norm == "cancel":
         task.status = "FAILED"
@@ -457,89 +460,45 @@ async def execute_manage_action_items(
 async def execute_semantic_vector_search(
     db: AsyncSession, query: str, limit: int = 5
 ) -> list[dict[str, Any]]:
-    """Performs semantic vector search across pgvector application embeddings, with fallback if embeddings are disabled."""
-    from app.core.config_manager import get_setting
-
-    if not await get_setting("ENABLE_EMBEDDINGS", False, db):
-        words = [w for w in query.strip().split() if len(w) > 2]
-        stmt = (
-            select(ApplicationModel)
-            .options(
-                selectinload(ApplicationModel.company),
-                selectinload(ApplicationModel.events),
-            )
-            .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
-            .limit(limit)
-        )
-        if words:
-            filters = [
-                or_(
-                    CompanyModel.name.ilike(f"%{w}%"),
-                    ApplicationModel.position.ilike(f"%{w}%"),
-                    ApplicationModel.status.ilike(f"%{w}%"),
-                )
-                for w in words
-            ]
-            stmt = stmt.where(or_(*filters))
-        res = await db.execute(stmt)
-        apps = res.scalars().all()
-        return [
-            {
-                "application_id": app.id,
-                "company": app.company.name if app.company else "Unknown",
-                "position": app.position,
-                "status": app.status,
-                "similarity_score": "Keyword Match",
-                "search_mode": "keyword_search",
-                "embeddings_enabled": False,
-                "document_content": f"Application for {app.position} at {app.company.name if app.company else 'Unknown'} ({app.status})",
-                "metadata": {
-                    "fallback": True,
-                    "note": "Vector embeddings are disabled in system settings. Performed database text keyword match.",
-                },
-            }
-            for app in apps
-        ]
-
-    query_vector = await generate_embedding(db, query)
-    distance_expr = ApplicationEmbeddingModel.embedding.cosine_distance(
-        query_vector
-    ).label("distance")
+    """Search applications by text; vector retrieval is disabled."""
+    words = [word for word in query.strip().split() if len(word) > 2]
     stmt = (
-        select(ApplicationEmbeddingModel, distance_expr)
-        .join(
-            ApplicationModel,
-            ApplicationEmbeddingModel.email_application_id == ApplicationModel.id,
-        )
+        select(ApplicationModel)
         .options(
-            selectinload(ApplicationEmbeddingModel.application).selectinload(
-                ApplicationModel.company
-            )
+            selectinload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
         )
-        .order_by(distance_expr.asc())
+        .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
         .limit(limit)
     )
-    res = await db.execute(stmt)
-    hits = res.all()
-    results = []
-    for emb, dist in hits:
-        app = emb.application
-        comp_name = app.company.name if (app and app.company) else "Unknown"
-        sim_pct = round(max(0.0, min(100.0, (1.0 - float(dist)) * 100.0)), 1)
-        results.append(
-            {
-                "application_id": app.id if app else None,
-                "company": comp_name,
-                "position": app.position if app else "Unknown",
-                "status": app.status if app else "APPLIED",
-                "similarity_score": f"{sim_pct}%",
-                "search_mode": "vector_similarity",
-                "embeddings_enabled": True,
-                "document_content": emb.content,
-                "metadata": emb.metadata_,
-            }
+    if words:
+        stmt = stmt.where(
+            or_(
+                *[
+                    or_(
+                        CompanyModel.name.ilike(f"%{word}%"),
+                        ApplicationModel.position.ilike(f"%{word}%"),
+                        ApplicationModel.status.ilike(f"%{word}%"),
+                    )
+                    for word in words
+                ]
+            )
         )
-    return results
+    res = await db.execute(stmt)
+    apps = res.scalars().all()
+    return [
+        {
+            "application_id": app.id,
+            "company": app.company.name if app.company else "Unknown",
+            "position": app.position,
+            "status": app.status,
+            "similarity_score": "Keyword Match",
+            "search_mode": "keyword_search",
+            "document_content": f"Application for {app.position} at {app.company.name if app.company else 'Unknown'} ({app.status})",
+            "metadata": {"search_mode": "keyword_search"},
+        }
+        for app in apps
+    ]
 
 
 # 8. Update Application Pipeline Tool
@@ -550,7 +509,7 @@ async def execute_update_application_pipeline(
     notes: str | None = None,
     event_type: str = "STATUS_CHANGE",
 ) -> dict[str, Any]:
-    """Updates application pipeline status in DB, creates timeline event, and triggers vector embedding refresh."""
+    """Updates application pipeline status in DB and creates a timeline event."""
     valid_statuses = [
         "APPLIED",
         "TECHNICAL_INTERVIEW",
@@ -591,18 +550,6 @@ async def execute_update_application_pipeline(
     db.add(event)
     await db.commit()
     await db.refresh(app)
-
-    # Update vector embeddings
-    if status_norm != "ASSESSMENT":
-        try:
-            from app.core.config_manager import get_setting
-
-            if await get_setting("ENABLE_EMBEDDINGS", False, db=db):
-                await generate_and_save_application_embedding(
-                    db, app.id, skip_llm_summary=True
-                )
-        except Exception as err:
-            logger.warning("Embedding update deferred: %s", err)
 
     comp_name = app.company.name if app.company else "Unknown"
     return {
@@ -1959,13 +1906,13 @@ def create_agent_tools(
         StructuredTool.from_function(
             coroutine=_semantic_vector_search,
             name="semantic_vector_search",
-            description="Searches application records and recruitment correspondence. Uses pgvector semantic similarity when embeddings are enabled, or fast keyword search when embeddings are disabled.",
+            description="Searches application records by keyword across company, position, and status.",
             args_schema=SemanticSearchInput,
         ),
         StructuredTool.from_function(
             coroutine=_update_application_pipeline,
             name="update_application_pipeline",
-            description="Updates an application status in the pipeline (e.g. APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED), logs a timeline event, and updates vector embeddings.",
+            description="Updates an application status in the pipeline (e.g. APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED) and logs a timeline event.",
             args_schema=UpdateApplicationPipelineInput,
         ),
         StructuredTool.from_function(

@@ -12,7 +12,6 @@ import {
   Globe,
   Mail,
   Cpu,
-  Database,
   Trash2,
   Clock,
   Code,
@@ -80,7 +79,6 @@ const categories = [
   { id: 'scraper', label: 'Web Scraper', icon: Globe },
   { id: 'email_sync', label: 'Email Sync', icon: Mail },
   { id: 'worker', label: 'Workers', icon: Cpu },
-  { id: 'embedding', label: 'Embeddings', icon: Database },
 ]
 
 async function loadData() {
@@ -190,7 +188,6 @@ function getCategoryBadgeClass(category) {
     case 'scraper': return 'badge-cat-scraper'
     case 'email_sync': return 'badge-cat-email'
     case 'worker': return 'badge-cat-worker'
-    case 'embedding': return 'badge-cat-embedding'
     default: return 'badge-cat-default'
   }
 }
@@ -201,7 +198,6 @@ function getCategoryIcon(category) {
     case 'scraper': return Globe
     case 'email_sync': return Mail
     case 'worker': return Cpu
-    case 'embedding': return Database
     default: return Activity
   }
 }
@@ -1275,7 +1271,6 @@ onMounted(() => {
 .badge-cat-scraper { background: rgba(20, 184, 166, 0.12); color: #0d9488; border: 1px solid rgba(20, 184, 166, 0.25); }
 .badge-cat-email { background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); }
 .badge-cat-worker { background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); }
-.badge-cat-embedding { background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); }
 .badge-cat-default { background: var(--bg-main); color: var(--text-secondary); border: 1px solid var(--border-color); }
 
 /* Status Indicator */

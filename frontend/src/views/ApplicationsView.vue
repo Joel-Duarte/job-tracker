@@ -2202,7 +2202,7 @@ async function confirmDelete() {
               <strong>{{ appToDelete?.company?.name }}</strong>?
             </p>
             <p class="text-xs text-muted">
-              This will permanently remove the application record, timeline events, and vector embeddings.
+              This will permanently remove the application record and timeline events.
             </p>
           </div>
 

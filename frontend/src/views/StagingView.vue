@@ -144,7 +144,20 @@ function getItemPosition(item) {
 function getDetectedEventType(item) {
   if (!item) return 'APPLICATION_CONFIRMATION'
   const extracted = item.extracted_data || {}
-  return extracted.event_type || extracted.email_event_type || 'APPLICATION_CONFIRMATION'
+  if (extracted._other_event_id) return 'OTHER'
+  const eventType = String(
+    extracted.event_type || extracted.email_event_type || 'APPLICATION_CONFIRMATION'
+  ).toUpperCase()
+  const stagingEventTypes = {
+    APPLICATION_RECEIVED: 'APPLICATION_CONFIRMATION',
+    INTERVIEW_REQUESTED: 'INTERVIEW_INVITATION',
+    INTERVIEW_SCHEDULED: 'INTERVIEW_INVITATION',
+    ASSESSMENT_REQUESTED: 'TECHNICAL_ASSESSMENT',
+    ASSESSMENT_COMPLETED: 'TECHNICAL_ASSESSMENT',
+    OFFER_RECEIVED: 'OFFER_LETTER',
+    REJECTION_RECEIVED: 'REJECTION',
+  }
+  return stagingEventTypes[eventType] || eventType
 }
 
 function getAutoDetectedStatus(item) {
@@ -168,6 +181,7 @@ function getAutoDetectedStatus(item) {
 
 function formatEventTypeLabel(eventType) {
   const t = (eventType || '').toUpperCase()
+  if (t === 'OTHER') return 'Other Email'
   if (t.includes('INTERVIEW')) return 'Interview Invitation'
   if (t.includes('REJECT')) return 'Rejection Notice'
   if (t.includes('OFFER')) return 'Offer Letter'
@@ -435,6 +449,10 @@ function selectItem(item, fromUserClick = false) {
   }
 
   const extracted = item.extracted_data || {}
+  if (item.status !== 'PENDING' && extracted._application_id) {
+    resolutionMode.value = 'link'
+    selectedExistingAppId.value = extracted._application_id
+  }
   const rawCompany = getItemCompany(item)
   const isKnownCompany =
     rawCompany && rawCompany.trim().toLowerCase() !== 'unknown company'
@@ -1481,7 +1499,7 @@ function formatRelativeTime(isoStr) {
                     placeholder="https://..."
                   />
                   <p class="form-helper-text text-muted">
-                    ✨ Providing a job URL will automatically trigger an AI fit & match analysis against your profile in the background.
+                    Save the job posting details to this application. Resolving an email does not start an AI assessment.
                   </p>
                 </div>
 
@@ -1594,7 +1612,11 @@ function formatRelativeTime(isoStr) {
 
                 <div class="form-group">
                   <label class="form-label">Timeline Event Type to Record</label>
-                  <select v-model="resolveForm.event_type" class="form-select">
+                  <select
+                    v-model="resolveForm.event_type"
+                    class="form-select"
+                    aria-label="Timeline Event Type to Record"
+                  >
                     <option value="APPLICATION_CONFIRMATION">Application Confirmation</option>
                     <option value="INTERVIEW_INVITATION">Interview Invitation</option>
                     <option value="TECHNICAL_ASSESSMENT">Assessment / Take-Home</option>

@@ -23,3 +23,10 @@ class SemanticSearchResult(BaseModel):
     received_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ApplicationKeywordSearchResult(BaseModel):
+    application_id: int
+    company_name: str
+    position: str
+    status: str

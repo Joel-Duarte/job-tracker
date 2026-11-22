@@ -31,7 +31,6 @@ async def get_system_settings(
     return SystemSettingsRead(
         has_completed_onboarding=settings.get("has_completed_onboarding", False),
         enable_email_intake=settings.get("enable_email_intake", False),
-        enable_embeddings=settings.get("enable_embeddings", False),
         enable_web_search=settings.get("enable_web_search", False),
         enable_auto_cover_letter=settings.get("enable_auto_cover_letter", False),
         cover_letter_match_threshold=settings.get("cover_letter_match_threshold", 70),
@@ -67,7 +66,6 @@ async def update_system_settings(
     return SystemSettingsRead(
         has_completed_onboarding=settings.get("has_completed_onboarding", False),
         enable_email_intake=settings.get("enable_email_intake", False),
-        enable_embeddings=settings.get("enable_embeddings", False),
         enable_web_search=settings.get("enable_web_search", False),
         enable_auto_cover_letter=settings.get("enable_auto_cover_letter", False),
         cover_letter_match_threshold=settings.get("cover_letter_match_threshold", 70),

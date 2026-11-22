@@ -1,10 +1,9 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.core.llm_factory import (
-    _EMBEDDINGS_CACHE,
     clear_embeddings_cache,
     get_embeddings_model,
 )
@@ -86,34 +85,11 @@ async def test_prompt_caching_unit():
 
 
 @pytest.mark.asyncio
-async def test_embeddings_caching_unit():
-    """Unit test for Embeddings model instance caching and invalidation."""
+async def test_embeddings_model_initialization_is_disabled():
+    """Legacy callers cannot initialize an embeddings model."""
     clear_embeddings_cache()
-    assert len(_EMBEDDINGS_CACHE) == 0
-
-    with patch(
-        "app.core.llm_factory.get_active_llm_config_dict", new_callable=AsyncMock
-    ) as mock_cfg:
-        mock_cfg.return_value = {
-            "provider_name": "openai",
-            "embedding_model_name": "text-embedding-3-small",
-            "api_base": None,
-            "api_key": "test-key",
-        }
-        with patch("app.core.llm_factory.init_embeddings") as mock_init:
-            mock_emb = AsyncMock()
-            mock_init.return_value = mock_emb
-
-            emb1 = await get_embeddings_model(None)
-            assert mock_init.call_count == 1
-            assert len(_EMBEDDINGS_CACHE) == 1
-
-            emb2 = await get_embeddings_model(None)
-            assert emb1 is emb2
-            assert mock_init.call_count == 1
-
-            clear_embeddings_cache()
-            assert len(_EMBEDDINGS_CACHE) == 0
+    with pytest.raises(RuntimeError, match="Vector embeddings are disabled"):
+        await get_embeddings_model(None)
 
 
 @pytest.mark.asyncio

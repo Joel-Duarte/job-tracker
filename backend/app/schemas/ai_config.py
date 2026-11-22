@@ -103,7 +103,6 @@ class AITaskBindingCreate(BaseModel):
     )
     max_tokens: int | None = Field(default=None)
     top_p: float | None = Field(default=None)
-    embedding_dimensions: int | None = Field(default=None)
     extra_kwargs: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = Field(default=True)
 
@@ -116,7 +115,6 @@ class AITaskBindingUpdate(BaseModel):
     custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
-    embedding_dimensions: int | None = None
     extra_kwargs: dict[str, Any] | None = None
     is_active: bool | None = None
 
@@ -133,7 +131,6 @@ class AITaskBindingRead(BaseModel):
     custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
-    embedding_dimensions: int | None = None
     extra_kwargs: dict[str, Any]
     is_active: bool
     created_at: datetime

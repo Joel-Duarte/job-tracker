@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -18,7 +18,6 @@ from app.core.llm_factory import (
     _resolve_provider,
     clear_embeddings_cache,
     get_task_chat_model,
-    get_task_embeddings_model,
 )
 from app.core.security import verify_admin_access
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
@@ -65,9 +64,6 @@ CURATED_MODELS: dict[str, list[str]] = {
         "gpt-4o-mini",
         "gpt-4o",
         "o3-mini",
-        "text-embedding-3-small",
-        "text-embedding-3-large",
-        "text-embedding-ada-002",
     ],
     "anthropic": [
         "claude-3-7-sonnet-20250219",
@@ -79,13 +75,11 @@ CURATED_MODELS: dict[str, list[str]] = {
         "gemini-2.0-flash",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "text-embedding-004",
     ],
     "gemini": [
         "gemini-2.0-flash",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "text-embedding-004",
     ],
     "ollama": [
         "llama3.2",
@@ -93,10 +87,6 @@ CURATED_MODELS: dict[str, list[str]] = {
         "qwen2.5",
         "mistral",
         "deepseek-r1",
-        "nomic-embed-text",
-        "bge-m3",
-        "all-minilm",
-        "mxbai-embed-large",
     ],
     "openrouter": [
         "meta-llama/llama-3.3-70b-instruct",
@@ -108,9 +98,6 @@ CURATED_MODELS: dict[str, list[str]] = {
         "qwen3.5-4b",
         "llama3.1",
         "mistral-7b",
-        "nomic-embed-text",
-        "bge-m3",
-        "text-embedding-3-small",
     ],
 }
 
@@ -181,6 +168,8 @@ async def _fetch_models_from_endpoint(
     seen = set()
     for m in discovered:
         m_id = m["id"]
+        if m["is_embedding"]:
+            continue
         if m_id not in seen:
             seen.add(m_id)
             models_out.append(
@@ -195,6 +184,8 @@ async def _fetch_models_from_endpoint(
 
     curated = CURATED_MODELS.get(p_type, CURATED_MODELS["custom"])
     for m in curated:
+        if _is_embedding_model(m):
+            continue
         if m not in seen:
             seen.add(m)
             models_out.append(
@@ -461,7 +452,6 @@ async def get_global_settings(
     return GlobalSettingsRead(
         DISPLAY_TIMEZONE=settings.get("display_timezone"),
         TIMEZONE_SOURCE=settings.get("timezone_source") or "auto",
-        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         ENABLE_WEB_SEARCH=settings.get("enable_web_search", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
@@ -520,8 +510,7 @@ async def update_global_settings(
             settings["timezone_source"] = source
     elif payload.TIMEZONE_SOURCE is not None:
         raise HTTPException(status_code=422, detail="A timezone is required")
-    if payload.ENABLE_EMBEDDINGS is not None:
-        settings["enable_embeddings"] = payload.ENABLE_EMBEDDINGS
+    settings["enable_embeddings"] = False
     if payload.ENABLE_WEB_SEARCH is not None:
         settings["enable_web_search"] = payload.ENABLE_WEB_SEARCH
     if payload.AGENT_CHAT_RETENTION_DAYS is not None:
@@ -562,7 +551,6 @@ async def update_global_settings(
     return GlobalSettingsRead(
         DISPLAY_TIMEZONE=settings.get("display_timezone"),
         TIMEZONE_SOURCE=settings.get("timezone_source") or "auto",
-        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         ENABLE_WEB_SEARCH=settings.get("enable_web_search", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
@@ -621,7 +609,6 @@ def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
         custom_extra_body=custom_extra_body,
         max_tokens=b.max_tokens,
         top_p=b.top_p,
-        embedding_dimensions=b.embedding_dimensions,
         extra_kwargs=extra,
         is_active=b.is_active,
         created_at=b.created_at,
@@ -1080,6 +1067,7 @@ async def list_ai_task_bindings(
     stmt = (
         select(AITaskBindingModel)
         .options(joinedload(AITaskBindingModel.provider))
+        .where(AITaskBindingModel.task_type != "EMBEDDING")
         .order_by(AITaskBindingModel.task_type.asc())
     )
     res = await db.execute(stmt)
@@ -1098,6 +1086,11 @@ async def set_ai_task_binding(
     db: AsyncSession = Depends(get_db),
 ) -> AITaskBindingRead:
     task_type_norm = task_type.strip().upper()
+    if task_type_norm == "EMBEDDING":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Vector embedding tasks are disabled.",
+        )
 
     # Validate provider exists
     prov_stmt = select(AIProviderModel).where(AIProviderModel.id == payload.provider_id)
@@ -1129,7 +1122,6 @@ async def set_ai_task_binding(
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
             top_p=payload.top_p,
-            embedding_dimensions=payload.embedding_dimensions,
             extra_kwargs=extra,
             is_active=payload.is_active,
         )
@@ -1140,29 +1132,8 @@ async def set_ai_task_binding(
         binding.temperature = payload.temperature
         binding.max_tokens = payload.max_tokens
         binding.top_p = payload.top_p
-        binding.embedding_dimensions = payload.embedding_dimensions
         binding.extra_kwargs = extra
         binding.is_active = payload.is_active
-
-    if task_type_norm == "EMBEDDING" and payload.embedding_dimensions:
-        new_dims = int(payload.embedding_dimensions)
-        try:
-            # Safely check and alter pgvector column type
-            await db.execute(text("DROP INDEX IF EXISTS application_embeddings_idx"))
-            await db.execute(
-                text(
-                    f"ALTER TABLE application_embeddings ALTER COLUMN embedding TYPE vector({new_dims})"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS application_embeddings_idx ON application_embeddings USING hnsw (embedding vector_cosine_ops)"
-                )
-            )
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Could not automatically alter pgvector embedding column dimension to {new_dims}: {e}"
-            )
 
     await db.commit()
     await db.refresh(binding)
@@ -1202,6 +1173,11 @@ async def test_ai_task_binding(
     db: AsyncSession = Depends(get_db),
 ) -> AITaskTestResponse:
     task_type_norm = task_type.strip().upper()
+    if task_type_norm == "EMBEDDING":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Vector embedding tasks are disabled.",
+        )
 
     stmt = (
         select(AITaskBindingModel)
@@ -1220,40 +1196,27 @@ async def test_ai_task_binding(
     provider = binding.provider
 
     try:
-        if task_type_norm == "EMBEDDING":
-            emb_model = await get_task_embeddings_model(db)
-            vector = await emb_model.aembed_query("Connectivity verification probe.")
-            return AITaskTestResponse(
-                status="success",
-                task_type=task_type_norm,
-                provider_name=provider.name,
-                provider_type=provider.provider_type,
-                model_name=binding.model_name,
-                base_url=provider.base_url,
-                response=f"Generated embedding vector of dimension {len(vector)}.",
-            )
-        else:
-            chat_model = await get_task_chat_model(
-                db, task_type=task_type_norm, max_tokens=15
-            )
-            response = await chat_model.ainvoke(
-                [HumanMessage(content="Respond with 'OK' to verify connectivity.")],
-                config={"callbacks": [PostgresTracer()]},
-            )
-            content = (
-                response.content
-                if isinstance(response.content, str)
-                else str(response.content)
-            )
-            return AITaskTestResponse(
-                status="success",
-                task_type=task_type_norm,
-                provider_name=provider.name,
-                provider_type=provider.provider_type,
-                model_name=binding.model_name,
-                base_url=provider.base_url,
-                response=content.strip(),
-            )
+        chat_model = await get_task_chat_model(
+            db, task_type=task_type_norm, max_tokens=15
+        )
+        response = await chat_model.ainvoke(
+            [HumanMessage(content="Respond with 'OK' to verify connectivity.")],
+            config={"callbacks": [PostgresTracer()]},
+        )
+        content = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
+        return AITaskTestResponse(
+            status="success",
+            task_type=task_type_norm,
+            provider_name=provider.name,
+            provider_type=provider.provider_type,
+            model_name=binding.model_name,
+            base_url=provider.base_url,
+            response=content.strip(),
+        )
     except Exception as err:
         logger.error(
             "Task binding test failed for %s: %s", task_type_norm, err, exc_info=True

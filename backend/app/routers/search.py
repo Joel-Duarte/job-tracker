@@ -1,15 +1,14 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.embeddings import generate_query_embedding
-from app.models.applications import (
-    ApplicationEmbeddingModel,
-    ApplicationModel,
-    CompanyModel,
+from app.models.applications import ApplicationModel, CompanyModel
+from app.schemas.search import (
+    ApplicationKeywordSearchResult,
+    CompanySearchResult,
+    SemanticSearchResult,
 )
-from app.schemas.search import CompanySearchResult, SemanticSearchResult
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -54,6 +53,50 @@ async def search_companies(
 
 
 @router.get(
+    "/applications",
+    response_model=list[ApplicationKeywordSearchResult],
+    summary="Search applications by keyword",
+)
+async def search_applications(
+    q: str = Query(..., min_length=2, description="Company, role, or status keywords"),
+    limit: int = Query(15, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search tracked applications with PostgreSQL text matching."""
+    terms = [term for term in q.split() if len(term) > 1]
+    stmt = (
+        select(
+            ApplicationModel.id.label("application_id"),
+            CompanyModel.name.label("company_name"),
+            ApplicationModel.position,
+            ApplicationModel.status,
+        )
+        .join(CompanyModel, CompanyModel.id == ApplicationModel.company_id)
+        .order_by(ApplicationModel.updated_at.desc())
+        .limit(limit)
+    )
+    if terms:
+        stmt = stmt.where(
+            or_(
+                *[
+                    or_(
+                        CompanyModel.name.ilike(f"%{term}%"),
+                        ApplicationModel.position.ilike(f"%{term}%"),
+                        ApplicationModel.status.ilike(f"%{term}%"),
+                    )
+                    for term in terms
+                ]
+            )
+        )
+
+    result = await db.execute(stmt)
+    return [
+        ApplicationKeywordSearchResult.model_validate(row._mapping)
+        for row in result.all()
+    ]
+
+
+@router.get(
     "/semantic",
     response_model=list[SemanticSearchResult],
     summary="Semantic vector search across applications",
@@ -69,49 +112,7 @@ async def semantic_search(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    query_vector = await generate_query_embedding(q)
-
-    # Replicating (embedding <=> $1::vector)
-    distance_expr = ApplicationEmbeddingModel.embedding.cosine_distance(query_vector)
-
-    stmt = (
-        select(
-            ApplicationEmbeddingModel,
-            ApplicationModel,
-            CompanyModel,
-            distance_expr.label("distance"),
-        )
-        .join(
-            ApplicationModel,
-            ApplicationEmbeddingModel.email_application_id == ApplicationModel.id,
-        )
-        .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
-        # Matches n8n: WHERE (embedding <=> $1::vector) < 0.60
-        .where(distance_expr < max_distance)
-        # Matches n8n: ORDER BY similarity ASC
-        .order_by(distance_expr.asc())
-        .limit(limit)
+    raise HTTPException(
+        status_code=410,
+        detail="Semantic vector search is disabled. Use text search instead.",
     )
-
-    result = await db.execute(stmt)
-    results = []
-
-    for emb, app, company, distance in result.all():
-        dist_val = float(distance) if distance is not None else 0.0
-        # Expose true similarity score (1 - distance) for the API response
-        similarity_score = round(1.0 - dist_val, 6)
-
-        results.append(
-            SemanticSearchResult(
-                id=app.id,
-                application_id=app.id,
-                company_name=company.name,
-                position=app.position,
-                email_subject=app.position,
-                email_summary=emb.content,
-                similarity_score=similarity_score,
-                received_at=app.last_activity_at,
-            )
-        )
-
-    return results

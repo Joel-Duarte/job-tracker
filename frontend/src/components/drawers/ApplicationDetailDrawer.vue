@@ -2771,7 +2771,7 @@ function formatDate(isoStr) {
             <strong>{{ appStore.selectedApplication?.company?.name }}</strong>?
           </p>
           <p class="text-xs text-muted">
-            This will permanently remove all associated timeline events, job postings, action items, and embeddings from the database.
+            This will permanently remove all associated timeline events, job postings, and action items from the database.
           </p>
         </div>
 

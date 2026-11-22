@@ -17,7 +17,7 @@ async def test_system_settings_get_and_patch(db_session):
         data = get_res.json()
         assert "has_completed_onboarding" in data
         assert "enable_email_intake" in data
-        assert "enable_embeddings" in data
+        assert "enable_embeddings" not in data
         assert "enable_auto_cover_letter" in data
 
         # 2. PATCH /api/v1/config/system
@@ -26,7 +26,7 @@ async def test_system_settings_get_and_patch(db_session):
             json={
                 "has_completed_onboarding": True,
                 "enable_email_intake": True,
-                "enable_embeddings": False,
+                "enable_embeddings": True,
                 "cover_letter_tone": "executive",
             },
         )
@@ -34,7 +34,7 @@ async def test_system_settings_get_and_patch(db_session):
         patch_data = patch_res.json()
         assert patch_data["has_completed_onboarding"] is True
         assert patch_data["enable_email_intake"] is True
-        assert patch_data["enable_embeddings"] is False
+        assert "enable_embeddings" not in patch_data
         assert patch_data["cover_letter_tone"] == "executive"
 
         # 3. Verify GET reflects updated values
@@ -43,7 +43,7 @@ async def test_system_settings_get_and_patch(db_session):
         data_2 = get_res_2.json()
         assert data_2["has_completed_onboarding"] is True
         assert data_2["enable_email_intake"] is True
-        assert data_2["enable_embeddings"] is False
+        assert "enable_embeddings" not in data_2
         assert data_2["cover_letter_tone"] == "executive"
 
 
@@ -58,7 +58,7 @@ async def test_global_settings_backward_compatibility(db_session):
         data = get_res.json()
         assert "ENABLE_EMAIL_INTAKE" in data
         assert "HAS_COMPLETED_ONBOARDING" in data
-        assert "ENABLE_EMBEDDINGS" in data
+        assert "ENABLE_EMBEDDINGS" not in data
 
         # Update via /api/v1/ai/global-settings
         patch_res = await ac.patch(

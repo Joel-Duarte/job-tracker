@@ -72,7 +72,7 @@ async def test_extension_clip_job_direct(db_session: AsyncSession):
         assert event is not None
         assert event.email_event_type == "BROWSER_EXTENSION_CLIP"
 
-        mock_emb.assert_called_once_with(db_session, application.id)
+        mock_emb.assert_not_called()
 
     app.dependency_overrides.clear()
 

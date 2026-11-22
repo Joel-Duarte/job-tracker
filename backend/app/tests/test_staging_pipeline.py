@@ -260,6 +260,7 @@ async def test_historical_rejection_attaches_to_terminal_application(db_session)
 
     historical_email = EmailPayload(
         conversation_id="conv-meta-past",
+        message_id="msg-meta-past-rejection",
         received_at=datetime(2024, 1, 14, 10, 0, 0, tzinfo=UTC),
         subject="Update on your Meta application",
         body="We will not be proceeding at this time.",
@@ -308,9 +309,13 @@ async def test_historical_rejection_attaches_to_terminal_application(db_session)
     assert len(events) == 1
     assert events[0].email_subject == "Update on your Meta application"
 
-    # 3. Verify Staging queue is empty
+    # 3. Automatically handled emails are retained in Resolved for review.
     staged = (await db_session.execute(select(StagingItemModel))).scalars().all()
-    assert len(staged) == 0
+    assert len(staged) == 1
+    assert staged[0].status == "PROCESSED"
+    assert staged[0].match_reason == "AUTO_PROCESSED_EMAIL"
+    assert staged[0].extracted_data["_application_id"] == terminal_app.id
+    assert staged[0].extracted_data["_application_event_id"] == events[0].id
 
 
 def test_parse_email_date_preserves_instant_and_rejects_unresolved_text():

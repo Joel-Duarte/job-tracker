@@ -445,7 +445,6 @@ function handleStep2Skip() {
 const selectedCurrency = ref(uiStore.defaultCurrency || 'USD')
 const featureEmailIntake = ref(true)
 const featureAutoCoverLetter = ref(true)
-const featureEmbeddings = ref(false)
 const featureWebSearch = ref(true)
 const featureCoverLetterThreshold = ref(70)
 const isSavingFeatures = ref(false)
@@ -456,14 +455,12 @@ async function handleStep3Save() {
     uiStore.setDefaultCurrency(selectedCurrency.value)
     await SystemSettingsAPI.update({
       enable_email_intake: featureEmailIntake.value,
-      enable_embeddings: featureEmbeddings.value,
       enable_auto_cover_letter: featureAutoCoverLetter.value,
       enable_web_search: featureWebSearch.value,
       cover_letter_match_threshold: featureCoverLetterThreshold.value,
     })
 
     uiStore.enableEmailIntake = featureEmailIntake.value
-    uiStore.enableEmbeddings = featureEmbeddings.value
     uiStore.enableAutoCoverLetter = featureAutoCoverLetter.value
     uiStore.enableWebSearch = featureWebSearch.value
     uiStore.coverLetterMatchThreshold = featureCoverLetterThreshold.value
@@ -973,7 +970,6 @@ async function loadExistingState() {
     const sysRes = await SystemSettingsAPI.get()
     if (sysRes.data) {
       featureEmailIntake.value = sysRes.data.enable_email_intake ?? true
-      featureEmbeddings.value = sysRes.data.enable_embeddings ?? false
       featureAutoCoverLetter.value = sysRes.data.enable_auto_cover_letter ?? true
       featureWebSearch.value = sysRes.data.enable_web_search ?? false
       featureCoverLetterThreshold.value = sysRes.data.cover_letter_match_threshold ?? 70
@@ -1734,29 +1730,6 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                   </div>
                 </div>
 
-                <!-- 3. Vector Knowledge & Embeddings Selection Card -->
-                <div
-                  class="selection-card"
-                  :class="{ 'card-active': featureEmbeddings }"
-                  @click="featureEmbeddings = !featureEmbeddings"
-                  role="button"
-                  tabindex="0"
-                  @keydown.space.prevent="featureEmbeddings = !featureEmbeddings"
-                  @keydown.enter.prevent="featureEmbeddings = !featureEmbeddings"
-                >
-                  <div class="card-icon-wrapper">
-                    <CheckCircle2 v-if="featureEmbeddings" class="icon-active" :size="20" />
-                    <Circle v-else class="icon-inactive" :size="20" />
-                  </div>
-                  <div class="option-content">
-                    <div class="option-title-row">
-                      <Cpu :size="16" class="text-primary flex-shrink-0" />
-                      <span class="option-label">Vector Knowledge &amp; Embeddings (pgvector)</span>
-                    </div>
-                    <span class="option-description">Generate dense vector representations for semantic search across applications.</span>
-                  </div>
-                </div>
-
                 <!-- 4. Live Web Search & Company Intelligence Selection Card -->
                 <div
                   class="selection-card"
@@ -2364,13 +2337,6 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                       :class="featureEmailIntake ? (emailConnected ? 'text-success' : 'text-primary') : 'text-muted'"
                     >
                       {{ featureEmailIntake ? (emailConnected ? 'Connected & Active' : 'Enabled (Configure in Settings)') : 'Disabled' }}
-                    </span>
-                  </div>
-
-                  <div class="summary-item">
-                    <span class="summary-label">Vector Embeddings:</span>
-                    <span class="summary-value" :class="featureEmbeddings ? 'text-success' : 'text-muted'">
-                      {{ featureEmbeddings ? 'Enabled' : 'Disabled' }}
                     </span>
                   </div>
 

@@ -1098,20 +1098,27 @@ export const INITIAL_MOCK_DATA = {
     {
       id: "stage_004",
       source: "EMAIL_INTAKE",
-      subject: "Application Update: Supabase Database Engineer",
-      email_subject: "Application Update: Supabase Database Engineer",
-      email_sender: "careers@supabase.io",
-      email_sender_name: "Supabase Careers",
-      company_name: "Supabase",
-      position: "Senior Postgres Kernel Engineer",
-      raw_content: "Thank you for applying to Supabase. We are currently evaluating candidates.",
-      email_raw_body: "Thank you for applying to Supabase. We are currently evaluating candidates.",
+      subject: "Application Update: Datadog Telemetry Pipeline",
+      email_subject: "Application Update: Datadog Telemetry Pipeline",
+      email_sender: "careers@datadoghq.com",
+      email_sender_name: "Datadog Careers",
+      company_name: "Datadog",
+      position: "Senior Lead Engineer - Telemetry Pipeline",
+      raw_content: "Thank you for your interest in Datadog. We will not be moving forward with your application.",
+      email_raw_body: "Thank you for your interest in Datadog. We will not be moving forward with your application.",
       extracted_data: {
-        company: "Supabase",
-        position: "Senior Postgres Kernel Engineer",
-        suggested_stage: "APPLIED",
-        confidence: 0.82
+        company: "Datadog",
+        position: "Senior Lead Engineer - Telemetry Pipeline",
+        event_type: "REJECTION_RECEIVED",
+        status: "REJECTED",
+        summary: "The application was not selected to proceed.",
+        _application_id: "app_datacamp_004",
+        _application_event_id: "evt_datadog_rejection",
+        suggested_stage: "REJECTED",
+        confidence: 0.96
       },
+      email_message_id: "demo_msg_datadog_rejection",
+      match_reason: "AUTO_PROCESSED_EMAIL",
       status: "RESOLVED",
       created_at: new Date(Date.now() - 86400000 * 5).toISOString()
     }
@@ -1439,13 +1446,6 @@ export const INITIAL_MOCK_DATA = {
       reasoning_effort: "none",
       extra_kwargs: { use_global_default: true }
     },
-    {
-      task_type: "EMBEDDING",
-      provider_id: "prov_demo_1",
-      model_name: "nomic-embed-text",
-      embedding_dimensions: 768,
-      extra_kwargs: {}
-    }
   ],
 
   diagnostics_traces: [
@@ -1525,21 +1525,6 @@ export const INITIAL_MOCK_DATA = {
         duration_ms: 310,
       }
     },
-    {
-      id: "tr_005",
-      run_id: "run_embed_445",
-      category: "embedding",
-      name: "vectorize_job_spec",
-      status: "success",
-      latency_ms: 420,
-      start_time: new Date(Date.now() - 3600000 * 30).toISOString(),
-      end_time: new Date(Date.now() - 3600000 * 30 + 420).toISOString(),
-      metadata: { dimensions: 1536 },
-      payload: {
-        name: "vectorize_job_spec",
-        duration_ms: 420,
-      }
-    }
   ],
 
   usage_overview: {
@@ -1707,7 +1692,6 @@ export const INITIAL_MOCK_DATA = {
   system_settings: {
     has_completed_onboarding: true,
     enable_email_intake: true,
-    enable_embeddings: false,
     enable_auto_cover_letter: true,
     enable_llm_judge: true,
     cover_letter_match_threshold: 70,

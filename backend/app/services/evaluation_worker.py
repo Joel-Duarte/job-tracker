@@ -2620,6 +2620,10 @@ async def process_evaluation_task(
                 stmt = stmt.with_for_update(skip_locked=True)
             task = (await db.execute(stmt)).scalar_one_or_none()
 
+            if task and task.task_type == "EMBEDDING":
+                logger.info("Skipping disabled embedding task %d", task_id)
+                return
+
             if not task or task.status != "QUEUED":
                 logger.info(
                     "Skipping intake task %d (not found or status=%s)",
@@ -2662,6 +2666,10 @@ async def process_evaluation_task(
             if session.bind and session.bind.dialect.name == "postgresql":
                 stmt = stmt.with_for_update(skip_locked=True)
             task = (await session.execute(stmt)).scalar_one_or_none()
+
+            if task and task.task_type == "EMBEDDING":
+                logger.info("Skipping disabled embedding task %d", task_id)
+                return
 
             if not task or task.status != "QUEUED":
                 logger.info(
@@ -2766,7 +2774,8 @@ async def recover_and_dispatch_queue_tasks(
 
     async with factory() as session:
         proc_stmt = select(IntakeEvaluationTaskModel).where(
-            IntakeEvaluationTaskModel.status == "PROCESSING"
+            IntakeEvaluationTaskModel.status == "PROCESSING",
+            IntakeEvaluationTaskModel.task_type != "EMBEDDING",
         )
         if session.bind and session.bind.dialect.name == "postgresql":
             proc_stmt = proc_stmt.with_for_update(skip_locked=True)
@@ -2822,7 +2831,10 @@ async def recover_and_dispatch_queue_tasks(
 
         queued_stmt = (
             select(IntakeEvaluationTaskModel)
-            .where(IntakeEvaluationTaskModel.status == "QUEUED")
+            .where(
+                IntakeEvaluationTaskModel.status == "QUEUED",
+                IntakeEvaluationTaskModel.task_type != "EMBEDDING",
+            )
             .order_by(
                 IntakeEvaluationTaskModel.created_at.asc(),
                 IntakeEvaluationTaskModel.id.asc(),

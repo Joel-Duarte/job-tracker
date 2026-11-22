@@ -52,7 +52,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         model = await get_system_settings_model(db)
         has_completed_onboarding = getattr(model, "has_completed_onboarding", False)
         enable_email_intake = getattr(model, "enable_email_intake", False)
-        enable_embeddings = getattr(model, "enable_embeddings", False)
+        enable_embeddings = False
         enable_web_search = getattr(model, "enable_web_search", False)
         agent_chat_retention_days = getattr(model, "agent_chat_retention_days", 7)
         enable_auto_cover_letter = getattr(model, "enable_auto_cover_letter", False)
@@ -188,13 +188,7 @@ async def save_settings(
         if val_email_intake is not None:
             model.enable_email_intake = bool(val_email_intake)
 
-        val_embeddings = (
-            settings.get("enable_embeddings")
-            if "enable_embeddings" in settings
-            else settings.get("ENABLE_EMBEDDINGS")
-        )
-        if val_embeddings is not None:
-            model.enable_embeddings = bool(val_embeddings)
+        model.enable_embeddings = False
 
         val_web_search = (
             settings.get("enable_web_search")
@@ -326,6 +320,8 @@ async def get_setting(
     key: str, default: Any = None, db: AsyncSession | None = None
 ) -> Any:
     """Retrieves a specific system setting by key asynchronously."""
+    if key.strip().lower() == "enable_embeddings":
+        return False
     settings = await load_settings(db)
     return settings.get(
         key, settings.get(key.lower(), settings.get(key.upper(), default))
@@ -334,6 +330,8 @@ async def get_setting(
 
 async def set_setting(key: str, value: Any, db: AsyncSession | None = None) -> None:
     """Sets a specific system setting by key asynchronously."""
+    if key.strip().lower() == "enable_embeddings":
+        return
     settings = await load_settings(db)
     settings[key] = value
     settings[key.lower()] = value

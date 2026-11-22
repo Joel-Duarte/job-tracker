@@ -342,11 +342,7 @@ async def persist_or_stage_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 6. Vector embedding generation is deferred during job assessment persistence in intake flows.
-    logger.info(
-        "Application %d created via intake job assessment; vector embedding deferred to application management lifecycle.",
-        app_record.id,
-    )
+    # Application intake does not enqueue secondary embedding work.
 
     logger.info(
         "Successfully persisted job assessment for '%s - %s' to Application %d",

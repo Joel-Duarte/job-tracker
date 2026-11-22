@@ -1130,6 +1130,26 @@ async def db_commit_node(
             raw_body=state.get("body", ""),
         )
         db.add(other_event)
+        await db.flush()
+        if msg_id:
+            history_item = StagingItemModel(
+                email_message_id=msg_id,
+                email_internet_message_id=state.get("internet_message_id"),
+                email_conversation_id=state.get("conversation_id"),
+                email_sender=state.get("sender"),
+                email_sender_name=state.get("sender_name"),
+                email_subject=state.get("subject", ""),
+                email_received_at=received_at_dt,
+                email_raw_body=state.get("original_body") or state.get("body", ""),
+                extracted_data={
+                    **(extracted if isinstance(extracted, dict) else {}),
+                    "_other_event_id": other_event.id,
+                },
+                match_score=1.0,
+                match_reason="AUTO_PROCESSED_OTHER_EMAIL",
+                status="PROCESSED",
+            )
+            db.add(history_item)
         await _upsert_processed_email(
             db, msg_id, "not_a_job", state.get("subject"), commit=False
         )
@@ -1166,6 +1186,7 @@ async def db_commit_node(
         if await is_email_already_processed(db, msg_id):
             return {"is_duplicate": True, "route": "skip"}
     application_id = state.get("application_id")
+    previous_application_status = None
     pos_raw = state.get("position_name") or extracted.get("position")
     position = (
         "Applicant / Open Role"
@@ -1233,6 +1254,7 @@ async def db_commit_node(
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
         app_res = await db.execute(app_stmt)
         application = app_res.scalar_one()
+        previous_application_status = application.status
         if (
             status_val
             and application.status not in {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
@@ -1335,6 +1357,39 @@ async def db_commit_node(
     db.add(event)
     await db.flush()
 
+    if msg_id:
+        history_stmt = select(StagingItemModel).where(
+            StagingItemModel.email_message_id == msg_id
+        )
+        history_res = await db.execute(history_stmt)
+        history_item = history_res.scalar_one_or_none()
+        history_extracted = dict(extracted) if isinstance(extracted, dict) else {}
+        history_extracted.update(
+            {
+                "_application_id": application_id,
+                "_application_event_id": event.id,
+                "_previous_application_status": previous_application_status,
+            }
+        )
+        if history_item is None:
+            history_item = StagingItemModel(
+                email_message_id=msg_id,
+                email_internet_message_id=state.get("internet_message_id"),
+                email_conversation_id=state.get("conversation_id"),
+                email_sender=state.get("sender"),
+                email_sender_name=state.get("sender_name"),
+                email_subject=state.get("subject", ""),
+                email_received_at=received_at_dt,
+                email_raw_body=state.get("original_body") or state.get("body", ""),
+                match_score=1.0,
+                match_reason="AUTO_PROCESSED_EMAIL",
+                status="PROCESSED",
+            )
+            db.add(history_item)
+        history_item.extracted_data = history_extracted
+        history_item.status = "PROCESSED"
+        history_item.match_reason = "AUTO_PROCESSED_EMAIL"
+
     # Automatically create pending ActionItemModel if action is required (with thread deduplication)
     if extracted.get("action_required") and extracted.get("action"):
         action_text = str(extracted.get("action")).strip()
@@ -1409,8 +1464,7 @@ async def db_commit_node(
 async def summarize_embed_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    # Vector embeddings are deferred during raw intake workflows and generated strictly during application lifecycle management events.
-    return {"embedding_created": False, "reason": "deferred_intake"}
+    return {"embedding_created": False, "reason": "disabled"}
 
 
 async def cover_letter_node(

@@ -49,7 +49,7 @@ const isClearing = ref(false)
 const retryingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const statusFilter = ref('ALL') // 'ALL' | 'FAILED' | 'RUNNING' | 'PENDING' | 'COMPLETED'
-const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING' | 'COVER_LETTER' | 'APPLICATION_QA' | 'ROLE_ALIGNMENT_DOSSIER'
+const typeFilter = ref('ALL') // task type filter
 const searchQuery = ref('')
 const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
@@ -188,9 +188,6 @@ function getTaskDisplayTitle(task) {
   if (task.task_type === 'CV_EXTRACTION') {
     return 'Candidate CV Profile Extraction'
   }
-  if (task.task_type === 'EMBEDDING') {
-    return 'Vector Embedding Generation'
-  }
   if (task.task_type === 'SYSTEM_DESIGN_REVIEW') {
     return task.title_hint || 'System Design Vision Review'
   }
@@ -215,7 +212,6 @@ function formatLeadUrl(url, maxChars = 80) {
 
 function getTaskTypeIcon(type) {
   if (type === 'CV_EXTRACTION') return UserCheck
-  if (type === 'EMBEDDING') return Layers
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
   if (type === 'COMPANY_RESEARCH') return Building2
   if (type === 'COVER_LETTER') return FileText
@@ -229,7 +225,6 @@ function getTaskTypeIcon(type) {
 
 function getTaskTypeLabel(type) {
   if (type === 'CV_EXTRACTION') return 'CV Profile Extraction'
-  if (type === 'EMBEDDING') return 'Vector Embedding'
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
   if (type === 'COMPANY_RESEARCH') return 'Company Research'
   if (type === 'COVER_LETTER') return 'Cover Letter Generation'
@@ -645,15 +640,6 @@ onMounted(() => {
             <UserCheck :size="12" />
             <span>CV Extractions</span>
           </button>
-          <!-- NEW: Vector Embeddings Filter -->
-          <button
-            class="type-pill"
-            :class="{ active: typeFilter === 'EMBEDDING' }"
-            @click="typeFilter = 'EMBEDDING'"
-          >
-            <Layers :size="12" />
-            <span>Vector Embeddings</span>
-          </button>
           <button
             class="type-pill"
             :class="{ active: typeFilter === 'COVER_LETTER' }"
@@ -1003,7 +989,6 @@ onMounted(() => {
                 :class="{
                   'type-cv': task.task_type === 'CV_EXTRACTION',
                   'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
-                  'type-embedding': task.task_type === 'EMBEDDING',
                   'type-cover-letter': task.task_type === 'COVER_LETTER',
                   'type-qa': task.task_type === 'APPLICATION_QA',
                   'type-dossier': task.task_type === 'ROLE_ALIGNMENT_DOSSIER',
@@ -1073,7 +1058,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -1185,41 +1170,6 @@ onMounted(() => {
               >
                 <div class="node-bullet">4</div>
                 <span class="node-label">CV Profile Ready</span>
-              </div>
-            </div>
-
-            <!-- 3. EMBEDDING STEPPER (3 Stages) -->
-            <div v-else-if="task.task_type === 'EMBEDDING'" class="pipeline-stepper embedding-stepper">
-              <div
-                class="stepper-node"
-                :class="{
-                  active: task.stage === 'QUEUED',
-                  done: ['EMBEDDING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
-                }"
-              >
-                <div class="node-bullet">1</div>
-                <span class="node-label">Queued</span>
-              </div>
-
-              <div
-                class="stepper-node"
-                :class="{
-                  active: task.stage === 'EMBEDDING',
-                  done: ['COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
-                }"
-              >
-                <div class="node-bullet">2</div>
-                <span class="node-label">Embedding Generation</span>
-              </div>
-
-              <div
-                class="stepper-node"
-                :class="{
-                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
-                }"
-              >
-                <div class="node-bullet">3</div>
-                <span class="node-label">Vector Saved</span>
               </div>
             </div>
 
@@ -1673,7 +1623,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
+            <template v-if="!['CV_EXTRACTION', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -1709,16 +1659,6 @@ onMounted(() => {
                 </router-link>
               </div>
             </template>
-            <!-- Embedding Context -->
-            <template v-else-if="task.task_type === 'EMBEDDING'">
-              <div class="footer-left">
-                <span class="badge-cv-ready">
-                  <Layers :size="12" />
-                  <span>Vector Embedding Generated</span>
-                </span>
-              </div>
-            </template>
-
             <!-- Cover Letter Context -->
             <template v-else-if="task.task_type === 'COVER_LETTER'">
               <div class="footer-left">
@@ -2312,12 +2252,6 @@ onMounted(() => {
   background-color: var(--status-offer-bg);
   color: var(--status-offer-text);
   border: 1px solid var(--status-offer-border);
-}
-
-.task-type-tag.type-embedding {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border: 1px solid var(--primary-glow);
 }
 
 .task-type-tag.type-cover-letter {

@@ -36,9 +36,7 @@ const starterPrompts = [
 ]
 
 const searchReadinessLabel = computed(() => {
-  return uiStore.systemSettings?.enable_embeddings
-    ? 'Ready with pgvector search'
-    : 'Ready with pipeline search'
+  return 'Ready with keyword search'
 })
 
 function toggleChat() {

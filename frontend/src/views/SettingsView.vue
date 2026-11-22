@@ -456,7 +456,6 @@ const globalBinding = computed(() => {
   return bindings.value.find((b) => b.task_type === 'GLOBAL_DEFAULT') || null
 })
 const isAdvancedOpen = ref(false)
-const isEmbeddingsOpen = ref(false)
 
 // Global Default Model Form State
 const globalForm = ref({
@@ -599,28 +598,19 @@ async function resetGlobalDefaultToDefaults() {
 
     // 2. Reset every individual pipeline task to factory recommendations
     for (const t of TASKS) {
-      if (t.key === 'EMBEDDING') {
-        await AIConfigAPI.setBinding('EMBEDDING', {
-          provider_id: firstProviderId,
-          model_name: 'nomic-embed-text',
-          embedding_dimensions: 768,
-          extra_kwargs: {},
-        })
-      } else {
-        const defaultTemp = typeof t.recommendedTemp === 'number' ? t.recommendedTemp : 0.2
-        const defaultReasoning = t.recommendedReasoning || 'none'
-        await AIConfigAPI.setBinding(t.key, {
-          provider_id: firstProviderId,
-          model_name: 'qwen/qwen3.5-9b',
-          temperature: defaultTemp,
+      const defaultTemp = typeof t.recommendedTemp === 'number' ? t.recommendedTemp : 0.2
+      const defaultReasoning = t.recommendedReasoning || 'none'
+      await AIConfigAPI.setBinding(t.key, {
+        provider_id: firstProviderId,
+        model_name: 'qwen/qwen3.5-9b',
+        temperature: defaultTemp,
+        reasoning_effort: defaultReasoning,
+        max_tokens: undefined,
+        extra_kwargs: {
+          use_global_default: true,
           reasoning_effort: defaultReasoning,
-          max_tokens: undefined,
-          extra_kwargs: {
-            use_global_default: true,
-            reasoning_effort: defaultReasoning,
-          },
-        })
-      }
+        },
+      })
 
       if (t.hasPrompt && t.promptKey) {
         try {
@@ -650,13 +640,6 @@ function isTaskCustomized(taskKey) {
     (x) => x.task_type.toUpperCase() === taskKey.toUpperCase()
   )
 
-  if (taskKey === 'EMBEDDING') {
-    if (!b) return false
-    const isCustomModel = b.model_name && b.model_name !== 'nomic-embed-text'
-    const isCustomDims = b.embedding_dimensions && Number(b.embedding_dimensions) !== 768
-    return Boolean(isCustomModel || isCustomDims)
-  }
-
   if (b) {
     // Custom model override (not inheriting global default)
     if (b.extra_kwargs?.use_global_default === false) {
@@ -684,155 +667,6 @@ function isTaskCustomized(taskKey) {
   }
 
   return false
-}
-
-// Vector Embeddings Settings State
-const enableEmbeddings = ref(true)
-const isUpdatingEmbeddings = ref(false)
-const isReindexingEmbeddings = ref(false)
-const isSavingEmbeddingBinding = ref(false)
-const embeddingForm = ref({
-  provider_id: null,
-  model_name: 'nomic-embed-text',
-  embedding_dimensions: 768,
-})
-const embeddingProviderModels = ref([])
-const loadingEmbeddingModels = ref(false)
-let embeddingAutoSaveTimer = null
-
-const embeddingBinding = computed(() => {
-  return bindings.value.find((b) => b.task_type === 'EMBEDDING') || null
-})
-
-function syncEmbeddingForm() {
-  const eb = embeddingBinding.value
-  const chosenProviderId = eb?.provider_id || (providers.value[0]?.id || null)
-  embeddingForm.value.provider_id = chosenProviderId
-  embeddingForm.value.model_name = eb?.model_name || 'nomic-embed-text'
-  embeddingForm.value.embedding_dimensions = eb?.embedding_dimensions || 768
-  fetchEmbeddingModels(chosenProviderId)
-}
-
-async function fetchEmbeddingModels(providerId, forceRefresh = false) {
-  if (!providerId) {
-    embeddingProviderModels.value = []
-    return
-  }
-  if (!forceRefresh && providerModelsCache.value[providerId]) {
-    embeddingProviderModels.value = providerModelsCache.value[providerId].filter(
-      (m) =>
-        m.id.toLowerCase().includes('embed') ||
-        m.id.toLowerCase().includes('nomic') ||
-        m.id.toLowerCase().includes('text-embedding') ||
-        m.id.toLowerCase().includes('bge') ||
-        m.id.toLowerCase().includes('minilm')
-    )
-    return
-  }
-  loadingEmbeddingModels.value = true
-  try {
-    const res = await AIConfigAPI.getProviderModels(providerId)
-    const models = res.data?.models || []
-    providerModelsCache.value[providerId] = models
-    embeddingProviderModels.value = models.filter(
-      (m) =>
-        m.id.toLowerCase().includes('embed') ||
-        m.id.toLowerCase().includes('nomic') ||
-        m.id.toLowerCase().includes('text-embedding') ||
-        m.id.toLowerCase().includes('bge') ||
-        m.id.toLowerCase().includes('minilm')
-    )
-  } catch (err) {
-    embeddingProviderModels.value = []
-  } finally {
-    loadingEmbeddingModels.value = false
-  }
-}
-
-function scheduleEmbeddingAutoSave(delay = 500) {
-  if (embeddingAutoSaveTimer) clearTimeout(embeddingAutoSaveTimer)
-  embeddingAutoSaveTimer = setTimeout(() => {
-    saveEmbeddingBinding(true)
-  }, delay)
-}
-
-const EMBEDDING_PRESETS = [
-  {
-    name: 'Nomic / BGE',
-    dims: 768,
-    model: 'nomic-embed-text',
-    desc: 'Local & Cloud Default (768d)',
-  },
-  {
-    name: 'OpenAI / Cohere',
-    dims: 1536,
-    model: 'text-embedding-3-small',
-    desc: 'Cloud High-Accuracy (1536d)',
-  },
-  {
-    name: 'MiniLM',
-    dims: 384,
-    model: 'all-MiniLM-L6-v2',
-    desc: 'Ultra-Lightweight (384d)',
-  },
-  {
-    name: 'Gemma / Google',
-    dims: 300,
-    model: 'embeddinggemma-300m',
-    desc: 'Google On-Device (300d)',
-  },
-]
-
-function applyEmbeddingPreset(preset) {
-  embeddingForm.value.embedding_dimensions = preset.dims
-  if (
-    !embeddingForm.value.model_name ||
-    embeddingForm.value.model_name === 'nomic-embed-text' ||
-    embeddingForm.value.model_name === 'text-embedding-3-small' ||
-    embeddingForm.value.model_name === 'all-MiniLM-L6-v2' ||
-    embeddingForm.value.model_name === 'embeddinggemma-300m'
-  ) {
-    embeddingForm.value.model_name = preset.model
-  }
-  scheduleEmbeddingAutoSave(100)
-}
-
-function selectEmbeddingSuggestedModel(modelId) {
-  embeddingForm.value.model_name = modelId
-  scheduleEmbeddingAutoSave(50)
-}
-
-function onEmbeddingProviderChange() {
-  fetchEmbeddingModels(embeddingForm.value.provider_id)
-  scheduleEmbeddingAutoSave(100)
-}
-
-async function saveEmbeddingBinding(isAutoSave = false) {
-  if (!embeddingForm.value.provider_id || !embeddingForm.value.model_name?.trim()) {
-    if (!isAutoSave) {
-      uiStore.showToast('Please select an embedding provider and specify a model name.', 'warning')
-    }
-    return
-  }
-  isSavingEmbeddingBinding.value = true
-  try {
-    await AIConfigAPI.setBinding('EMBEDDING', {
-      provider_id: embeddingForm.value.provider_id,
-      model_name: embeddingForm.value.model_name.trim(),
-      embedding_dimensions: Number(embeddingForm.value.embedding_dimensions) || 768,
-      extra_kwargs: {},
-    })
-    if (!isAutoSave) {
-      uiStore.showToast('Vector embedding model settings updated.', 'success')
-    }
-    await loadBindings()
-  } catch (err) {
-    if (!isAutoSave) {
-      uiStore.showToast(err.message || 'Failed to update embedding model settings', 'error')
-    }
-  } finally {
-    isSavingEmbeddingBinding.value = false
-  }
 }
 
 // Cover Letter Automation Settings State
@@ -980,9 +814,6 @@ async function loadGlobalSettings() {
     timezoneInput.value = res.data.DISPLAY_TIMEZONE || displayTimezone.value
     timezoneSource.value = res.data.TIMEZONE_SOURCE || 'auto'
     displayTimezone.value = timezoneInput.value
-    enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
-    uiStore.enableEmbeddings = enableEmbeddings.value
-
     enableWebSearch.value = res.data.ENABLE_WEB_SEARCH ?? false
     uiStore.enableWebSearch = enableWebSearch.value
 
@@ -1101,26 +932,6 @@ async function toggleWebSearch() {
   }
 }
 
-async function toggleEmbeddings() {
-  isUpdatingEmbeddings.value = true
-  try {
-    const newVal = !enableEmbeddings.value
-    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_EMBEDDINGS: newVal })
-    enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS
-    uiStore.enableEmbeddings = enableEmbeddings.value
-    uiStore.showToast(
-      enableEmbeddings.value
-        ? 'Vector embeddings enabled.'
-        : 'Vector embeddings disabled. Intake will run faster without embeddings.',
-      'success'
-    )
-  } catch (err) {
-    uiStore.showToast('Failed to update embeddings setting', 'error')
-  } finally {
-    isUpdatingEmbeddings.value = false
-  }
-}
-
 async function toggleEmailIntake() {
   try {
     const newVal = !uiStore.enableEmailIntake
@@ -1135,18 +946,6 @@ async function toggleEmailIntake() {
     }
   } catch (err) {
     uiStore.showToast('Failed to update email intake setting', 'error')
-  }
-}
-
-async function reindexMissingEmbeddings() {
-  isReindexingEmbeddings.value = true
-  try {
-    const res = await AIConfigAPI.reindexEmbeddings()
-    uiStore.showToast(res.data.message || 'Embeddings backfill enqueued!', 'success')
-  } catch (err) {
-    uiStore.showToast('Failed to reindex embeddings: ' + (err.response?.data?.detail || err.message), 'error')
-  } finally {
-    isReindexingEmbeddings.value = false
   }
 }
 
@@ -1440,28 +1239,12 @@ const activeTaskDef = computed(() => {
   return TASKS.find((t) => t.key === selectedTaskKey.value) || TASKS[0]
 })
 
-// Filtered models for current task (embedding models for EMBEDDING task, chat models for others)
 const filteredStudioModels = computed(() => {
-  const isEmbeddingTask = selectedTaskKey.value === 'EMBEDDING'
   const allModels = studioProviderModels.value
   if (!allModels || allModels.length === 0) return []
-
-  if (isEmbeddingTask) {
-    const embeddingModels = allModels.filter(
-      (m) => m.is_embedding || /embed|bge|nomic|minilm|gte|e5|bert|mxbai/i.test(m.id || m.name)
-    )
-    if (embeddingModels.length > 0) return embeddingModels
-    return [
-      { id: 'text-embedding-3-small', name: 'text-embedding-3-small', is_discovered: false, is_embedding: true },
-      { id: 'text-embedding-004', name: 'text-embedding-004', is_discovered: false, is_embedding: true },
-      { id: 'nomic-embed-text', name: 'nomic-embed-text', is_discovered: false, is_embedding: true },
-      { id: 'bge-m3', name: 'bge-m3', is_discovered: false, is_embedding: true },
-    ]
-  } else {
-    return allModels.filter(
-      (m) => !m.is_embedding && !/embed|bge|nomic|minilm|gte|e5|bert|mxbai/i.test(m.id || m.name)
-    )
-  }
+  return allModels.filter(
+    (model) => !model.is_embedding && !/embed|bge|nomic|minilm|gte|e5|bert|mxbai/i.test(model.id || model.name)
+  )
 })
 
 // Unified form for currently selected task
@@ -1473,7 +1256,6 @@ const studioForm = ref({
   reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high' | 'custom'
   custom_extra_body_json: '',
   max_tokens: null,
-  embedding_dimensions: 768,
   prompt_template: '',
 })
 const isSyncingStudio = ref(false)
@@ -1803,7 +1585,6 @@ watch(
     studioForm.value.model_name,
     studioForm.value.temperature,
     studioForm.value.max_tokens,
-    studioForm.value.embedding_dimensions,
     studioForm.value.prompt_template,
   ],
   () => {
@@ -1842,7 +1623,6 @@ async function loadBindings() {
     const res = await AIConfigAPI.listBindings()
     bindings.value = res.data || []
     syncGlobalForm()
-    syncEmbeddingForm()
   } catch (err) {
     // ignore
   }
@@ -3174,182 +2954,6 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-                </div>
-              </div>
-            </transition>
-          </div>
-
-          <!-- VECTOR KNOWLEDGE & DENSE EMBEDDINGS ACCORDION -->
-          <div class="advanced-overrides-section">
-            <div
-              class="advanced-toggle-btn"
-              role="button"
-              tabindex="0"
-              @click="isEmbeddingsOpen = !isEmbeddingsOpen"
-            >
-              <div class="advanced-toggle-left">
-                <Cpu :size="16" class="text-primary" />
-                <span>Vector Knowledge &amp; Dense Embeddings (pgvector)</span>
-                <span class="sidebar-badge ml-2" :class="enableEmbeddings ? 'text-primary font-semibold' : 'text-muted'">
-                  {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
-                </span>
-              </div>
-              <div class="advanced-toggle-right" @click.stop>
-                <label class="switch-toggle" title="Toggle Vector Embeddings generation" @click.stop>
-                  <input
-                    type="checkbox"
-                    :checked="enableEmbeddings"
-                    :disabled="isUpdatingEmbeddings"
-                    @click.stop
-                    @change.stop="toggleEmbeddings"
-                  />
-                  <span class="slider round"></span>
-                </label>
-                <div class="header-divider"></div>
-                <div
-                  class="accordion-arrow-btn"
-                  @click.stop="isEmbeddingsOpen = !isEmbeddingsOpen"
-                  title="Toggle drawer"
-                >
-                  <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" />
-                </div>
-              </div>
-            </div>
-
-            <transition name="accordion-fade">
-              <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
-                <div class="studio-card">
-                  <!-- Inline Rebuild Prompt Banner -->
-                  <div class="embeddings-rebuild-alert mb-4">
-                    <div class="flex items-center gap-2.5">
-                      <AlertCircle :size="16" class="text-amber-500 flex-shrink-0" />
-                      <span class="text-xs font-medium text-main">
-                        Vector embeddings are active. Existing applications in PostgreSQL may need backfilling.
-                      </span>
-                    </div>
-                  </div>
-
-                  <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
-                    <div class="form-grid-2 mb-3">
-                      <div class="input-group">
-                        <div class="label-with-hint">
-                          <label class="input-label">Embedding AI Provider *</label>
-                        </div>
-                        <select
-                          v-model="embeddingForm.provider_id"
-                          class="form-input"
-                          :disabled="!enableEmbeddings"
-                          @change="onEmbeddingProviderChange"
-                        >
-                          <option
-                            v-for="p in providers"
-                            :key="p.id"
-                            :value="p.id"
-                          >
-                            {{ p.name }} ({{ p.provider_type }})
-                          </option>
-                        </select>
-                      </div>
-
-                      <div class="input-group">
-                        <div class="label-with-hint">
-                          <label class="input-label">Embedding Model Identifier *</label>
-                          <button
-                            v-if="embeddingForm.provider_id"
-                            type="button"
-                            class="btn-refresh-models"
-                            :disabled="!enableEmbeddings || loadingEmbeddingModels"
-                            @click="fetchEmbeddingModels(embeddingForm.provider_id, true)"
-                            title="Discover embedding models from live endpoint"
-                          >
-                            <RefreshCw :class="{ 'animate-spin': loadingEmbeddingModels }" :size="12" />
-                            <span>{{ loadingEmbeddingModels ? 'Scanning...' : 'Auto-Discover' }}</span>
-                          </button>
-                        </div>
-                        <input
-                          v-model="embeddingForm.model_name"
-                          type="text"
-                          placeholder="e.g. nomic-embed-text, text-embedding-3-small"
-                          class="form-input font-mono"
-                          :disabled="!enableEmbeddings"
-                          @input="scheduleEmbeddingAutoSave(600)"
-                        />
-                      </div>
-                    </div>
-
-                    <!-- Quick Pick Discovered Embedding Model Chips -->
-                    <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
-                      <span class="suggestions-label">Discovered Embedding Models on Provider:</span>
-                      <div class="suggestions-list max-h-24 overflow-y-auto">
-                        <button
-                          v-for="m in embeddingProviderModels"
-                          :key="m.id"
-                          type="button"
-                          class="model-chip font-mono"
-                          :class="{ active: embeddingForm.model_name === m.id }"
-                          :disabled="!enableEmbeddings"
-                          @click="selectEmbeddingSuggestedModel(m.id)"
-                        >
-                          <Check v-if="embeddingForm.model_name === m.id" :size="11" />
-                          <span>{{ m.id }}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div class="form-grid-2 mb-3">
-                      <div class="input-group">
-                        <div class="label-with-hint">
-                          <label class="input-label">Vector Dimensions</label>
-                        </div>
-                        <input
-                          v-model.number="embeddingForm.embedding_dimensions"
-                          type="number"
-                          placeholder="768"
-                          class="form-input font-mono"
-                          :disabled="!enableEmbeddings"
-                          @input="scheduleEmbeddingAutoSave(600)"
-                        />
-                        <span class="preference-field-hint">
-                          Target pgvector storage dimensionality.
-                        </span>
-                      </div>
-
-                      <div class="input-group">
-                        <div class="label-with-hint">
-                          <label class="input-label">Index Maintenance</label>
-                        </div>
-                        <button
-                          class="btn btn-primary w-full"
-                          style="height: 38px; min-height: 38px; max-height: 38px;"
-                          :disabled="!enableEmbeddings || isReindexingEmbeddings"
-                          @click="reindexMissingEmbeddings"
-                        >
-                          <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                          <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
-                        </button>
-                        <span class="preference-field-hint">
-                          Backfills vector representations across all existing applications.
-                        </span>
-                      </div>
-                    </div>
-
-                    <div class="reasoning-info-callout mt-3">
-                      <div class="flex flex-col gap-2.5 text-xs">
-                        <div class="flex items-start gap-2.5">
-                          <Database :size="14" class="text-primary flex-shrink-0 mt-0.5" />
-                          <span>
-                            <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> above to re-compute all existing vector records.
-                          </span>
-                        </div>
-                        <div class="flex items-start gap-2.5 pt-2 border-t border-subtle">
-                          <Layers :size="14" class="text-secondary flex-shrink-0 mt-0.5" />
-                          <span class="text-secondary leading-relaxed">
-                            <strong>Standard Model Dimensions:</strong> Nomic / BGE (768d) • OpenAI / Cohere (1536d) • MiniLM (384d) • Gemma / Google (300d).
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </transition>
@@ -7806,95 +7410,6 @@ PARAMETER cache_type_v q8_0</code></pre>
   margin-top: 16px;
 }
 
-.embeddings-rebuild-alert {
-  background-color: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-}
-
-.dimension-preset-box {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dimension-preset-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-}
-
-.dimension-presets-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.dimension-preset-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.dimension-preset-pill:hover:not(:disabled) {
-  background-color: var(--bg-surface-hover);
-  border-color: var(--primary-subtle);
-  color: var(--text-main);
-}
-
-.dimension-preset-pill.active {
-  background-color: var(--bg-elevated);
-  border-color: var(--primary);
-  color: var(--primary);
-  font-weight: 700;
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-.use-global-checkbox {
-  background-color: rgba(59, 130, 246, 0.05);
-  border: 1px solid var(--primary-subtle);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.custom-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.checkbox-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.checkbox-hint {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-left: 24px;
-}
-
 .global-hero-form {
   display: flex;
   flex-direction: column;
@@ -7909,8 +7424,7 @@ PARAMETER cache_type_v q8_0</code></pre>
   width: 100%;
 }
 
-.cover-letter-control-card,
-.embeddings-control-card {
+.cover-letter-control-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -7925,16 +7439,14 @@ PARAMETER cache_type_v q8_0</code></pre>
   width: 100%;
 }
 
-.cover-letter-control-header,
-.embeddings-control-header {
+.cover-letter-control-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
 }
 
-.cover-letter-title-group,
-.embeddings-title-group {
+.cover-letter-title-group {
   display: flex;
   align-items: center;
   gap: 12px;

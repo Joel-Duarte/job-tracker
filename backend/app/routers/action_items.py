@@ -20,7 +20,6 @@ from app.schemas.action_items import (
     ActionItemUpdate,
     UrgencyOverrideUpdate,
 )
-from app.services.llm import async_enqueue_application_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -273,14 +272,6 @@ async def create_action_item(
     await db.commit()
     await db.refresh(action_item)
 
-    # If linked to application, refresh embedding in background
-    if payload.application_id:
-        background_tasks.add_task(
-            async_enqueue_application_embedding,
-            payload.application_id,
-            skip_llm_summary=True,
-        )
-
     return ActionItemResponse(
         id=action_item.id,
         application_id=action_item.application_id,
@@ -390,14 +381,6 @@ async def update_action_item(
     await db.commit()
     await db.refresh(item)
 
-    # Refresh application vector embedding in background
-    if item.application_id:
-        background_tasks.add_task(
-            async_enqueue_application_embedding,
-            item.application_id,
-            skip_llm_summary=True,
-        )
-
     app = item.application
     company_name = app.company.name if app and app.company else None
     position = app.position if app else None
@@ -459,13 +442,6 @@ async def override_action_item_urgency(
     await db.commit()
     await db.refresh(item)
 
-    if item.application_id:
-        background_tasks.add_task(
-            async_enqueue_application_embedding,
-            item.application_id,
-            skip_llm_summary=True,
-        )
-
     app = item.application
     company_name = app.company.name if app and app.company else None
     position = app.position if app else None
@@ -515,11 +491,6 @@ async def delete_action_item(
             parent_app.last_activity_at = datetime.now(UTC)
     await db.delete(item)
     await db.commit()
-
-    if app_id:
-        background_tasks.add_task(
-            async_enqueue_application_embedding, app_id, skip_llm_summary=True
-        )
 
     return {
         "status": "success",

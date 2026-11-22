@@ -74,6 +74,13 @@ test('settings tabs switch and profile route is deep linkable', async ({ page })
   await expect(page.getByRole('button', { name: 'My Profile / CV' })).toHaveClass(/active/)
 })
 
+test('embedding controls are absent from settings and the queue', async ({ page }) => {
+  await page.goto('/settings')
+  await expect(page.getByText(/embedding/i)).toHaveCount(0)
+  await page.goto('/queue')
+  await expect(page.locator('.type-filter-group')).not.toContainText(/embedding/i)
+})
+
 test('queue filters change the selected task group', async ({ page }) => {
   await page.goto('/queue')
   await page.locator('.tab-bar').getByRole('button', { name: /Failed/ }).click()
@@ -102,6 +109,13 @@ test('staging queue can switch between pending and resolved', async ({ page }) =
   await page.goto('/staging')
   await page.getByRole('button', { name: 'Resolved' }).click()
   await expect(page.getByRole('button', { name: 'Resolved' })).toHaveClass(/active/)
+  const autoProcessedRejection = page.locator('.queue-item-card').filter({ hasText: 'Datadog' })
+  await expect(autoProcessedRejection).toContainText('Rejection Notice')
+  await autoProcessedRejection.click()
+  await expect(page.getByText('Resolved Lead:')).toBeVisible()
+  await page.getByRole('button', { name: 'Reopen & Re-triage' }).click()
+  await expect(page.getByRole('button', { name: /Pending/ })).toHaveClass(/active/)
+  await expect(page.getByLabel('Timeline Event Type to Record')).toHaveValue('REJECTION')
   await page.getByRole('button', { name: /Pending/ }).click()
   await expect(page.getByRole('button', { name: /Pending/ })).toHaveClass(/active/)
 })

@@ -16,7 +16,6 @@ import {
   Trash2,
   Briefcase,
   UserCheck,
-  Layers,
   Edit3,
   Sparkles,
   FileText,
@@ -45,7 +44,6 @@ function isManualDescriptionEligible(task) {
   if (
     [
       'CV_EXTRACTION',
-      'EMBEDDING',
       'COVER_LETTER',
       'APPLICATION_QA',
       'ROLE_ALIGNMENT_DOSSIER',
@@ -141,9 +139,6 @@ function getTaskDisplayTitle(task) {
   if (task.task_type === 'CV_EXTRACTION') {
     return 'Candidate CV Profile Extraction'
   }
-  if (task.task_type === 'EMBEDDING') {
-    return 'Vector Embedding Generation'
-  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
@@ -153,7 +148,6 @@ function getTaskDisplayTitle(task) {
 
 function getTaskTypeIcon(type) {
   if (type === 'CV_EXTRACTION') return UserCheck
-  if (type === 'EMBEDDING') return Layers
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
   if (type === 'COMPANY_RESEARCH') return Building2
   if (type === 'COVER_LETTER') return FileText
@@ -163,7 +157,6 @@ function getTaskTypeIcon(type) {
 
 function getTaskTypeLabel(type) {
   if (type === 'CV_EXTRACTION') return 'CV Extraction'
-  if (type === 'EMBEDDING') return 'Vector Embedding'
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
   if (type === 'COMPANY_RESEARCH') return 'Company Research'
   if (type === 'COVER_LETTER') return 'Cover Letter'

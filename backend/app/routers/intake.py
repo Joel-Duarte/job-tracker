@@ -701,7 +701,7 @@ async def confirm_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 5. Vector embedding generation is deferred during intake confirm-assessment; enqueued during application lifecycle events.
+    # 5. Application records do not enqueue secondary embedding work.
 
     return IntakeResultResponse(
         status="success",
@@ -1331,7 +1331,9 @@ async def list_evaluation_tasks(
     db: AsyncSession = Depends(get_db),
 ) -> list[IntakeEvaluationTaskResponse]:
     """Retrieves all queued, processing, and recent evaluation tasks from PostgreSQL."""
-    stmt = select(IntakeEvaluationTaskModel)
+    stmt = select(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.task_type != "EMBEDDING"
+    )
     if task_type:
         stmt = stmt.where(IntakeEvaluationTaskModel.task_type == task_type)
     stmt = stmt.order_by(IntakeEvaluationTaskModel.id.desc()).limit(limit)
@@ -1468,6 +1470,12 @@ async def retry_evaluation_task(
             detail=f"Evaluation task {task_id} not found.",
         )
 
+    if task.task_type == "EMBEDDING":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Vector embedding tasks are disabled.",
+        )
+
     if task.status in ("PROCESSING", "COMPLETED"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1518,6 +1526,12 @@ async def fix_jd_evaluation_task(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Evaluation task {task_id} not found.",
+        )
+
+    if task.task_type == "EMBEDDING":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Vector embedding tasks are disabled.",
         )
 
     raw_text_clean = payload.raw_text.strip()
@@ -1598,6 +1612,10 @@ async def bulk_retry_evaluation_tasks(
 
             if not task:
                 unhandled_ids.append(raw_id)
+                skipped_count += 1
+                continue
+
+            if task.task_type == "EMBEDDING":
                 skipped_count += 1
                 continue
 

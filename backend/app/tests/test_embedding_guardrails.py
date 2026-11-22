@@ -9,9 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config_manager import set_setting
 from app.core.database import get_db
 from app.main import app
-from app.models.applications import ApplicationModel, CompanyModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+)
 from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.llm import (
     async_enqueue_application_embedding,
     generate_and_save_application_embedding,
@@ -106,30 +112,30 @@ async def test_staging_resolve_does_not_trigger_embeddings_when_disabled(
     app.dependency_overrides[get_db] = lambda: db_session
     transport = ASGITransport(app=app)
 
-    with patch(
-        "app.routers.staging.async_enqueue_application_embedding",
-        new_callable=AsyncMock,
-    ) as mock_staging_emb:
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            res = await ac.post(
-                f"/api/v1/staging/{staged_item.id}/resolve",
-                json={
-                    "company_name": "NN Group",
-                    "position": "AI Engineer",
-                    "status": "REJECTED",
-                    "event_type": "REJECTION_RECEIVED",
-                    "summary": "Candidate rejected.",
-                },
-            )
-            assert res.status_code == 200
-            mock_staging_emb.assert_not_called()
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            f"/api/v1/staging/{staged_item.id}/resolve",
+            json={
+                "company_name": "NN Group",
+                "position": "AI Engineer",
+                "status": "REJECTED",
+                "event_type": "REJECTION_RECEIVED",
+                "summary": "Candidate rejected.",
+            },
+        )
+        assert res.status_code == 200
+
+    tasks = (
+        (await db_session.execute(select(IntakeEvaluationTaskModel))).scalars().all()
+    )
+    assert tasks == []
 
 
 @pytest.mark.asyncio
-async def test_generate_and_save_application_embedding_runs_when_enabled(
+async def test_generate_and_save_application_embedding_stays_disabled_when_enabled(
     db_session: AsyncSession,
 ):
-    """Verify generate_and_save_application_embedding proceeds when embeddings are explicitly enabled."""
+    """Verify stale settings cannot re-enable embedding persistence."""
     await set_setting("ENABLE_EMBEDDINGS", True, db=db_session)
 
     company = CompanyModel(name="Enabled Corp", name_normalized="enabled corp")
@@ -145,32 +151,19 @@ async def test_generate_and_save_application_embedding_runs_when_enabled(
     db_session.add(application)
     await db_session.commit()
 
-    dummy_vector = [0.1] * 768
-    with (
-        patch(
-            "app.services.llm.get_task_embeddings_model",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "app.services.llm.generate_embedding",
-            new_callable=AsyncMock,
-            return_value=dummy_vector,
-        ) as mock_gen,
-    ):
-        res = await generate_and_save_application_embedding(db_session, application.id)
-        assert res is not None
-        assert res.email_application_id == application.id
-        mock_gen.assert_called_once()
+    res = await generate_and_save_application_embedding(db_session, application.id)
+    assert res is None
 
 
 @pytest.mark.asyncio
-async def test_staging_resolve_enqueues_embedding_when_enabled(
+async def test_staging_resolve_never_enqueues_ai_tasks_when_enabled(
     db_session: AsyncSession,
 ):
-    """Verify staging resolve endpoint enqueues background embedding task when embeddings are enabled."""
+    """Resolving an email records it but never starts an AI queue task."""
     await set_setting("ENABLE_EMBEDDINGS", True, db=db_session)
 
     staged_item = StagingItemModel(
+        email_message_id="msg-stg-guard-02",
         email_conversation_id="conv-stg-guard-02",
         email_subject="Application Update: ML Engineer",
         email_received_at=datetime.now(UTC),
@@ -181,29 +174,71 @@ async def test_staging_resolve_enqueues_embedding_when_enabled(
         status="PENDING",
     )
     db_session.add(staged_item)
+    db_session.add(
+        ProcessedEmailModel(
+            message_id="msg-stg-guard-02",
+            status="staged",
+            subject="Application Update: ML Engineer",
+        )
+    )
     await db_session.commit()
     await db_session.refresh(staged_item)
 
     app.dependency_overrides[get_db] = lambda: db_session
     transport = ASGITransport(app=app)
 
-    with patch(
-        "app.routers.staging.async_enqueue_application_embedding",
-        new_callable=AsyncMock,
-    ) as mock_staging_enqueue:
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            res = await ac.post(
-                f"/api/v1/staging/{staged_item.id}/resolve",
-                json={
-                    "company_name": "Stripe",
-                    "position": "ML Engineer",
-                    "status": "TECHNICAL_INTERVIEW",
-                    "event_type": "INTERVIEW_REQUESTED",
-                    "summary": "Interview invite received.",
-                },
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.post(
+            f"/api/v1/staging/{staged_item.id}/resolve",
+            json={
+                "company_name": "Stripe",
+                "position": "ML Engineer",
+                "status": "TECHNICAL_INTERVIEW",
+                "event_type": "INTERVIEW_REQUESTED",
+                "summary": "Interview invite received.",
+                "job_url": "https://stripe.com/careers/ml-engineer",
+                "description_markdown": "Role details from the email.",
+            },
+        )
+        assert res.status_code == 200
+
+        event_id = res.json()["event_id"]
+        processed = (
+            await db_session.execute(
+                select(ProcessedEmailModel).where(
+                    ProcessedEmailModel.message_id == "msg-stg-guard-02"
+                )
             )
-            assert res.status_code == 200
-            mock_staging_enqueue.assert_called_once()
+        ).scalar_one()
+        assert processed is not None
+        assert processed.status == "ingested"
+
+        reopened = await ac.post(f"/api/v1/staging/{staged_item.id}/reopen")
+        assert reopened.status_code == 200
+        assert processed.status == "staged"
+
+        corrected = await ac.post(
+            f"/api/v1/staging/{staged_item.id}/resolve",
+            json={
+                "company_name": "Stripe",
+                "position": "ML Engineer",
+                "status": "REJECTED",
+                "event_type": "REJECTION",
+                "summary": "Application rejected.",
+            },
+        )
+        assert corrected.status_code == 200
+        assert corrected.json()["event_id"] == event_id
+
+    events = (await db_session.execute(select(ApplicationEventModel))).scalars().all()
+    assert len(events) == 1
+    assert events[0].email_event_type == "REJECTION"
+    assert events[0].email_status_after_event == "REJECTED"
+
+    tasks = (
+        (await db_session.execute(select(IntakeEvaluationTaskModel))).scalars().all()
+    )
+    assert tasks == []
 
 
 @pytest.mark.asyncio
@@ -240,3 +275,20 @@ async def test_agent_tools_transition_respects_embedding_setting(
         )
         assert result["success"] is True
         mock_tool_emb.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_worker_does_not_process_legacy_embedding_tasks(db_session: AsyncSession):
+    task = IntakeEvaluationTaskModel(
+        task_type="EMBEDDING",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={"application_id": 9001},
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    await process_evaluation_task(task.id, db=db_session)
+
+    await db_session.refresh(task)
+    assert task.status == "QUEUED"

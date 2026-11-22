@@ -4,8 +4,6 @@ from typing import Any
 
 import httpx
 from langchain.chat_models import init_chat_model
-from langchain.embeddings import init_embeddings
-from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 from sqlalchemy import select
@@ -317,23 +315,9 @@ def get_model_telemetry_metadata(model: Any, task_type: str = "") -> dict[str, A
     }
 
 
-_EMBEDDINGS_CACHE: dict[tuple, Embeddings] = {}
-
-
 def clear_embeddings_cache() -> None:
-    """Clears cached Embeddings model instances."""
-    _EMBEDDINGS_CACHE.clear()
-
-
-def _get_cached_embeddings_model(init_kwargs: dict[str, Any]) -> Embeddings:
-    """Returns cached Embeddings model instance or initializes and caches a new one."""
-    cache_key = tuple(sorted((k, str(v)) for k, v in init_kwargs.items()))
-    if cache_key in _EMBEDDINGS_CACHE:
-        return _EMBEDDINGS_CACHE[cache_key]
-
-    instance = init_embeddings(**init_kwargs)
-    _EMBEDDINGS_CACHE[cache_key] = instance
-    return instance
+    """Compatibility no-op; embeddings are not instantiated or cached."""
+    return None
 
 
 UNCONFIGURED_PROVIDER = "openai"
@@ -544,32 +528,9 @@ async def get_chat_model(
 async def get_embeddings_model(
     db: AsyncSession | None = None,
     **override_kwargs: Any,
-) -> Embeddings:
-    """Fallback initialization of LangChain Embeddings from legacy/env config."""
-    cfg = await get_active_llm_config_dict(db)
-
-    provider = _resolve_provider(cfg.get("provider_name"))
-    model = cfg.get("embedding_model_name", UNCONFIGURED_EMBEDDING_MODEL)
-    api_base = _clean_base_url(cfg.get("api_base"))
-    api_key = cfg.get("api_key") or "dummy-key"
-
-    init_kwargs: dict[str, Any] = {
-        "model": model,
-        "provider": provider,
-    }
-
-    if api_base:
-        init_kwargs["base_url"] = api_base
-    if api_key:
-        init_kwargs["api_key"] = api_key
-
-    # Strict string array compatibility for local providers (LM Studio / Ollama)
-    if provider == "openai":
-        init_kwargs["check_embedding_ctx_length"] = False
-        init_kwargs["tiktoken_enabled"] = False
-
-    init_kwargs.update(override_kwargs)
-    return _get_cached_embeddings_model(init_kwargs)
+) -> Any:
+    """Reject legacy embedding model requests."""
+    raise RuntimeError("Vector embeddings are disabled.")
 
 
 TASK_RECOMMENDED_DEFAULTS = {
@@ -979,50 +940,6 @@ async def get_task_chat_model(
 async def get_task_embeddings_model(
     db: AsyncSession | None = None,
     **override_kwargs: Any,
-) -> Embeddings:
-    """
-    Dynamically loads and initializes a LangChain Embeddings model from 'EMBEDDING' task binding.
-    Cascades gracefully to legacy/env config if task binding is not configured.
-    """
-    if db is not None:
-        try:
-            from app.models.ai_providers import AITaskBindingModel
-
-            stmt = (
-                select(AITaskBindingModel)
-                .options(joinedload(AITaskBindingModel.provider))
-                .where(
-                    AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active,
-                )
-            )
-            res = await db.execute(stmt)
-            binding = res.scalar_one_or_none()
-
-            if binding and binding.provider and binding.provider.is_active:
-                provider_type = _resolve_provider(binding.provider.provider_type)
-                base_url = _clean_base_url(binding.provider.base_url)
-                api_key = binding.provider.api_key or "dummy-key"
-
-                init_kwargs: dict[str, Any] = {
-                    "model": binding.model_name,
-                    "provider": provider_type,
-                }
-
-                if provider_type == "openai":
-                    init_kwargs["check_embedding_ctx_length"] = False
-                    init_kwargs["tiktoken_enabled"] = False
-
-                if base_url:
-                    init_kwargs["base_url"] = base_url
-                if api_key:
-                    init_kwargs["api_key"] = api_key
-
-                init_kwargs.update(override_kwargs)
-                return _get_cached_embeddings_model(init_kwargs)
-        except Exception as err:
-            logger.warning(
-                "Failed loading EMBEDDING task binding, falling back: %s", err
-            )
-
-    return await get_embeddings_model(db, **override_kwargs)
+) -> Any:
+    """Reject embedding task model requests."""
+    raise RuntimeError("Vector embeddings are disabled.")

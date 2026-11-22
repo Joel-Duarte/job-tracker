@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.llm_factory import (
-    UNCONFIGURED_EMBEDDING_MODEL,
     UNCONFIGURED_MODEL,
     UNCONFIGURED_PROVIDER,
     get_active_llm_config_dict,
@@ -30,7 +29,6 @@ class LLMConfigRead(BaseModel):
     api_base: str | None = None
     api_key: str | None = None
     model_name: str
-    embedding_model_name: str | None = None
     temperature: float
     top_k: int | None = None
     top_p: float | None = None
@@ -56,9 +54,6 @@ class LLMConfigUpdate(BaseModel):
         default=None, description="API key if required by provider"
     )
     model_name: str | None = Field(default=None, description="Primary model identifier")
-    embedding_model_name: str | None = Field(
-        default=None, description="Embedding model identifier"
-    )
     temperature: float | None = Field(
         default=None, description="Primary model temperature"
     )
@@ -92,7 +87,6 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
             api_base=db_config.api_base,
             api_key=mask_secret(db_config.api_key),
             model_name=db_config.model_name,
-            embedding_model_name=db_config.embedding_model_name,
             temperature=db_config.temperature,
             top_k=db_config.top_k,
             top_p=db_config.top_p,
@@ -112,7 +106,6 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
         api_base=None,
         api_key=None,
         model_name=UNCONFIGURED_MODEL,
-        embedding_model_name=UNCONFIGURED_EMBEDDING_MODEL,
         temperature=0.7,
         top_k=50,
         top_p=1.0,
@@ -145,9 +138,6 @@ async def update_llm_config(
             api_base=update_data.get("api_base"),
             api_key=update_data.get("api_key"),
             model_name=update_data.get("model_name", UNCONFIGURED_MODEL),
-            embedding_model_name=update_data.get(
-                "embedding_model_name", UNCONFIGURED_EMBEDDING_MODEL
-            ),
             temperature=update_data.get("temperature", 0.7),
             top_k=update_data.get("top_k", 50),
             top_p=update_data.get("top_p", 1.0),
@@ -174,7 +164,6 @@ async def update_llm_config(
         api_base=db_config.api_base,
         api_key=mask_secret(db_config.api_key),
         model_name=db_config.model_name,
-        embedding_model_name=db_config.embedding_model_name,
         temperature=db_config.temperature,
         top_k=db_config.top_k,
         top_p=db_config.top_p,

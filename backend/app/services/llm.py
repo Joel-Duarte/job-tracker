@@ -7,18 +7,15 @@ from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.llm_factory import (
     get_active_llm_config_dict,
     get_task_chat_model,
-    get_task_embeddings_model,
     strip_reasoning_tags,
 )
 from app.core.prompts import get_prompt_template, sanitize_and_cap_jd
-from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
+from app.models.applications import ApplicationEmbeddingModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
     EmailExtractionResult,
@@ -1120,43 +1117,8 @@ async def generate_embedding(
     text_input: str,
     embeddings_model: Any | None = None,
 ) -> list[float]:
-    """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
-    if isinstance(text_input, str):
-        cleaned_text = text_input.strip()
-    elif isinstance(text_input, (dict, list)):
-        cleaned_text = json.dumps(text_input)
-    else:
-        cleaned_text = str(text_input).strip() if text_input is not None else ""
-
-    if not cleaned_text:
-        cleaned_text = "Job Application"
-
-    async with trace_operation(
-        category="embedding",
-        name="generate_embedding",
-        inputs={"text_sample": cleaned_text[:200], "char_count": len(cleaned_text)},
-    ) as ctx:
-        embeddings = embeddings_model or await get_task_embeddings_model(db)
-
-        # Local OpenAI-compatible servers (such as LM Studio / Ollama) often strictly require
-        # an array of strings in the 'input' JSON payload (e.g. {"input": ["..."], "model": "..."}).
-        # Trying aembed_documents([cleaned_text]) first satisfies array input requirement.
-        try:
-            doc_vectors = await embeddings.aembed_documents([cleaned_text])
-            if doc_vectors and len(doc_vectors) > 0 and len(doc_vectors[0]) > 0:
-                ctx["outputs"] = {
-                    "dimensions": len(doc_vectors[0]),
-                    "method": "aembed_documents",
-                }
-                return doc_vectors[0]
-        except Exception as doc_err:
-            logger.debug(
-                "aembed_documents attempt failed, trying aembed_query: %s", doc_err
-            )
-
-        vector = await embeddings.aembed_query(cleaned_text)
-        ctx["outputs"] = {"dimensions": len(vector), "method": "aembed_query"}
-        return vector
+    """Reject embedding generation while vector embeddings are disabled."""
+    raise RuntimeError("Vector embeddings are disabled.")
 
 
 async def generate_and_save_application_embedding(
@@ -1164,219 +1126,13 @@ async def generate_and_save_application_embedding(
     application_id: int,
     skip_llm_summary: bool = True,
 ) -> ApplicationEmbeddingModel | None:
-    """
-    Creates or updates 768-dim vector embedding record for an application.
-    Constructs the embedding directly from structured application metadata and the latest timeline event.
-    """
-    from app.core.config_manager import get_setting
-
-    if not await get_setting("ENABLE_EMBEDDINGS", False, db=db):
-        logger.debug(
-            "Skipping vector embedding generation for app %s (Embeddings Disabled)",
-            application_id,
-        )
-        return None
-
-    stmt = (
-        select(ApplicationModel)
-        .options(
-            selectinload(ApplicationModel.events),
-            selectinload(ApplicationModel.company),
-        )
-        .where(ApplicationModel.id == application_id)
-    )
-    res = await db.execute(stmt)
-    application = res.scalar_one_or_none()
-
-    if not application:
-        raise ValueError(f"Application ID {application_id} not found.")
-
-    comp_name = application.company.name if application.company else "Unknown Company"
-    date_str = (
-        application.application_date.strftime("%Y-%m-%d")
-        if application.application_date
-        else (
-            application.created_at.strftime("%Y-%m-%d")
-            if application.created_at
-            else "Recent"
-        )
-    )
-
-    # Resolve latest timeline event
-    sorted_events = sorted(
-        application.events or [],
-        key=lambda e: e.email_received_at or e.id or 0,
-        reverse=True,
-    )
-    latest_event = sorted_events[0] if sorted_events else None
-
-    evt_date = (
-        latest_event.email_received_at.strftime("%Y-%m-%d")
-        if (latest_event and latest_event.email_received_at)
-        else date_str
-    )
-    evt_type = latest_event.email_event_type if latest_event else "INITIAL_APPLICATION"
-    evt_summary = (
-        latest_event.email_summary
-        if (latest_event and latest_event.email_summary)
-        else "Application recorded."
-    )
-    action_info = (
-        f"\nAction Required: {latest_event.email_action}"
-        if (
-            latest_event
-            and latest_event.email_action_required
-            and latest_event.email_action
-        )
-        else ""
-    )
-
-    content_to_embed = (
-        f"Job Application: {application.position} at {comp_name}.\n"
-        f"Status: {application.status}.\n"
-        f"Latest Update ({evt_date}): [{evt_type}] {evt_summary}.{action_info}"
-    )
-
-    metadata_payload = {
-        "company": comp_name,
-        "position": application.position,
-        "status": application.status,
-        "updated_at": application.updated_at.isoformat()
-        if application.updated_at
-        else None,
-    }
-
-    # Resolve embedding model before network I/O
-    embeddings_model = await get_task_embeddings_model(db)
-
-    # Execute network call without holding active DB query in flight
-    vector = await generate_embedding(
-        db, str(content_to_embed), embeddings_model=embeddings_model
-    )
-
-    emb_stmt = select(ApplicationEmbeddingModel).where(
-        ApplicationEmbeddingModel.email_application_id == application_id
-    )
-    emb_res = await db.execute(emb_stmt)
-    embedding_record = emb_res.scalar_one_or_none()
-
-    if not embedding_record:
-        embedding_record = ApplicationEmbeddingModel(
-            email_application_id=application_id,
-            content=content_to_embed,
-            metadata_=metadata_payload,
-            embedding=vector,
-        )
-        db.add(embedding_record)
-    else:
-        embedding_record.content = content_to_embed
-        embedding_record.metadata_ = metadata_payload
-        embedding_record.embedding = vector
-
-    await db.commit()
-    return embedding_record
+    """Embedding persistence is disabled; keep this compatibility hook as a no-op."""
+    return None
 
 
 async def async_enqueue_application_embedding(
     application_id: int,
     skip_llm_summary: bool = True,
 ) -> None:
-    """
-    Non-blocking background worker task to generate and save application vector embeddings.
-    Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
-    """
-    from app.core.config_manager import get_setting
-
-    if not await get_setting("ENABLE_EMBEDDINGS", False):
-        logger.debug(
-            "Skipping vector embedding for app %s (Embeddings Disabled)",
-            application_id,
-        )
-        return
-
-    from app.core.ai_queue import concurrency_manager
-    from app.core.database import AsyncSessionLocal
-    from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-    from app.models.intake_tasks import IntakeEvaluationTaskModel
-
-    provider_id = None
-    max_concurrency = 1
-    task_id = None
-
-    async with AsyncSessionLocal() as session:
-        try:
-            binding_stmt = (
-                select(AITaskBindingModel, AIProviderModel)
-                .join(
-                    AIProviderModel,
-                    AITaskBindingModel.provider_id == AIProviderModel.id,
-                )
-                .where(
-                    AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active,
-                    AIProviderModel.is_active,
-                )
-            )
-            binding_res = await session.execute(binding_stmt)
-            row = binding_res.first()
-            if row:
-                provider_id = row[1].id
-                max_concurrency = row[1].max_concurrency or 1
-        except Exception as err:
-            logger.debug("Could not resolve EMBEDDING provider binding: %s", err)
-
-        # 1. Create Queued Task Record
-        new_task = IntakeEvaluationTaskModel(
-            task_type="EMBEDDING",
-            status="QUEUED",
-            stage="QUEUED",
-            title_hint=f"Application {application_id} Vector Embedding",
-        )
-        session.add(new_task)
-        await session.commit()
-        task_id = new_task.id
-
-    # 2. Acquire Priority 2 Slot
-    async with concurrency_manager.acquire(provider_id, max_concurrency, priority=2):
-        # 3. Short transaction: Update to Processing
-        async with AsyncSessionLocal() as session_proc:
-            db_task = await session_proc.get(IntakeEvaluationTaskModel, task_id)
-            if db_task:
-                db_task.status = "PROCESSING"
-                db_task.stage = "EMBEDDING"
-                await session_proc.commit()
-
-        try:
-            # 4. Short transaction: Generate and persist embedding
-            async with AsyncSessionLocal() as embedding_session:
-                await generate_and_save_application_embedding(
-                    embedding_session,
-                    application_id=application_id,
-                    skip_llm_summary=skip_llm_summary,
-                )
-            logger.info(
-                "Background vector embedding updated for Application ID %d",
-                application_id,
-            )
-
-            # 5. Short transaction: Mark as Completed
-            async with AsyncSessionLocal() as session_done:
-                db_task = await session_done.get(IntakeEvaluationTaskModel, task_id)
-                if db_task:
-                    db_task.status = "COMPLETED"
-                    db_task.stage = "COMPLETE"
-                    await session_done.commit()
-        except Exception as err:
-            logger.warning(
-                "Background vector embedding failed for Application ID %d: %s",
-                application_id,
-                err,
-            )
-
-            # 6. Short transaction: Mark as Failed
-            async with AsyncSessionLocal() as session_err:
-                db_task = await session_err.get(IntakeEvaluationTaskModel, task_id)
-                if db_task:
-                    db_task.status = "FAILED"
-                    db_task.error_message = str(err)
-                    await session_err.commit()
+    """Embedding tasks are disabled; retain a no-op for legacy call sites."""
+    return None

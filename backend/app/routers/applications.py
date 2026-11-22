@@ -13,7 +13,6 @@ from app.core.database import get_db
 from app.core.security import verify_admin_access
 from app.models.applications import (
     ActionItemModel,
-    ApplicationEmbeddingModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -60,9 +59,7 @@ from app.services.interview_guide import (
     generate_interview_guide,
     generate_interview_guide_stream,
 )
-from app.services.llm import (
-    async_enqueue_application_embedding,
-)
+from app.services.llm import async_enqueue_application_embedding  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -857,10 +854,6 @@ async def get_applications_by_status(
             ApplicationEventModel,
             ApplicationEventModel.email_application_id == ApplicationModel.id,
         )
-        .outerjoin(
-            ApplicationEmbeddingModel,
-            ApplicationEmbeddingModel.email_application_id == ApplicationModel.id,
-        )
         .where(ApplicationModel.status == status.value)
         .group_by(
             ApplicationModel.id,
@@ -868,7 +861,6 @@ async def get_applications_by_status(
             ApplicationModel.position,
             ApplicationModel.status,
             ApplicationModel.updated_at,
-            ApplicationEmbeddingModel.email_application_id,
         )
         .order_by(ApplicationModel.updated_at.desc())
         .limit(limit)
@@ -1104,7 +1096,7 @@ async def update_application(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Partially updates a job application and enqueues background vector embedding refresh."""
+    """Partially updates a job application."""
     stmt = (
         select(ApplicationModel)
         .where(ApplicationModel.id == application_id)
@@ -1310,12 +1302,6 @@ async def update_application(
 
     await db.commit()
 
-    # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
-    if app.status != "ASSESSMENT":
-        background_tasks.add_task(
-            async_enqueue_application_embedding, app.id, skip_llm_summary=True
-        )
-
     return await get_application(app.id, db)
 
 
@@ -1333,7 +1319,7 @@ async def transition_application(
 ):
     """
     Transitions application to a new column/stage (e.g. TECHNICAL_INTERVIEW, OFFER, REJECTED),
-    records a structured ApplicationEventModel, sets ActionItemModel for deadlines, and enqueues embedding in background.
+    records a structured ApplicationEventModel and sets ActionItemModel for deadlines.
     """
     stmt = (
         select(ApplicationModel)
@@ -1539,12 +1525,6 @@ async def transition_application(
     db.add(event)
     await db.commit()
 
-    # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
-    if new_status != "ASSESSMENT":
-        background_tasks.add_task(
-            async_enqueue_application_embedding, app.id, skip_llm_summary=True
-        )
-
     # Reload application with updated relations
     stmt_reload = (
         select(ApplicationModel)
@@ -1643,7 +1623,7 @@ async def delete_application(
     application_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently deletes an application and its associated events, postings, and embeddings."""
+    """Permanently deletes an application and its associated events and postings."""
     stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
     res = await db.execute(stmt)
     app = res.scalar_one_or_none()

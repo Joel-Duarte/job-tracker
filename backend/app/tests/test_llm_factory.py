@@ -105,8 +105,8 @@ async def test_get_chat_model_and_embeddings_instantiation():
     chat_model = await get_chat_model()
     assert chat_model is not None
 
-    embeddings_model = await get_embeddings_model()
-    assert embeddings_model is not None
+    with pytest.raises(RuntimeError, match="Vector embeddings are disabled"):
+        await get_embeddings_model()
 
 
 @pytest.mark.asyncio

@@ -89,7 +89,7 @@ def test_alembic_migration_metadata_integrity():
 
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["8d1e2f3a4b5c"]
+    assert heads == ["9c2f4a6b8d10"]
 
     rev_sd = script.get_revision("5a7b9c1d3e5f")
     assert rev_sd is not None

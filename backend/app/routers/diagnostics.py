@@ -218,7 +218,7 @@ async def get_traces(
     ),
     category: str | None = Query(
         None,
-        description="Filter traces by category (e.g. llm, scraper, email_sync, worker, embedding)",
+        description="Filter traces by category (e.g. llm, scraper, email_sync, worker)",
     ),
     start_date: str | None = Query(
         None,

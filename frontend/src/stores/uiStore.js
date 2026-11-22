@@ -346,7 +346,6 @@ export const useUIStore = defineStore('ui', () => {
   // Global Settings
   const hasCompletedOnboarding = ref(false)
   const enableEmailIntake = ref(false)
-  const enableEmbeddings = ref(false)
   const enableWebSearch = ref(false)
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
@@ -367,7 +366,6 @@ export const useUIStore = defineStore('ui', () => {
       if (res && res.data) {
         hasCompletedOnboarding.value = res.data.has_completed_onboarding ?? false
         enableEmailIntake.value = res.data.enable_email_intake ?? false
-        enableEmbeddings.value = res.data.enable_embeddings ?? false
         enableWebSearch.value = res.data.enable_web_search ?? false
         enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
         coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
@@ -380,7 +378,6 @@ export const useUIStore = defineStore('ui', () => {
         if (res && res.data) {
           hasCompletedOnboarding.value = res.data.HAS_COMPLETED_ONBOARDING ?? false
           enableEmailIntake.value = res.data.ENABLE_EMAIL_INTAKE ?? false
-          enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? false
           enableWebSearch.value = res.data.ENABLE_WEB_SEARCH ?? false
           enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
           coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
@@ -391,10 +388,6 @@ export const useUIStore = defineStore('ui', () => {
         console.warn('Failed to load system settings', fallbackErr)
       }
     }
-  }
-
-  function setEnableEmbeddings(val) {
-    enableEmbeddings.value = val
   }
 
   function setEnableWebSearch(val) {
@@ -697,8 +690,6 @@ export const useUIStore = defineStore('ui', () => {
     clearCompletedIntakeTasks,
     hasCompletedOnboarding,
     enableEmailIntake,
-    enableEmbeddings,
-    setEnableEmbeddings,
     enableWebSearch,
     setEnableWebSearch,
     enableAutoCoverLetter,

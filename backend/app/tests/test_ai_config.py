@@ -31,7 +31,7 @@ async def test_global_settings_db_backed(db_session: AsyncSession):
         get_res = await ac.get("/api/v1/ai/global-settings")
         assert get_res.status_code == 200
         data = get_res.json()
-        assert data["ENABLE_EMBEDDINGS"] is False
+        assert "ENABLE_EMBEDDINGS" not in data
         assert data["AGENT_CHAT_RETENTION_DAYS"] == 7
 
         # 2. Patch global settings
@@ -41,7 +41,7 @@ async def test_global_settings_db_backed(db_session: AsyncSession):
         )
         assert patch_res.status_code == 200
         patched_data = patch_res.json()
-        assert patched_data["ENABLE_EMBEDDINGS"] is True
+        assert "ENABLE_EMBEDDINGS" not in patched_data
         assert patched_data["AGENT_CHAT_RETENTION_DAYS"] == 14
 
         # 3. Verify direct DB row update
@@ -49,16 +49,16 @@ async def test_global_settings_db_backed(db_session: AsyncSession):
         res = await db_session.execute(stmt)
         record = res.scalar_one_or_none()
         assert record is not None
-        assert record.enable_embeddings is True
+        assert record.enable_embeddings is False
         assert record.agent_chat_retention_days == 14
 
         # 4. Verify config_manager service methods with db_session
         loaded = await load_settings(db_session)
-        assert loaded["ENABLE_EMBEDDINGS"] is True
+        assert loaded["ENABLE_EMBEDDINGS"] is False
         assert loaded["AGENT_CHAT_RETENTION_DAYS"] == 14
 
         val = await get_setting("ENABLE_EMBEDDINGS", default=False, db=db_session)
-        assert val is True
+        assert val is False
 
         await set_setting("ENABLE_EMBEDDINGS", False, db=db_session)
         val_after = await get_setting("ENABLE_EMBEDDINGS", default=True, db=db_session)
